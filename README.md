@@ -559,6 +559,12 @@ docker exec gankaigc-postgres rm "/tmp/$file"
 
 ---
 
+## 🙏 致谢
+
+[![感谢 linux.do 社区](https://img.shields.io/badge/感谢-linux.do%20社区-00A971?style=for-the-badge)](https://linux.do)
+
+---
+
 ## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=mumu-0922/GankAIGC&type=date&legend=top-left)](https://www.star-history.com/?repos=mumu-0922%2FGankAIGC&type=date&legend=top-left)
