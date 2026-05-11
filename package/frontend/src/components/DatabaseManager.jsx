@@ -236,9 +236,9 @@ const DatabaseManager = ({ adminToken }) => {
             <p className="text-gray-500 font-medium">该表暂无数据</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-h-[41rem] overflow-auto">
             <table className="w-full">
-              <thead className="bg-gray-50/50 border-b border-gray-100">
+              <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-100">
                 <tr>
                   {tableColumns.map(column => (
                     <th
