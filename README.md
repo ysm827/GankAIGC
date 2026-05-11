@@ -261,7 +261,7 @@ Docker Compose 会一次启动完整服务：
 - `worker`：后台任务处理进程。
 - `postgres`：PostgreSQL 16 数据库。
 
-
+数据库数据保存在 Docker volume `postgres_data` 中。重建 `app` / `worker` 容器不会删除数据。
 
 #### 1）拉取项目并复制配置
 
@@ -364,7 +364,27 @@ git pull
 docker compose --env-file .env.docker up --build -d
 ```
 
-> 不要随便执行 `docker compose down -v`，`-v` 会删除 PostgreSQL 数据卷。
+VPS 在线更新：
+
+```bash
+cp docker-compose.update.example.yml docker-compose.update.yml
+```
+
+然后把 `.env.docker` 中的开关改成：
+
+```env
+VPS_UPDATE_ENABLED=true
+```
+
+首次启用后重建一次：
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.yml -f docker-compose.update.yml up --build -d app worker
+```
+
+之后进入管理后台，点击左上角版本号，即可检查更新并触发 VPS 在线更新。在线更新会拉取最新代码并重建 `app` / `worker`，不会删除 `postgres_data` 数据卷。
+
+> 不要随便执行 `docker compose down -v`、`docker volume rm gankaigc_postgres_data`。这些命令会删除 PostgreSQL 数据卷，用户、邀请码、兑换码、会话和啤酒流水都会丢失。
 
 ---
 
