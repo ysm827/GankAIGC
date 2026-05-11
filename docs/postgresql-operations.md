@@ -55,6 +55,26 @@ DATABASE_URL=postgresql://ai_polish:数据库密码@127.0.0.1:5432/ai_polish
 
 ## 备份
 
+Docker 部署默认会启动 `backup` 服务，每天自动执行一次 `pg_dump --format=custom`，备份文件写入宿主机 `./backups/`：
+
+```bash
+docker compose --env-file .env.docker up -d backup
+docker compose --env-file .env.docker logs -f backup
+```
+
+默认保留最近 14 天，可在 `.env.docker` 调整：
+
+```env
+BACKUP_RETENTION_DAYS=14
+BACKUP_INTERVAL_SECONDS=86400
+```
+
+需要立刻手动跑一次 Docker 备份：
+
+```bash
+docker compose --env-file .env.docker run --rm -e RUN_ONCE=true backup
+```
+
 脚本会调用 `pg_dump --format=custom`，生成 `gankaigc_ai_polish_YYYYMMDD_HHMMSS.dump`。先设置环境变量：
 
 ```powershell

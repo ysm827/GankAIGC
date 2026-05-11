@@ -349,6 +349,20 @@ curl http://127.0.0.1:9800/health
 ```bash
 docker compose --env-file .env.docker logs -f app
 docker compose --env-file .env.docker logs -f worker
+docker compose --env-file .env.docker logs -f backup
+```
+
+Docker 部署默认会启动自动数据库备份服务，备份文件保存在宿主机 `backups/`：
+
+```env
+BACKUP_RETENTION_DAYS=14
+BACKUP_INTERVAL_SECONDS=86400
+```
+
+需要立刻手动备份一次：
+
+```bash
+docker compose --env-file .env.docker run --rm -e RUN_ONCE=true backup
 ```
 
 停止服务但保留数据库数据：
