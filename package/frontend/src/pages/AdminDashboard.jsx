@@ -22,6 +22,9 @@ import {
   Github,
   ExternalLink,
   Copy,
+  Download,
+  Megaphone,
+  Save,
   X,
   UploadCloud
 } from 'lucide-react';
@@ -34,7 +37,7 @@ import BeerIcon from '../components/BeerIcon';
 import { formatChinaDateTime } from '../utils/dateTime';
 
 const DEFAULT_ADMIN_TAB = 'dashboard';
-const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'database', 'config', 'audit'];
+const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'database', 'config', 'audit'];
 const ADMIN_ACCOUNT_FORM_CLASS = 'grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_5rem_7rem] gap-3 mb-5';
 const ADMIN_ACCOUNT_INPUT_CLASS = 'w-full min-w-0 h-12 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
 const ADMIN_ACCOUNT_WIDE_INPUT_CLASS = `${ADMIN_ACCOUNT_INPUT_CLASS} sm:col-span-2`;
@@ -60,6 +63,26 @@ const getCreditTransactionClass = (transaction) => {
     return 'bg-red-50 text-red-700 border-red-100';
   }
   return 'bg-slate-50 text-slate-700 border-slate-100';
+};
+
+const getAnnouncementCategoryLabel = (category) => {
+  const labels = {
+    notice: '通知',
+    maintenance: '维护',
+    model: '模型',
+    guide: '说明',
+  };
+  return labels[category] || '通知';
+};
+
+const getAnnouncementCategoryClass = (category) => {
+  const classes = {
+    notice: 'bg-blue-50 text-blue-700 border-blue-100',
+    maintenance: 'bg-amber-50 text-amber-700 border-amber-100',
+    model: 'bg-violet-50 text-violet-700 border-violet-100',
+    guide: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  };
+  return classes[category] || classes.notice;
 };
 
 const formatAuditDetail = (detail) => {
@@ -106,12 +129,20 @@ const AdminDashboard = () => {
   const [creditCodes, setCreditCodes] = useState([]);
   const [creditTransactions, setCreditTransactions] = useState([]);
   const [providerConfigs, setProviderConfigs] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAccountData, setLoadingAccountData] = useState(false);
+  const [loadingAnnouncements, setLoadingAnnouncements] = useState(false);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
   const [newInviteCode, setNewInviteCode] = useState('');
   const [newCreditCode, setNewCreditCode] = useState('');
   const [newCreditAmount, setNewCreditAmount] = useState(10);
+  const [creditBatchQuantity, setCreditBatchQuantity] = useState(10);
+  const [creatingCreditBatch, setCreatingCreditBatch] = useState(false);
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementContent, setAnnouncementContent] = useState('');
+  const [announcementCategory, setAnnouncementCategory] = useState('notice');
+  const [announcementIsActive, setAnnouncementIsActive] = useState(true);
   const [creditTopUps, setCreditTopUps] = useState({});
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
@@ -148,6 +179,12 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (isAuthenticated && activeTab === 'audit') {
       fetchAuditLogs();
+    }
+  }, [isAuthenticated, activeTab]);
+
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'announcements') {
+      fetchAnnouncements();
     }
   }, [isAuthenticated, activeTab]);
 
@@ -323,6 +360,21 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchAnnouncements = async () => {
+    setLoadingAnnouncements(true);
+    try {
+      const response = await axios.get('/api/admin/announcements', {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      setAnnouncements(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '获取公告失败');
+      console.error('Error fetching announcements:', error);
+    } finally {
+      setLoadingAnnouncements(false);
+    }
+  };
+
   const handleCreateInvite = async (e) => {
     e.preventDefault();
     try {
@@ -369,6 +421,100 @@ const AdminDashboard = () => {
       fetchAccountData();
     } catch (error) {
       toast.error(error.response?.data?.detail || '创建兑换码失败');
+    }
+  };
+
+  const handleBatchCreateCreditCodes = async () => {
+    const amount = parseInt(newCreditAmount, 10);
+    if (!amount || amount < 1) {
+      toast.error('兑换啤酒必须大于 0');
+      return;
+    }
+
+    setCreatingCreditBatch(true);
+    try {
+      const response = await axios.post('/api/admin/credit-codes/batch',
+        { credit_amount: amount, quantity: creditBatchQuantity },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+      toast.success(`已批量生成 ${response.data.length} 个兑换码`);
+      fetchAccountData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '批量生成兑换码失败');
+    } finally {
+      setCreatingCreditBatch(false);
+    }
+  };
+
+  const copyAllCreditCodes = () => {
+    if (creditCodes.length === 0) {
+      toast.error('暂无可复制的兑换码');
+      return;
+    }
+    copyToClipboard(creditCodes.map((code) => code.code).join('\n'));
+  };
+
+  const downloadCreditCodes = async (format) => {
+    try {
+      const response = await axios.get('/api/admin/credit-codes/export', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+        params: { format },
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], {
+        type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `gankaigc-credit-codes.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '导出兑换码失败');
+    }
+  };
+
+  const handleCreateAnnouncement = async (e) => {
+    e.preventDefault();
+    if (!announcementTitle.trim() || !announcementContent.trim()) {
+      toast.error('请填写公告标题和内容');
+      return;
+    }
+
+    try {
+      await axios.post('/api/admin/announcements',
+        {
+          title: announcementTitle.trim(),
+          content: announcementContent.trim(),
+          category: announcementCategory,
+          is_active: announcementIsActive,
+        },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+      setAnnouncementTitle('');
+      setAnnouncementContent('');
+      setAnnouncementCategory('notice');
+      setAnnouncementIsActive(true);
+      toast.success('公告已发布');
+      fetchAnnouncements();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '发布公告失败');
+    }
+  };
+
+  const handleToggleAnnouncement = async (announcement) => {
+    try {
+      await axios.patch(`/api/admin/announcements/${announcement.id}`,
+        { is_active: !announcement.is_active },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+      toast.success(announcement.is_active ? '公告已隐藏' : '公告已启用');
+      fetchAnnouncements();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '更新公告失败');
     }
   };
 
@@ -532,6 +678,13 @@ const AdminDashboard = () => {
       icon: Users,
       activeClass: 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-500/30',
       inactiveClass: 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-50',
+    },
+    {
+      id: 'announcements',
+      label: '公告',
+      icon: Megaphone,
+      activeClass: 'bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-lg shadow-violet-500/30',
+      inactiveClass: 'text-gray-600 hover:text-violet-600 hover:bg-violet-50',
     },
     {
       id: 'database',
@@ -960,6 +1113,61 @@ const AdminDashboard = () => {
                   </button>
                 </form>
 
+                <div className="mb-5 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-800">批量生成</span>
+                    {[10, 50, 100].map((quantity) => (
+                      <button
+                        key={quantity}
+                        type="button"
+                        onClick={() => setCreditBatchQuantity(quantity)}
+                        className={`h-9 rounded-lg px-3 text-sm font-semibold transition-colors ${
+                          creditBatchQuantity === quantity
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white text-emerald-700 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {quantity}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={handleBatchCreateCreditCodes}
+                      disabled={creatingCreditBatch}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-gray-300"
+                    >
+                      {creatingCreditBatch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      生成
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={copyAllCreditCodes}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <Copy className="h-4 w-4" />
+                      复制全部
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadCreditCodes('csv')}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadCreditCodes('txt')}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      TXT
+                    </button>
+                  </div>
+                </div>
+
                 <div className={ADMIN_COMPACT_TABLE_SCROLL_CLASS}>
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className={ADMIN_COMPACT_TABLE_HEAD_CLASS}>
@@ -1211,6 +1419,133 @@ const AdminDashboard = () => {
 
         {activeTab === 'operations' && (
           <AdminOperationsPanel adminToken={adminToken} />
+        )}
+
+        {activeTab === 'announcements' && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">公告</h2>
+                <p className="mt-1 text-sm text-gray-500">发布维护通知、模型切换通知和使用说明，用户工作台会显示启用中的公告</p>
+              </div>
+              <button
+                onClick={fetchAnnouncements}
+                disabled={loadingAnnouncements}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-white transition-colors hover:bg-violet-700 disabled:bg-gray-400"
+              >
+                <RefreshCw className={`h-4 w-4 ${loadingAnnouncements ? 'animate-spin' : ''}`} />
+                刷新
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,24rem)_1fr]">
+              <div className="bg-white rounded-2xl shadow-ios p-6">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
+                    <Megaphone className="h-5 w-5 text-violet-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">发布公告</h3>
+                    <p className="text-xs text-gray-500">启用后会展示在用户工作台</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateAnnouncement} className="space-y-4">
+                  <input
+                    type="text"
+                    value={announcementTitle}
+                    onChange={(e) => setAnnouncementTitle(e.target.value)}
+                    placeholder="公告标题"
+                    className={ADMIN_ACCOUNT_INPUT_CLASS}
+                    maxLength={120}
+                  />
+                  <select
+                    value={announcementCategory}
+                    onChange={(e) => setAnnouncementCategory(e.target.value)}
+                    className={ADMIN_ACCOUNT_INPUT_CLASS}
+                  >
+                    <option value="notice">通知</option>
+                    <option value="maintenance">维护</option>
+                    <option value="model">模型</option>
+                    <option value="guide">说明</option>
+                  </select>
+                  <textarea
+                    value={announcementContent}
+                    onChange={(e) => setAnnouncementContent(e.target.value)}
+                    placeholder="公告内容"
+                    className="h-36 w-full resize-none rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-violet-500"
+                    maxLength={1000}
+                  />
+                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={announcementIsActive}
+                      onChange={(e) => setAnnouncementIsActive(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    立即启用
+                  </label>
+                  <button
+                    type="submit"
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-violet-700"
+                  >
+                    <Save className="h-4 w-4" />
+                    发布
+                  </button>
+                </form>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+                <div className="border-b border-gray-200 p-6">
+                  <h3 className="text-lg font-semibold text-gray-900">公告列表</h3>
+                  <p className="mt-1 text-xs text-gray-500">最多加载最近公告，内容过多时在列表内滚动</p>
+                </div>
+                <div className="max-h-[37rem] overflow-auto">
+                  {announcements.length === 0 ? (
+                    <div className="px-6 py-12 text-center text-sm text-gray-500">
+                      {loadingAnnouncements ? '正在加载公告' : '暂无公告'}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {announcements.map((announcement) => (
+                        <div key={announcement.id} className="p-5 hover:bg-gray-50">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
+                                  {getAnnouncementCategoryLabel(announcement.category)}
+                                </span>
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                  announcement.is_active
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {announcement.is_active ? '展示中' : '已隐藏'}
+                                </span>
+                              </div>
+                              <h4 className="text-base font-semibold text-gray-900 break-words">{announcement.title}</h4>
+                              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-gray-600">
+                                {announcement.content}
+                              </p>
+                              <p className="mt-3 text-xs text-gray-400">
+                                {formatChinaDateTime(announcement.created_at)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleToggleAnnouncement(announcement)}
+                              className="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-200"
+                            >
+                              {announcement.is_active ? '隐藏' : '启用'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
         
         {/* Database Manager Tab */}

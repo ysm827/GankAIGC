@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.database import get_db
-from app.models.models import CreditTransaction, PaperProject, RegistrationInvite, User
+from app.models.models import Announcement, CreditTransaction, PaperProject, RegistrationInvite, User
 from app.routes.auth import get_current_user_from_bearer
 from app.schemas import (
     CreditBalanceResponse,
     CreditTransactionResponse,
+    AnnouncementResponse,
     PaperProjectCreate,
     PaperProjectResponse,
     PaperProjectUpdate,
@@ -32,6 +33,20 @@ def _generate_unique_invite_code(db: Session) -> str:
         if not existing_invite:
             return code
     raise HTTPException(status_code=500, detail="邀请码生成失败，请重试")
+
+
+@router.get("/announcements", response_model=List[AnnouncementResponse])
+async def list_active_announcements(
+    current_user: User = Depends(get_current_user_from_bearer),
+    db: Session = Depends(get_db),
+) -> List[Announcement]:
+    return (
+        db.query(Announcement)
+        .filter(Announcement.is_active.is_(True))
+        .order_by(Announcement.created_at.desc(), Announcement.id.desc())
+        .limit(10)
+        .all()
+    )
 
 
 @router.get("/invites/my", response_model=UserInviteResponse | None)

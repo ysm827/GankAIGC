@@ -59,6 +59,7 @@ export const authAPI = {
 
 // User account API
 export const userAPI = {
+  listAnnouncements: () => api.get('/user/announcements'),
   getCredits: () => api.get('/user/credits'),
   redeemCode: (code) => api.post('/user/redeem-code', { code }),
   getMyInvite: () => api.get('/user/invites/my'),

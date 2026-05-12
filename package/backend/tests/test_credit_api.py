@@ -148,6 +148,65 @@ def test_admin_can_create_credit_codes_and_recharge_user(client):
     assert [item["code"] for item in list_response.json()] == ["CREDIT5"]
 
 
+def test_admin_can_batch_create_credit_codes(client):
+    admin_headers = _admin_auth_headers(client)
+
+    response = client.post(
+        "/api/admin/credit-codes/batch",
+        json={"credit_amount": 6, "quantity": 10},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 10
+    assert len({item["code"] for item in payload}) == 10
+    assert all(item["credit_amount"] == 6 for item in payload)
+    assert all(item["is_active"] for item in payload)
+
+    list_response = client.get("/api/admin/credit-codes", headers=admin_headers)
+
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 10
+
+
+def test_admin_batch_credit_code_rejects_unsupported_quantity(client):
+    admin_headers = _admin_auth_headers(client)
+
+    response = client.post(
+        "/api/admin/credit-codes/batch",
+        json={"credit_amount": 6, "quantity": 7},
+        headers=admin_headers,
+    )
+
+    assert response.status_code in {400, 422}
+    assert "10" in str(response.json())
+
+
+def test_admin_can_export_credit_codes_as_csv_and_txt(client):
+    admin_headers = _admin_auth_headers(client)
+    for code in ("EXPORT-A", "EXPORT-B"):
+        create_response = client.post(
+            "/api/admin/credit-codes",
+            json={"code": code, "credit_amount": 3},
+            headers=admin_headers,
+        )
+        assert create_response.status_code == 200
+
+    csv_response = client.get("/api/admin/credit-codes/export?format=csv", headers=admin_headers)
+    txt_response = client.get("/api/admin/credit-codes/export?format=txt", headers=admin_headers)
+
+    assert csv_response.status_code == 200
+    assert "text/csv" in csv_response.headers["content-type"]
+    assert "code,credit_amount,is_active,redeemed_by_user_id,created_at" in csv_response.text
+    assert "EXPORT-A" in csv_response.text
+    assert "EXPORT-B" in csv_response.text
+
+    assert txt_response.status_code == 200
+    assert "text/plain" in txt_response.headers["content-type"]
+    assert set(txt_response.text.strip().splitlines()) == {"EXPORT-A", "EXPORT-B"}
+
+
 def test_user_credit_transactions_are_limited_labeled_and_private(client):
     from app.database import SessionLocal
 

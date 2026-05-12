@@ -47,6 +47,7 @@ def test_alembic_upgrade_creates_current_schema():
         "custom_prompts",
         "system_settings",
         "saved_specs",
+        "announcements",
         "alembic_version",
     }.issubset(tables)
 

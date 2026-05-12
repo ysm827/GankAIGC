@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
 
@@ -85,6 +85,12 @@ class CreditCodeCreateRequest(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class CreditCodeBatchCreateRequest(BaseModel):
+    credit_amount: int = Field(..., ge=1)
+    quantity: Literal[10, 50, 100]
+    expires_at: Optional[datetime] = None
+
+
 class RedeemCodeRequest(BaseModel):
     code: str
 
@@ -120,6 +126,32 @@ class CreditCodeResponse(BaseModel):
     redeemed_by_user_id: Optional[int] = None
     redeemed_at: Optional[datetime] = None
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnouncementCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+    content: str = Field(..., min_length=1, max_length=1000)
+    category: str = Field("notice", pattern="^(notice|maintenance|model|guide)$")
+    is_active: bool = True
+
+
+class AnnouncementUpdateRequest(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=120)
+    content: Optional[str] = Field(None, min_length=1, max_length=1000)
+    category: Optional[str] = Field(None, pattern="^(notice|maintenance|model|guide)$")
+    is_active: Optional[bool] = None
+
+
+class AnnouncementResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    category: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -171,7 +171,8 @@ def test_admin_dashboard_hides_legacy_card_key_management():
     assert "邀请码、兑换码和用户余额统一在这里管理。" not in admin_dashboard
     assert "前往管理" not in admin_dashboard
     assert "生成卡密" not in admin_dashboard
-    assert "批量生成" not in admin_dashboard
+    assert "/api/admin/credit-codes/batch" in admin_dashboard
+    assert "批量生成" in admin_dashboard
     assert "使用次数" not in admin_dashboard
     assert "账号次数" not in admin_dashboard
     assert "额度兑换码" not in admin_dashboard
@@ -571,7 +572,7 @@ def test_served_static_bundle_includes_admin_tab_url_persistence():
 
     assert "URLSearchParams" in static_bundle
     assert '"tab"' in static_bundle
-    assert '"dashboard","operations","sessions","accounts","database","config"' in static_bundle
+    assert '"dashboard","operations","sessions","accounts","announcements","database","config"' in static_bundle
     assert "Word 排版文件大小限制" not in static_bundle
     assert "MAX_UPLOAD_FILE_SIZE_MB" not in static_bundle
     assert "max_upload_file_size_mb" not in static_bundle

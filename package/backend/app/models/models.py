@@ -254,6 +254,19 @@ class AdminAuditLog(Base):
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
+class Announcement(Base):
+    """后台公告"""
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(120), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(32), nullable=False, default="notice", index=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class UserProviderConfig(Base):
     __tablename__ = "user_provider_configs"
 

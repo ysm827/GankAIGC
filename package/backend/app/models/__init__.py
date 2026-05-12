@@ -5,7 +5,8 @@ from app.models.models import (
     OptimizationSegment,
     SessionHistory,
     ChangeLog,
-    QueueStatus
+    QueueStatus,
+    Announcement,
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "OptimizationSegment",
     "SessionHistory",
     "ChangeLog",
-    "QueueStatus"
+    "QueueStatus",
+    "Announcement",
 ]

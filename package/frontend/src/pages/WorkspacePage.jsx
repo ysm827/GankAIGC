@@ -26,6 +26,26 @@ const calculateEstimatedCredits = (value, mode) => {
   return baseCredits * (PROCESSING_MODE_STAGE_MULTIPLIERS[mode] || 1);
 };
 
+const getAnnouncementCategoryLabel = (category) => {
+  const labels = {
+    notice: '通知',
+    maintenance: '维护',
+    model: '模型',
+    guide: '说明',
+  };
+  return labels[category] || '通知';
+};
+
+const getAnnouncementCategoryClass = (category) => {
+  const classes = {
+    notice: 'bg-blue-50 text-blue-700 border-blue-100',
+    maintenance: 'bg-amber-50 text-amber-700 border-amber-100',
+    model: 'bg-violet-50 text-violet-700 border-violet-100',
+    guide: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  };
+  return classes[category] || classes.notice;
+};
+
 // 会话列表项组件 - 使用 memo 避免不必要重渲染
 const SessionItem = memo(({ session, activeSession, onView, onDelete, onRetry }) => {
   const handleDelete = useCallback((e) => {
@@ -153,6 +173,7 @@ const WorkspacePage = () => {
   const [editProjectTitle, setEditProjectTitle] = useState('');
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
+  const [announcements, setAnnouncements] = useState([]);
   const navigate = useNavigate();
 
   const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -223,6 +244,15 @@ const WorkspacePage = () => {
     }
   }, []);
 
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const response = await userAPI.listAnnouncements();
+      setAnnouncements(response.data);
+    } catch (error) {
+      console.error('加载公告失败:', error);
+    }
+  }, []);
+
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
       const response = await optimizationAPI.getSessionProgress(sessionId);
@@ -260,7 +290,8 @@ const WorkspacePage = () => {
     loadProjects();
     loadQueueStatus();
     loadAccountState();
-  }, [loadProjects, loadQueueStatus, loadAccountState]);
+    loadAnnouncements();
+  }, [loadProjects, loadQueueStatus, loadAccountState, loadAnnouncements]);
 
   useEffect(() => {
     if (activeProjectId !== null) {
@@ -522,6 +553,31 @@ const WorkspacePage = () => {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7">
+        {announcements.length > 0 && (
+          <div className="mb-6 space-y-3">
+            {announcements.slice(0, 3).map((announcement) => (
+              <div
+                key={announcement.id}
+                className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-ios backdrop-blur-sm"
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+                  <span className={`inline-flex w-fit shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
+                    {getAnnouncementCategoryLabel(announcement.category)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-semibold text-slate-950">
+                      {announcement.title}
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
+                      {announcement.content}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* 左侧 - 输入区域 */}
           <div className="lg:col-span-2 space-y-6">

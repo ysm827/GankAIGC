@@ -1,11 +1,13 @@
 import os
 import json
 import secrets
+import csv
+from io import StringIO
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Type
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import inspect, func, case
 from sqlalchemy.orm import Session, defer, joinedload
@@ -14,6 +16,7 @@ from app.config import reload_settings, settings
 from app.database import get_db
 from app.models.models import (
     AdminAuditLog,
+    Announcement,
     ChangeLog,
     CreditCode,
     CreditTransaction,
@@ -28,6 +31,10 @@ from app.models.models import (
 from app.runtime import refresh_cors_middleware
 from app.schemas import (
     AdminCreditAdjustRequest,
+    AnnouncementCreateRequest,
+    AnnouncementResponse,
+    AnnouncementUpdateRequest,
+    CreditCodeBatchCreateRequest,
     CreditCodeCreateRequest,
     CreditCodeResponse,
     DatabaseUpdateRequest,
@@ -226,6 +233,18 @@ def serialize_registration_invite(invite: RegistrationInvite) -> Dict[str, Any]:
         "used_by_display_name": _user_display_name(used_by, invite.used_by_user_id),
         "created_at": invite.created_at,
     }
+
+
+def _generate_unique_credit_code(db: Session, reserved_codes: Optional[set[str]] = None) -> str:
+    reserved_codes = reserved_codes or set()
+    for _ in range(20):
+        code = secrets.token_urlsafe(18)
+        if code in reserved_codes:
+            continue
+        existing_code = db.query(CreditCode).filter(CreditCode.code == code).first()
+        if not existing_code:
+            return code
+    raise HTTPException(status_code=500, detail="兑换码生成失败，请重试")
 
 
 def _model_to_dict(record: Any) -> Dict[str, Any]:
@@ -466,13 +485,168 @@ async def toggle_registration_invite(
     return serialize_registration_invite(invite)
 
 
+@router.get("/announcements", response_model=List[AnnouncementResponse])
+async def list_announcements(
+    _: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> List[Announcement]:
+    return (
+        db.query(Announcement)
+        .order_by(Announcement.created_at.desc(), Announcement.id.desc())
+        .all()
+    )
+
+
+@router.post("/announcements", response_model=AnnouncementResponse)
+async def create_announcement(
+    payload: AnnouncementCreateRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Announcement:
+    announcement = Announcement(
+        title=payload.title.strip(),
+        content=payload.content.strip(),
+        category=payload.category,
+        is_active=payload.is_active,
+    )
+    db.add(announcement)
+    db.flush()
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "create_announcement",
+        target_type="announcement",
+        target_id=announcement.id,
+        detail={
+            "title": announcement.title,
+            "category": announcement.category,
+            "is_active": announcement.is_active,
+        },
+    )
+    db.commit()
+    db.refresh(announcement)
+    return announcement
+
+
+@router.patch("/announcements/{announcement_id}", response_model=AnnouncementResponse)
+async def update_announcement(
+    announcement_id: int,
+    payload: AnnouncementUpdateRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Announcement:
+    announcement = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not announcement:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="公告不存在")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "title" in updates and updates["title"] is not None:
+        announcement.title = updates["title"].strip()
+    if "content" in updates and updates["content"] is not None:
+        announcement.content = updates["content"].strip()
+    if "category" in updates and updates["category"] is not None:
+        announcement.category = updates["category"]
+    if "is_active" in updates and updates["is_active"] is not None:
+        announcement.is_active = updates["is_active"]
+    announcement.updated_at = utcnow()
+
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "update_announcement",
+        target_type="announcement",
+        target_id=announcement.id,
+        detail={"updated_keys": list(updates.keys())},
+    )
+    db.commit()
+    db.refresh(announcement)
+    return announcement
+
+
+@router.post("/credit-codes/batch", response_model=List[CreditCodeResponse])
+async def batch_create_credit_codes(
+    payload: CreditCodeBatchCreateRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> List[CreditCode]:
+    reserved_codes: set[str] = set()
+    credit_codes: List[CreditCode] = []
+    for _ in range(payload.quantity):
+        code = _generate_unique_credit_code(db, reserved_codes)
+        reserved_codes.add(code)
+        credit_code = CreditCode(
+            code=code,
+            credit_amount=payload.credit_amount,
+            is_active=True,
+            expires_at=payload.expires_at,
+        )
+        db.add(credit_code)
+        credit_codes.append(credit_code)
+
+    db.flush()
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "batch_create_credit_codes",
+        target_type="credit_code",
+        detail={
+            "quantity": payload.quantity,
+            "credit_amount": payload.credit_amount,
+            "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+        },
+    )
+    db.commit()
+    for credit_code in credit_codes:
+        db.refresh(credit_code)
+    return credit_codes
+
+
+@router.get("/credit-codes/export")
+async def export_credit_codes(
+    export_format: str = Query("csv", alias="format", pattern="^(csv|txt)$"),
+    _: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Response:
+    credit_codes = db.query(CreditCode).order_by(CreditCode.created_at.desc(), CreditCode.id.desc()).all()
+    filename = f"gankaigc-credit-codes.{export_format}"
+
+    if export_format == "txt":
+        content = "\n".join(code.code for code in credit_codes)
+        if content:
+            content += "\n"
+        return Response(
+            content=content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    buffer = StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(["code", "credit_amount", "is_active", "redeemed_by_user_id", "created_at"])
+    for code in credit_codes:
+        writer.writerow(
+            [
+                code.code,
+                code.credit_amount,
+                code.is_active,
+                code.redeemed_by_user_id or "",
+                code.created_at.isoformat() if code.created_at else "",
+            ]
+        )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/credit-codes", response_model=CreditCodeResponse)
 async def create_credit_code(
     payload: CreditCodeCreateRequest,
     admin_username: str = Depends(get_admin_from_token),
     db: Session = Depends(get_db),
 ) -> CreditCode:
-    code = payload.code or secrets.token_urlsafe(18)
+    code = payload.code or _generate_unique_credit_code(db)
     existing_code = db.query(CreditCode).filter(CreditCode.code == code).first()
     if existing_code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="兑换码已存在")
