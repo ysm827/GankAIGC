@@ -100,6 +100,11 @@ class InviteResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InviteRelationshipResponse(BaseModel):
+    summary: Dict[str, int]
+    items: List[Dict[str, Any]]
+
+
 ALLOWED_TABLES: Dict[str, Type] = {
     "users": User,
     "optimization_sessions": OptimizationSession,
@@ -225,6 +230,29 @@ def serialize_registration_invite(invite: RegistrationInvite) -> Dict[str, Any]:
         "used_by_nickname": used_by.nickname if used_by else None,
         "used_by_display_name": _user_display_name(used_by, invite.used_by_user_id),
         "created_at": invite.created_at,
+    }
+
+
+def serialize_invite_relationship(invite: RegistrationInvite) -> Dict[str, Any]:
+    base = serialize_registration_invite(invite)
+    inviter_type = base["created_by_type"]
+    inviter_display_name = base["created_by_display_name"] if inviter_type == "user" else "管理员"
+    invitee_display_name = base["used_by_display_name"]
+    return {
+        "id": base["id"],
+        "code": base["code"],
+        "inviter_type": inviter_type,
+        "inviter_user_id": base["created_by_user_id"],
+        "inviter_username": base["created_by_username"],
+        "inviter_display_name": inviter_display_name,
+        "invitee_user_id": base["used_by_user_id"],
+        "invitee_username": base["used_by_username"],
+        "invitee_display_name": invitee_display_name,
+        "is_active": base["is_active"],
+        "is_used": base["used_by_user_id"] is not None,
+        "status_label": "已使用" if base["used_by_user_id"] else "未使用",
+        "created_at": base["created_at"],
+        "expires_at": base["expires_at"],
     }
 
 
@@ -435,6 +463,33 @@ async def list_registration_invites(
         .all()
     )
     return [serialize_registration_invite(invite) for invite in invites]
+
+
+@router.get("/invites/relationships", response_model=InviteRelationshipResponse)
+async def list_invite_relationships(
+    _: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    invites = (
+        db.query(RegistrationInvite)
+        .options(joinedload(RegistrationInvite.created_by_user), joinedload(RegistrationInvite.used_by_user))
+        .order_by(RegistrationInvite.created_at.desc(), RegistrationInvite.id.desc())
+        .all()
+    )
+    items = [serialize_invite_relationship(invite) for invite in invites]
+    admin_created = sum(1 for item in items if item["inviter_type"] == "admin")
+    user_created = len(items) - admin_created
+    used = sum(1 for item in items if item["is_used"])
+    return {
+        "summary": {
+            "total": len(items),
+            "admin_created": admin_created,
+            "user_created": user_created,
+            "used": used,
+            "unused": len(items) - used,
+        },
+        "items": items,
+    }
 
 
 @router.patch("/invites/{invite_id}/toggle", response_model=InviteResponse)

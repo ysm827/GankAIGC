@@ -13,6 +13,7 @@ from app.services.ai_service import (
 )
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService
+from app.services.error_messages import build_task_error_message
 from app.services.stream_manager import stream_manager
 from app.config import settings
 from app.utils.time import utcnow
@@ -170,11 +171,7 @@ class OptimizationService:
         except Exception as e:
             self.session_obj.status = "failed"
             CreditService(self.db).refund_held_platform_credit(self.session_obj)
-            # 安全地截断错误信息
-            error_msg = str(e)
-            if len(error_msg) > MAX_ERROR_MESSAGE_LENGTH:
-                error_msg = error_msg[:MAX_ERROR_MESSAGE_LENGTH - 50] + "... [错误信息已截断]"
-            self.session_obj.error_message = error_msg
+            self.session_obj.error_message = build_task_error_message(e, max_length=MAX_ERROR_MESSAGE_LENGTH)
             self.db.commit()
             raise
         finally:
@@ -395,14 +392,7 @@ class OptimizationService:
                 segment.status = "failed"
                 self.session_obj.failed_segment_index = idx
                 
-                # 安全地截断错误信息，避免数据库字段溢出
-                error_msg = str(e)
-                if len(error_msg) > MAX_ERROR_MESSAGE_LENGTH:
-                    # 保留前面的主要错误信息和末尾的部分
-                    prefix_len = MAX_ERROR_MESSAGE_LENGTH - 50
-                    error_msg = error_msg[:prefix_len] + "... [错误信息已截断]"
-                
-                self.session_obj.error_message = error_msg
+                self.session_obj.error_message = build_task_error_message(e, max_length=MAX_ERROR_MESSAGE_LENGTH)
                 self.db.commit()
                 
                 # 直接抛出原异常，保留堆栈

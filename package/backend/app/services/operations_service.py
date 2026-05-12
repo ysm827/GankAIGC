@@ -8,9 +8,15 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.config import get_env_file_path, get_exe_dir, settings
+from app.config import (
+    get_env_file_path,
+    get_exe_dir,
+    is_placeholder_admin_password,
+    is_placeholder_secret,
+    settings,
+)
 from app.database import engine
-from app.models.models import OptimizationSession
+from app.models.models import OptimizationSession, RegistrationInvite
 from app.services import update_service
 
 
@@ -154,9 +160,80 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
     }
 
 
+def _has_model_api_configured() -> bool:
+    model = (settings.POLISH_MODEL or settings.OPENAI_API_KEY or "").strip()
+    api_key = (settings.POLISH_API_KEY or settings.OPENAI_API_KEY or "").strip()
+    base_url = (settings.POLISH_BASE_URL or settings.OPENAI_BASE_URL or "").strip()
+    normalized_api_key = api_key.lower()
+    normalized_base_url = base_url.lower()
+    if normalized_api_key in {"pwd", "replace-me", "please-change-this-api-key"}:
+        return False
+    if any(marker in normalized_base_url for marker in ("ip:port", "localhost:port", "example.com")):
+        return False
+    return bool(model and api_key and base_url and base_url.startswith(("http://", "https://")))
+
+
+def get_onboarding_status(db: Session, backup_status: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    backup_status = backup_status or get_backup_status()
+    has_invite = db.query(RegistrationInvite).count() > 0
+    has_completed_task = (
+        db.query(OptimizationSession)
+        .filter(OptimizationSession.status == "completed")
+        .count()
+        > 0
+    )
+
+    items = [
+        {
+            "key": "admin_password",
+            "title": "修改管理员密码",
+            "done": not is_placeholder_admin_password(settings.ADMIN_PASSWORD),
+            "hint": "在 .env.docker 或后台系统配置里把 ADMIN_PASSWORD 换成强密码。",
+        },
+        {
+            "key": "secret_key",
+            "title": "替换 JWT 密钥",
+            "done": not is_placeholder_secret(settings.SECRET_KEY),
+            "hint": "把 SECRET_KEY 换成随机长字符串，避免登录令牌可被伪造。",
+        },
+        {
+            "key": "model_api",
+            "title": "配置模型 API",
+            "done": _has_model_api_configured(),
+            "hint": "至少配置润色模型的 Model、API Key 和 Base URL，并在系统配置里测试连接。",
+        },
+        {
+            "key": "invite",
+            "title": "创建邀请码",
+            "done": has_invite,
+            "hint": "在用户管理里创建邀请码，确认新用户能注册。",
+        },
+        {
+            "key": "test_task",
+            "title": "完成一次测试处理",
+            "done": has_completed_task,
+            "hint": "用普通用户提交一小段文本，确认处理链路能跑通。",
+        },
+        {
+            "key": "backup",
+            "title": "确认自动备份",
+            "done": bool(backup_status.get("enabled") and backup_status.get("total_files", 0) > 0),
+            "hint": "后台运维状态里能看到最近备份文件，发布前建议手动下载验证一次。",
+        },
+    ]
+    completed_count = sum(1 for item in items if item["done"])
+    return {
+        "ready": completed_count == len(items),
+        "completed_count": completed_count,
+        "total_count": len(items),
+        "items": items,
+    }
+
+
 async def get_operations_status(db: Session) -> Dict[str, Any]:
     can_run_update, disabled_reason = update_service.can_run_vps_update()
     git_status = update_service.get_git_revision_status()
+    backup_status = get_backup_status()
     return {
         "app": {
             "version": update_service.normalize_version(settings.APP_VERSION),
@@ -166,7 +243,8 @@ async def get_operations_status(db: Session) -> Dict[str, Any]:
         },
         "database": get_database_status(),
         "worker": get_worker_status(db),
-        "backup": get_backup_status(),
+        "backup": backup_status,
+        "onboarding": get_onboarding_status(db, backup_status),
         "update": {
             "enabled": settings.VPS_UPDATE_ENABLED,
             "can_run": can_run_update,

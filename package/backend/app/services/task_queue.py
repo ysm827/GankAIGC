@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models.models import OptimizationSession
 from app.services.credit_service import CreditService
+from app.services.error_messages import build_task_error_message
 from app.services.optimization_service import MAX_ERROR_MESSAGE_LENGTH, OptimizationService
 from app.services.provider_config_service import ProviderConfigService
 from app.utils.time import utcnow
@@ -19,10 +20,7 @@ TaskRunner = Callable[[Session, OptimizationSession], Awaitable[None] | None]
 
 
 def _truncate_error_message(error: Exception) -> str:
-    message = str(error)
-    if len(message) > MAX_ERROR_MESSAGE_LENGTH:
-        return message[: MAX_ERROR_MESSAGE_LENGTH - 50] + "... [错误信息已截断]"
-    return message
+    return build_task_error_message(error, max_length=MAX_ERROR_MESSAGE_LENGTH)
 
 
 def touch_session_heartbeat(session_id: int, worker_id: str) -> bool:

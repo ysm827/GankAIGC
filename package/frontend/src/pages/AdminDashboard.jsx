@@ -12,6 +12,7 @@ import {
   Plus,
   TrendingUp,
   Activity,
+  Network,
   RefreshCw,
   Settings,
   BarChart3,
@@ -106,6 +107,7 @@ const AdminDashboard = () => {
   const [creditCodes, setCreditCodes] = useState([]);
   const [creditTransactions, setCreditTransactions] = useState([]);
   const [providerConfigs, setProviderConfigs] = useState([]);
+  const [inviteRelationships, setInviteRelationships] = useState(null);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAccountData, setLoadingAccountData] = useState(false);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
@@ -271,15 +273,17 @@ const AdminDashboard = () => {
     setLoadingAccountData(true);
     try {
       const headers = { Authorization: `Bearer ${adminToken}` };
-      const [usersResponse, invitesResponse, creditCodesResponse] = await Promise.all([
+      const [usersResponse, invitesResponse, creditCodesResponse, inviteRelationshipsResponse] = await Promise.all([
         axios.get('/api/admin/users', { headers }),
         axios.get('/api/admin/invites', { headers }),
         axios.get('/api/admin/credit-codes', { headers }),
+        axios.get('/api/admin/invites/relationships', { headers }),
       ]);
 
       setUsers(usersResponse.data);
       setInvites(invitesResponse.data);
       setCreditCodes(creditCodesResponse.data);
+      setInviteRelationships(inviteRelationshipsResponse.data);
 
       const [creditTransactionsResult, providerConfigsResult] = await Promise.allSettled([
         axios.get('/api/admin/credit-transactions', { headers, params: { limit: 30 } }),
@@ -301,6 +305,7 @@ const AdminDashboard = () => {
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || '获取账号管理数据失败');
+      setInviteRelationships(null);
       console.error('Error fetching account data:', error);
     } finally {
       setLoadingAccountData(false);
@@ -1004,6 +1009,96 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+              <div className="p-6 border-b border-gray-200 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center">
+                    <Network className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">邀请关系</h3>
+                    <p className="text-xs text-gray-500 mt-1">查看管理员或用户邀请了谁，方便追踪注册来源</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {[
+                    ['总数', inviteRelationships?.summary?.total ?? 0],
+                    ['管理员', inviteRelationships?.summary?.admin_created ?? 0],
+                    ['用户邀请', inviteRelationships?.summary?.user_created ?? 0],
+                    ['已使用', inviteRelationships?.summary?.used ?? 0],
+                    ['未使用', inviteRelationships?.summary?.unused ?? 0],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl bg-slate-50 px-3 py-2 text-center">
+                      <div className="text-lg font-bold text-slate-900">{value}</div>
+                      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className={ADMIN_TABLE_SCROLL_CLASS}>
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className={ADMIN_TABLE_HEAD_CLASS}>
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">邀请码</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">邀请人</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">注册用户</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">创建时间</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {(inviteRelationships?.items || []).length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="px-6 py-10 text-center text-sm text-gray-500">暂无邀请关系</td>
+                      </tr>
+                    ) : inviteRelationships.items.map((invite) => (
+                      <tr key={invite.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => copyToClipboard(invite.code)}
+                            className="font-mono text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+                            title="点击复制"
+                          >
+                            {invite.code}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{invite.inviter_display_name}</div>
+                          <div className="text-xs text-gray-500">
+                            {invite.inviter_type === 'admin' ? '管理员创建' : `用户 ID #${invite.inviter_user_id}`}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {invite.invitee_user_id ? (
+                            <>
+                              <div className="text-sm font-medium text-gray-900">{invite.invitee_display_name}</div>
+                              <div className="text-xs text-gray-500">用户 ID #{invite.invitee_user_id}</div>
+                            </>
+                          ) : (
+                            <span className="text-sm text-gray-400">未注册</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                            invite.is_used
+                              ? 'bg-blue-100 text-blue-800'
+                              : invite.is_active
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {invite.is_used ? '已使用' : invite.is_active ? '可使用' : '已停用'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatChinaDateTime(invite.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
 

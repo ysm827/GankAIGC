@@ -121,8 +121,8 @@ const SessionItem = memo(({ session, activeSession, onView, onDelete, onRetry })
       </div>
 
       {session.status === 'failed' && session.current_position < session.total_segments && (
-        <div className="text-[11px] text-ios-red bg-red-50 px-2 py-1 rounded mt-1">
-          {session.error_message ? '发生错误' : '网络超时'}
+        <div className="text-[11px] text-ios-red bg-red-50 px-2 py-1 rounded mt-1 line-clamp-2">
+          {session.error_message || '网络超时，请稍后继续处理'}
         </div>
       )}
     </div>

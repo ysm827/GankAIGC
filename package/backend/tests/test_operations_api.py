@@ -2,7 +2,7 @@ from pathlib import Path
 
 import app.config as config_module
 from app.database import SessionLocal
-from app.models.models import AdminAuditLog, OptimizationSession
+from app.models.models import AdminAuditLog, OptimizationSession, RegistrationInvite
 from app.services import operations_service, update_service
 from app.utils.time import utcnow
 
@@ -64,6 +64,67 @@ def test_admin_operations_status_reports_database_worker_backup_and_update(clien
     assert data["backup"]["latest"]["filename"] == backup_file.name
     assert data["update"]["can_run"] is False
     assert data["update"]["disabled_reason"] == "not mounted"
+
+
+def test_admin_operations_status_includes_onboarding_checklist(client, monkeypatch, tmp_path):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    (backup_dir / "gankaigc_ai_polish_20260512_010203.dump").write_bytes(b"backup-data")
+    monkeypatch.setattr(config_module.settings, "BACKUP_DIR", str(backup_dir), raising=False)
+    monkeypatch.setattr(config_module.settings, "ADMIN_PASSWORD", "StrongAdminPassword123!", raising=False)
+    monkeypatch.setattr(config_module.settings, "SECRET_KEY", "strong-secret-key-for-tests", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-test", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "https://api.example/v1", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_MODEL", "gpt-test", raising=False)
+    monkeypatch.setattr(update_service, "can_run_vps_update", lambda: (False, "disabled"))
+    monkeypatch.setattr(update_service, "get_git_revision_status", lambda: {"source_update_available": None, "error": None})
+
+    db = SessionLocal()
+    try:
+        db.add(RegistrationInvite(code="READY-INVITE", is_active=True))
+        db.add(
+            OptimizationSession(
+                user_id=None,
+                session_id="completed-session",
+                original_text="hello",
+                current_stage="polish",
+                status="completed",
+                completed_at=utcnow(),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/admin/operations/status", headers=_admin_auth_headers(client))
+
+    assert response.status_code == 200
+    checklist = response.json()["onboarding"]
+    assert checklist["completed_count"] == checklist["total_count"]
+    assert checklist["ready"] is True
+    assert {item["key"]: item["done"] for item in checklist["items"]} == {
+        "admin_password": True,
+        "secret_key": True,
+        "model_api": True,
+        "invite": True,
+        "test_task": True,
+        "backup": True,
+    }
+
+
+def test_admin_onboarding_does_not_treat_placeholder_model_api_as_configured(client, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", None, raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", None, raising=False)
+    monkeypatch.setattr(config_module.settings, "OPENAI_API_KEY", "pwd", raising=False)
+    monkeypatch.setattr(config_module.settings, "OPENAI_BASE_URL", "http://IP:PORT/v1", raising=False)
+    monkeypatch.setattr(update_service, "can_run_vps_update", lambda: (False, "disabled"))
+    monkeypatch.setattr(update_service, "get_git_revision_status", lambda: {"source_update_available": None, "error": None})
+
+    response = client.get("/api/admin/operations/status", headers=_admin_auth_headers(client))
+
+    assert response.status_code == 200
+    items = {item["key"]: item["done"] for item in response.json()["onboarding"]["items"]}
+    assert items["model_api"] is False
 
 
 def test_admin_operations_status_is_clear_when_backup_directory_is_missing(client, monkeypatch, tmp_path):

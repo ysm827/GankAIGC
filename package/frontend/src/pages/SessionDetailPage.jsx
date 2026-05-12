@@ -334,6 +334,20 @@ const SessionDetailPage = () => {
 
         {/* 内容区域 */}
         <div className="space-y-6">
+          {session.status === 'failed' && (
+            <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-red-800 shadow-ios">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold">处理失败原因</p>
+                  <p className="mt-1 text-sm leading-6">
+                    {session.error_message || '任务处理失败，请检查 API 配置或稍后继续处理。'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'result' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">

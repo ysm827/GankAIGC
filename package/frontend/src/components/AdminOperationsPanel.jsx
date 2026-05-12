@@ -8,6 +8,7 @@ import {
   Database,
   Download,
   HardDrive,
+  ListChecks,
   RefreshCw,
   Server,
   UploadCloud,
@@ -146,6 +147,48 @@ const AdminOperationsPanel = ({ adminToken }) => {
           </div>
         </InfoCard>
       </div>
+
+      {status?.onboarding && (
+        <div className="overflow-hidden rounded-2xl bg-white shadow-ios">
+          <div className="border-b border-gray-100 p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                  status.onboarding.ready ? 'bg-emerald-50' : 'bg-blue-50'
+                }`}>
+                  <ListChecks className={`h-5 w-5 ${
+                    status.onboarding.ready ? 'text-emerald-600' : 'text-blue-600'
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">上线检查清单</h3>
+                  <p className="text-xs text-gray-500">
+                    已完成 {status.onboarding.completed_count}/{status.onboarding.total_count} 项
+                  </p>
+                </div>
+              </div>
+              <StatusPill ok={status.onboarding.ready}>
+                {status.onboarding.ready ? '已就绪' : '待完善'}
+              </StatusPill>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 divide-y divide-gray-100 md:grid-cols-2 md:divide-x md:divide-y-0">
+            {(status.onboarding.items || []).map((item) => (
+              <div key={item.key} className="flex items-start gap-3 p-5">
+                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                  item.done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {item.done ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">{item.hint}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]">
         <div className="overflow-hidden rounded-2xl bg-white shadow-ios">
