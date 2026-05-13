@@ -206,6 +206,9 @@ def test_admin_update_modal_uses_source_and_release_latest_state():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
 
     assert "DownloadCloud" in admin_dashboard
+    assert "if (isAuthenticated && !updateStatus)" in admin_dashboard
+    assert "fetchUpdateStatus({ silent: true })" in admin_dashboard
+    assert "toast.error(error.response?.data?.detail || '检查更新失败')" in admin_dashboard
     assert "const updateAvailable" in admin_dashboard
     assert "const updateStatusLabel" in admin_dashboard
     assert "已是最新版本" in admin_dashboard

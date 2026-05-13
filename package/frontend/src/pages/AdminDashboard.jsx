@@ -193,6 +193,12 @@ const AdminDashboard = () => {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (isAuthenticated && !updateStatus) {
+      fetchUpdateStatus({ silent: true });
+    }
+  }, [isAuthenticated, updateStatus]);
+
+  useEffect(() => {
     if (isAuthenticated && activeTab === 'accounts') {
       fetchAccountData();
     }
@@ -290,7 +296,7 @@ const AdminDashboard = () => {
     toast.success('已复制到剪贴板');
   };
 
-  const fetchUpdateStatus = async () => {
+  const fetchUpdateStatus = async ({ silent = false } = {}) => {
     setLoadingUpdateStatus(true);
     try {
       const response = await axios.get('/api/admin/update/status', {
@@ -298,7 +304,9 @@ const AdminDashboard = () => {
       });
       setUpdateStatus(response.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || '检查更新失败');
+      if (!silent) {
+        toast.error(error.response?.data?.detail || '检查更新失败');
+      }
     } finally {
       setLoadingUpdateStatus(false);
     }
