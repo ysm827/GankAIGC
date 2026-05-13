@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import HTMLResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
 import sys
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -228,6 +230,28 @@ async def head_root():
 async def health_check():
     """健康检查"""
     return {"status": "healthy"}
+
+
+def _runtime_bootstrap_script() -> str:
+    payload = {
+        "appVersion": get_current_app_version(),
+    }
+    return f"<script>window.__GANKAIGC_RUNTIME__ = {json.dumps(payload, ensure_ascii=False)};</script>"
+
+
+def serve_runtime_index(index_file: str) -> HTMLResponse:
+    with open(index_file, encoding="utf-8") as file:
+        text = file.read()
+    runtime_script = _runtime_bootstrap_script()
+    text = text.replace("</head>", runtime_script + "</head>", 1)
+    return HTMLResponse(
+        text,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 def _check_url_format(base_url: Optional[str]) -> tuple:

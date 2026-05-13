@@ -10,6 +10,7 @@ import webbrowser
 import threading
 import time
 import signal
+import json
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -389,10 +390,28 @@ if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
+def _runtime_bootstrap_script() -> str:
+    payload = {
+        "appVersion": get_current_app_version(),
+    }
+    return f"<script>window.__GANKAIGC_RUNTIME__ = {json.dumps(payload, ensure_ascii=False)};</script>"
+
+
 def _serve_spa_index_or_api_info(error_message: str | None = None):
     index_file = os.path.join(STATIC_DIR, 'index.html')
     if os.path.exists(index_file):
-        return FileResponse(index_file)
+        with open(index_file, encoding="utf-8") as file:
+            text = file.read()
+        runtime_script = _runtime_bootstrap_script()
+        text = text.replace("</head>", runtime_script + "</head>", 1)
+        return HTMLResponse(
+            text,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     if error_message:
         return {"error": error_message}
     return {
@@ -457,7 +476,7 @@ async def serve_static(file_path: str):
     # 对于 SPA 路由，返回 index.html
     index_file = os.path.join(STATIC_DIR, 'index.html')
     if os.path.exists(index_file):
-        return FileResponse(index_file)
+        return _serve_spa_index_or_api_info()
 
     raise HTTPException(status_code=404, detail="File not found")
 

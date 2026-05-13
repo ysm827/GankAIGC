@@ -206,6 +206,7 @@ def test_admin_update_modal_uses_source_and_release_latest_state():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
 
     assert "DownloadCloud" in admin_dashboard
+    assert "window.__GANKAIGC_RUNTIME__?.appVersion" in admin_dashboard
     assert "if (isAuthenticated && !updateStatus)" in admin_dashboard
     assert "fetchUpdateStatus({ silent: true })" in admin_dashboard
     assert "toast.error(error.response?.data?.detail || '检查更新失败')" in admin_dashboard
@@ -215,6 +216,19 @@ def test_admin_update_modal_uses_source_and_release_latest_state():
     assert "VPS 在线更新" in admin_dashboard
     assert "DownloadCloud className" in admin_dashboard
     assert "can_run_update && updateAvailable" in admin_dashboard
+
+
+def test_spa_index_injects_runtime_version_before_react_bootstrap():
+    main_entry = (PACKAGE_ROOT / "main.py").read_text(encoding="utf-8")
+    backend_main = (FRONTEND_SRC.parents[1] / "backend" / "app" / "main.py").read_text(encoding="utf-8")
+
+    for content in (main_entry, backend_main):
+        assert "json.dumps" in content
+        assert "window.__GANKAIGC_RUNTIME__" in content
+        assert "appVersion" in content
+        assert "get_current_app_version()" in content
+        assert "HTMLResponse" in content
+        assert "text.replace(\"</head>\", runtime_script + \"</head>\", 1)" in content
 
 
 def test_admin_invite_table_uses_compact_full_width_layout_like_credit_codes():
