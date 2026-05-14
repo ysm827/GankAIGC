@@ -17,7 +17,7 @@
 | SEC-001 | 严重 | 已完成 | 未登录路径穿越，可读取 `package/static` 外的服务端文件 | `package/main.py` |
 | SEC-002 | 高危 | 待修复 | 用户可控模型 `base_url` 会造成后端 SSRF | `provider_config_service.py`、`optimization.py`、`ai_service.py`、`word_formatter/routes.py` |
 | SEC-003 | 高危 | 待修复 | Docker 在线更新挂载 Docker socket，并执行配置中的 shell 命令 | `docker-compose.yml`、`update_service.py`、`admin.py` |
-| SEC-004 | 高危 | 待修复 | 前端生产依赖存在已知安全公告 | `package/frontend/package.json`、`package-lock.json` |
+| SEC-004 | 高危 | 已完成 | 前端生产依赖存在已知安全公告 | `package/frontend/package.json`、`package-lock.json` |
 | SEC-005 | 高危/中危 | 待修复 | 后端依赖存在已知安全公告 | `package/backend/requirements.txt`、`package/requirements.txt` |
 | SEC-006 | 中危 | 待修复 | Word Formatter 上传接口先完整读入内存再检查大小，默认无限制 | `word_formatter/routes.py`、`config.py` |
 | SEC-007 | 中危 | 已完成 | 管理后台配置接口会把完整系统模型 API Key 返回给浏览器 | `admin.py`、`ConfigManager.jsx` |
@@ -112,12 +112,12 @@
 
 **实施清单：**
 
-- [ ] 将 `axios` 升级到当前审计建议的安全版本。
-- [ ] 升级 `react-router-dom`，确保其传递依赖 `react-router` 和 `@remix-run/router` 的安全公告被清除。
-- [ ] 使用选定版本刷新 `package/frontend/package-lock.json`。
-- [ ] 运行 `cd package/frontend; npm audit --omit=dev`。
-- [ ] 运行 `cd package/frontend; npm run build`。
-- [ ] 如果浏览器测试依赖可用，运行 `cd package/frontend; npm run test:e2e`。
+- [x] 将 `axios` 升级到当前审计建议的安全版本。
+- [x] 升级 `react-router-dom`，确保其传递依赖 `react-router` 和 `@remix-run/router` 的安全公告被清除。
+- [x] 使用选定版本刷新 `package/frontend/package-lock.json`。
+- [x] 运行 `cd package/frontend; npm audit --omit=dev`。
+- [x] 运行 `cd package/frontend; npm run build`。
+- [x] 如果浏览器测试依赖可用，运行 `cd package/frontend; npm run test:e2e`。
 
 **完成标准：** 前端生产依赖审计不再有 high/moderate 问题，并且前端构建通过。
 
@@ -243,4 +243,5 @@ npm run test:e2e
 | --- | --- | --- | --- |
 | 2026-05-14 | 创建初始安全修复计划 | 待执行 | 等待确认后再开始改代码 |
 | 2026-05-14 | SEC-001 静态文件路径穿越 | 已完成 | 聚焦测试 `tests/test_package_static_security.py -q` 已通过；完整后端测试 `python -m pytest -q` 已通过，209 passed |
+| 2026-05-14 | SEC-004 前端依赖安全公告 | 已完成 | `npm audit --omit=dev` 已通过，0 vulnerabilities；`npm run build` 已通过；`npm run test:e2e` 已通过，4 passed |
 | 2026-05-14 | SEC-007 后台配置接口 API Key 脱敏 | 已完成 | 相关后端测试 `tests/test_auth_api.py tests/test_operations_api.py -q` 已通过；前端 `npm run build` 已通过；完整后端测试 `python -m pytest -q` 已通过，211 passed |
