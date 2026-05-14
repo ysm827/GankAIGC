@@ -12,7 +12,9 @@ import time
 import signal
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Optional
+from urllib.parse import unquote
 
 # 获取应用运行目录
 if getattr(sys, 'frozen', False):
@@ -422,6 +424,33 @@ def _serve_spa_index_or_api_info(error_message: str | None = None):
     }
 
 
+def _resolve_static_file(file_path: str) -> Path | None:
+    try:
+        decoded_path = unquote(file_path, errors="strict")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if "\x00" in decoded_path or "\\" in decoded_path:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    posix_path = PurePosixPath(decoded_path)
+    windows_path = PureWindowsPath(decoded_path)
+    if posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if ".." in posix_path.parts:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    static_root = Path(STATIC_DIR).resolve()
+    target = (static_root / decoded_path).resolve()
+    if not target.is_relative_to(static_root):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if target.is_file():
+        return target
+    return None
+
+
 @app.get("/")
 async def serve_root():
     """服务根路径"""
@@ -469,9 +498,9 @@ async def serve_static(file_path: str):
     if file_path.startswith('api/') or file_path.startswith('docs') or file_path.startswith('openapi'):
         raise HTTPException(status_code=404, detail="Not found")
 
-    full_path = os.path.join(STATIC_DIR, file_path)
-    if os.path.exists(full_path) and os.path.isfile(full_path):
-        return FileResponse(full_path)
+    static_file = _resolve_static_file(file_path)
+    if static_file is not None:
+        return FileResponse(static_file)
 
     # 对于 SPA 路由，返回 index.html
     index_file = os.path.join(STATIC_DIR, 'index.html')
