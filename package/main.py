@@ -64,6 +64,12 @@ from app.routes import admin, auth, prompts, optimization, user
 from app.runtime import refresh_cors_middleware
 from app.services.rate_limit import SlidingWindowLimiter
 from app.services.update_service import get_current_app_version
+from app.utils.security_headers import (
+    add_docs_security_headers,
+    add_security_headers,
+    csp_hash_for_inline_script,
+    update_security_headers,
+)
 from app.models.models import CustomPrompt
 from app.database import SessionLocal
 from app.services.ai_service import get_default_polish_prompt, get_default_enhance_prompt
@@ -114,6 +120,15 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # CORS 配置
 refresh_cors_middleware(app)
+
+
+@app.middleware("http")
+async def add_browser_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path in {"/docs", "/redoc", "/docs/oauth2-redirect"}:
+        return add_docs_security_headers(response)
+    return add_security_headers(response)
+
 
 # 添加中间件：为所有 API 响应添加禁止缓存的头部
 @app.middleware("http")
@@ -170,10 +185,10 @@ async def enforce_sensitive_endpoint_rate_limits(request: Request, call_next):
     if limiter and limit > 0:
         key = _get_rate_limit_key(request, scope)
         if not limiter.check(key, limit):
-            return JSONResponse(
+            return add_security_headers(JSONResponse(
                 status_code=429,
                 content={"detail": "请求过于频繁，请稍后再试"},
-            )
+            ))
 
     return await call_next(request)
 
@@ -387,11 +402,15 @@ if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
-def _runtime_bootstrap_script() -> str:
+def _runtime_bootstrap_script_content() -> str:
     payload = {
         "appVersion": get_current_app_version(),
     }
-    return f"<script>window.__GANKAIGC_RUNTIME__ = {json.dumps(payload, ensure_ascii=False)};</script>"
+    return f"window.__GANKAIGC_RUNTIME__ = {json.dumps(payload, ensure_ascii=False)};"
+
+
+def _runtime_bootstrap_script() -> str:
+    return f"<script>{_runtime_bootstrap_script_content()}</script>"
 
 
 def _serve_spa_index_or_api_info(error_message: str | None = None):
@@ -401,13 +420,18 @@ def _serve_spa_index_or_api_info(error_message: str | None = None):
             text = file.read()
         runtime_script = _runtime_bootstrap_script()
         text = text.replace("</head>", runtime_script + "</head>", 1)
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        update_security_headers(
+            headers,
+            [csp_hash_for_inline_script(_runtime_bootstrap_script_content())],
+        )
         return HTMLResponse(
             text,
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
+            headers=headers,
         )
     if error_message:
         return {"error": error_message}

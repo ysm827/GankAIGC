@@ -19,9 +19,9 @@
 | SEC-003 | 高危 | 待修复 | Docker 在线更新挂载 Docker socket，并执行配置中的 shell 命令 | `docker-compose.yml`、`update_service.py`、`admin.py` |
 | SEC-004 | 高危 | 已完成 | 前端生产依赖存在已知安全公告 | `package/frontend/package.json`、`package-lock.json` |
 | SEC-005 | 高危/中危 | 已完成 | 后端依赖存在已知安全公告 | `package/backend/requirements.txt`、`package/requirements.txt` |
-| SEC-006 | 中危 | 待修复 | Word Formatter 上传接口先完整读入内存再检查大小，默认无限制 | `word_formatter/routes.py`、`config.py` |
+| SEC-006 | 中危 | 已完成 | Word Formatter 上传接口先完整读入内存再检查大小，默认无限制 | `word_formatter/routes.py`、`config.py` |
 | SEC-007 | 中危 | 已完成 | 管理后台配置接口会把完整系统模型 API Key 返回给浏览器 | `admin.py`、`ConfigManager.jsx` |
-| SEC-008 | 中低危 | 待修复 | 浏览器 token 存在 `localStorage`，安全响应头不足 | `api/index.js`、`AdminDashboard.jsx`、应用中间件 |
+| SEC-008 | 中低危 | 已完成 | 浏览器 token 存在 `localStorage`，安全响应头不足 | `api/index.js`、`AdminDashboard.jsx`、应用中间件 |
 
 ---
 
@@ -199,19 +199,28 @@
 
 **实施清单：**
 
-- [ ] 增加安全响应头中间件：
+- [x] 增加安全响应头中间件：
   - `Content-Security-Policy`
   - `X-Frame-Options` 或 CSP `frame-ancestors`
   - `Referrer-Policy`
   - `X-Content-Type-Options`
   - `Permissions-Policy`
-- [ ] 确保 CSP 不影响 Vite 构建后的静态资源、API 请求和 SSE 流式接口。
-- [ ] 新增测试：API 响应和 SPA 响应都带有预期安全响应头。
-- [ ] 记录后续设计：如何把 `localStorage` JWT 替换为 `HttpOnly; Secure; SameSite=Lax/Strict` Cookie。
-- [ ] 运行 `cd package/backend; python -m pytest -q`。
-- [ ] 运行 `cd package/frontend; npm run build`。
+- [x] 确保 CSP 不影响 Vite 构建后的静态资源、API 请求和 SSE 流式接口。
+- [x] 新增测试：API 响应和 SPA 响应都带有预期安全响应头。
+- [x] 记录后续设计：如何把 `localStorage` JWT 替换为 `HttpOnly; Secure; SameSite=Lax/Strict` Cookie。
+- [x] 运行 `cd package/backend; python -m pytest -q`。
+- [x] 运行 `cd package/frontend; npm run build`。
 
 **完成标准：** 基础浏览器安全响应头已启用，并且 token 迁移方案有明确后续路径。
+
+**后续 Cookie 迁移设计：**
+
+- 新增双 token 返回模式：登录接口继续返回 `access_token` 兼容旧前端，同时可选设置 `HttpOnly; Secure; SameSite=Lax` Cookie。
+- 前端 Axios 切换为 `withCredentials: true` 后，先从 Cookie 鉴权；旧版 `Authorization: Bearer ...` 保留一个版本周期。
+- 管理员和普通用户 token 分开 Cookie 名称，并设置较短管理员过期时间。
+- 增加登出接口清除 Cookie，前端退出登录同时清理旧 `localStorage` token。
+- 生产 HTTPS 下启用 `Secure`；本地开发可通过配置允许非 Secure Cookie，避免影响 `http://localhost:9800` 调试。
+- 迁移完成后再删除 `localStorage` token 读写逻辑，并增加 CSRF 防护策略。
 
 ---
 
@@ -255,3 +264,5 @@ npm run test:e2e
 | 2026-05-14 | SEC-005 后端依赖安全公告 | 已完成 | 完整后端测试 `python -m pytest -q` 已通过，211 passed；`uvx pip-audit -r requirements.txt` 已通过，No known vulnerabilities found |
 | 2026-05-14 | SEC-002 BYOK 模型地址 SSRF | 已完成 | 聚焦回归测试已通过，24 passed；相关后端测试已通过，95 passed；完整后端测试 `python -m pytest -q` 已通过，236 passed |
 | 2026-05-15 | SEC-002 本地模型代理兼容 | 已完成 | 增加 `ALLOW_LOCAL_MODEL_PROXY` 安全开关；仅本机绑定允许本地 HTTP 代理，公网绑定继续拒绝 |
+| 2026-05-15 | SEC-006 Word Formatter 上传 DoS | 已完成 | 分块读取上传并默认限制 20MB；聚焦测试已通过，8 passed；完整后端测试 `python -m pytest -q` 已通过，265 passed |
+| 2026-05-15 | SEC-008 Token 存储与浏览器安全加固 | 已完成 | 增加 CSP、点击劫持、MIME、来源和权限策略安全头；聚焦测试 `tests/test_security_headers.py -q` 已通过 |
