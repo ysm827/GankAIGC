@@ -41,6 +41,17 @@ const ApiSettingsPage = () => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const getErrorMessage = (error, fallback) => {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    if (detail?.message) {
+      return detail.message;
+    }
+    return fallback;
+  };
+
   const handleSave = async (event) => {
     event.preventDefault();
     if (!form.api_key.trim()) {
@@ -59,7 +70,7 @@ const ApiSettingsPage = () => {
       setForm((current) => ({ ...current, api_key: '' }));
       toast.success('API 配置已保存');
     } catch (error) {
-      toast.error(error.response?.data?.detail || '保存失败');
+      toast.error(getErrorMessage(error, '保存失败'));
     } finally {
       setLoading(false);
     }
@@ -67,10 +78,10 @@ const ApiSettingsPage = () => {
 
   const handleTest = async () => {
     try {
-      await userAPI.testProviderConfig();
-      toast.success('配置可读取，连接测试已通过基础校验');
+      const response = await userAPI.testProviderConfig();
+      toast.success(response.data?.message || 'API 连接测试通过');
     } catch (error) {
-      toast.error(error.response?.data?.detail || '请先保存完整 API 配置');
+      toast.error(getErrorMessage(error, '请先保存完整 API 配置'));
     }
   };
 

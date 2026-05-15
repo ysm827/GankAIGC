@@ -377,3 +377,54 @@ async def test_model_connection(stage: str) -> Dict[str, Any]:
             "base_url": config["base_url"],
             "message": _classify_model_test_error(exc),
         }
+
+
+async def test_provider_model_connection(provider_config: Dict[str, Optional[str]]) -> Dict[str, Any]:
+    stage = "provider"
+    label = "自带 API"
+    try:
+        model = _normalize_model(provider_config.get("polish_model") or provider_config.get("enhance_model"))
+        api_key = _normalize_api_key(provider_config.get("api_key"))
+        base_url = _normalize_base_url(provider_config.get("base_url"))
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": label,
+            "model": None,
+            "base_url": None,
+            "message": str(exc),
+        }
+
+    try:
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=8,
+            temperature=0,
+        )
+        response_id = getattr(response, "id", None)
+        return {
+            "ok": True,
+            "stage": stage,
+            "label": label,
+            "model": model,
+            "base_url": base_url,
+            "message": "API 连接测试通过",
+            "response_id": response_id,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": label,
+            "model": model,
+            "base_url": base_url,
+            "message": _classify_model_test_error(exc),
+        }

@@ -1,4 +1,5 @@
 import socket
+from types import SimpleNamespace
 
 from cryptography.fernet import Fernet
 
@@ -204,6 +205,83 @@ def test_provider_config_rejects_local_http_proxy_when_server_is_exposed(client,
         assert db.query(UserProviderConfig).filter(UserProviderConfig.user_id == user_id).first() is None
     finally:
         db.close()
+
+
+def test_provider_config_test_makes_real_model_request(client, monkeypatch):
+    import app.services.operations_service as operations_service
+
+    calls = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(id="chatcmpl-test")
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(operations_service, "AsyncOpenAI", FakeAsyncOpenAI)
+    _allow_public_model_url_dns(monkeypatch)
+    _, token = _create_user()
+    client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.example/v1/",
+            "api_key": "sk-test-secret",
+            "polish_model": "gpt-5.4",
+            "enhance_model": "gpt-5.4",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    response = client.post("/api/user/provider-config/test", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["message"] == "API 连接测试通过"
+    assert calls == [
+        {
+            "model": "gpt-5.4",
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 8,
+            "temperature": 0,
+        }
+    ]
+
+
+def test_provider_config_test_rejects_failed_model_request(client, monkeypatch):
+    import app.services.operations_service as operations_service
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            raise RuntimeError("invalid api key")
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(operations_service, "AsyncOpenAI", FakeAsyncOpenAI)
+    _allow_public_model_url_dns(monkeypatch)
+    _, token = _create_user()
+    client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.example/v1/",
+            "api_key": "sk-test-secret",
+            "polish_model": "gpt-5.4",
+            "enhance_model": "gpt-5.4",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    response = client.post("/api/user/provider-config/test", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["ok"] is False
+    assert response.json()["detail"]["message"] == "invalid api key"
 
 
 def test_byok_start_requires_saved_user_provider(client):

@@ -21,6 +21,7 @@ from app.schemas import (
     UserInviteResponse,
 )
 from app.services.credit_service import CreditService, serialize_credit_transaction
+from app.services import operations_service
 from app.services.provider_config_service import ProviderConfigService
 
 router = APIRouter(prefix="/user", tags=["user"])
@@ -236,5 +237,8 @@ async def test_provider_config(
     current_user: User = Depends(get_current_user_from_bearer),
     db: Session = Depends(get_db),
 ):
-    ProviderConfigService(db).get_runtime_config(current_user)
-    return {"valid": True}
+    provider_config = ProviderConfigService(db).get_runtime_config(current_user)
+    result = await operations_service.test_provider_model_connection(provider_config)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
