@@ -101,7 +101,7 @@ cd package
 然后用 GitHub CLI 覆盖 Release 附件：
 
 ```powershell
-gh release upload v1.0.8 .\dist\GankAIGC-Windows-OneClick.zip --clobber
+gh release upload v1.0.9 .\dist\GankAIGC-Windows-OneClick.zip --clobber
 ```
 
 GitHub Actions 工作流会在推送 `v*` 标签时构建普通 Windows/Linux/macOS 可执行文件；当前公开 Release 仍优先使用本地构建并上传的 Windows 一键整合包。
@@ -109,8 +109,8 @@ GitHub Actions 工作流会在推送 `v*` 标签时构建普通 Windows/Linux/ma
 ### 标签发布
 
 ```bash
-git tag -a v1.0.8 -m "GankAIGC v1.0.8"
-git push origin v1.0.8
+git tag -a v1.0.9 -m "GankAIGC v1.0.9"
+git push origin v1.0.9
 ```
 
 发布新版本时同时更新：
@@ -151,6 +151,8 @@ Windows 一键整合包：
 源码运行时降 AI 任务会先进入 PostgreSQL 队列。exe / `python main.py` 默认启用 inline worker；Docker 部署则由独立 worker 服务消费队列。worker 会定期刷新心跳，长时间无心跳的处理中任务会自动恢复为排队状态。
 
 Docker 部署默认还会启动 `backup` 服务，每天自动备份 PostgreSQL 到宿主机 `backups/`。后台「运维状态」可以查看数据库、worker、备份、版本更新和初始化检查。
+
+模型 Base URL 默认要求公网 HTTPS 地址。Windows 一键包本机使用 `cliproxy`、`new-api` 等本地代理时，后台把 `SERVER_HOST` 设为 `127.0.0.1`，打开“允许本地 HTTP 模型代理”，Base URL 填 `http://127.0.0.1:端口/v1`。不要写成 `https://127.0.0.1:端口/v1`。公网或 VPS 部署不要开启本地代理模式，必须使用公网 HTTPS Base URL。
 
 Docker 更新采用手动 SSH 模式：后台只检测 GitHub Release 并提供复制命令，不直接控制 Docker，也不挂载 Docker socket。VPS 上升级通常执行：
 

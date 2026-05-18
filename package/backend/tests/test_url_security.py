@@ -88,6 +88,34 @@ def test_external_https_url_rejects_if_any_resolved_address_is_private(monkeypat
         validate_external_https_url("https://api.openai.com/v1")
 
 
+def test_model_base_url_explains_local_https_proxy_setup(monkeypatch):
+    from app.utils.url_security import validate_model_base_url
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("127.0.0.1"))
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_model_base_url("https://127.0.0.1:8317/v1")
+
+    message = str(exc_info.value)
+    assert "本地一键包" in message
+    assert "http://127.0.0.1:端口/v1" in message
+    assert "公网 HTTPS" in message
+
+
+def test_model_base_url_explains_private_network_url_setup(monkeypatch):
+    from app.utils.url_security import validate_model_base_url
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo("192.168.1.10"))
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_model_base_url("https://api.example.com/v1")
+
+    message = str(exc_info.value)
+    assert "本地/内网" in message
+    assert "云端部署" in message
+    assert "公网 HTTPS" in message
+
+
 def test_external_https_url_rejects_unresolvable_hostname(monkeypatch):
     from app.utils.url_security import validate_external_https_url
 
@@ -114,8 +142,9 @@ def test_model_base_url_rejects_local_http_proxy_by_default(monkeypatch):
     monkeypatch.setattr(config_module.settings, "ALLOW_LOCAL_MODEL_PROXY", False, raising=False)
     monkeypatch.setattr(config_module.settings, "SERVER_HOST", "127.0.0.1", raising=False)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc_info:
         validate_model_base_url("http://127.0.0.1:8317/v1")
+    assert "打开本地模型代理" in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -142,8 +171,9 @@ def test_model_base_url_rejects_local_http_proxy_when_server_is_exposed(monkeypa
     monkeypatch.setattr(config_module.settings, "ALLOW_LOCAL_MODEL_PROXY", True, raising=False)
     monkeypatch.setattr(config_module.settings, "SERVER_HOST", "0.0.0.0", raising=False)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc_info:
         validate_model_base_url("http://127.0.0.1:8317/v1")
+    assert "SERVER_HOST=127.0.0.1" in str(exc_info.value)
 
 
 def test_model_base_url_uses_hot_reloaded_server_host(monkeypatch):

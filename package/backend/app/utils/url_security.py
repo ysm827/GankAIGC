@@ -5,6 +5,11 @@ from urllib.parse import urlparse
 
 LOCAL_MODEL_PROXY_HOSTS = {"127.0.0.1", "localhost", "::1", "host.docker.internal"}
 LOCAL_SERVER_HOSTS = {"127.0.0.1", "localhost", "::1"}
+LOCAL_PROXY_HELP = (
+    "你正在使用本地/内网模型地址。若是 Windows 本地一键包本机使用，请将 SERVER_HOST=127.0.0.1，"
+    "打开本地模型代理，并使用 http://127.0.0.1:端口/v1。"
+    "若是云端部署，请使用公网 HTTPS Base URL。"
+)
 
 
 def _parse_ip_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
@@ -74,7 +79,7 @@ def validate_external_https_url(value: str) -> str:
 
     for address in resolved_addresses:
         if _is_disallowed_address(address):
-            raise ValueError("Base URL 必须解析到公网 IP，不能指向内网、本机或云元数据地址")
+            raise ValueError(LOCAL_PROXY_HELP)
 
     return normalized
 
@@ -120,11 +125,17 @@ def _validate_local_model_proxy_url(
             server_host = settings.SERVER_HOST
 
     if not allow_local_model_proxy:
-        raise ValueError("Base URL 本地代理未启用")
+        raise ValueError(
+            "Base URL 本地代理未启用。若是 Windows 一键包本机使用，请打开本地模型代理；"
+            "若是云端部署，请使用公网 HTTPS Base URL。"
+        )
 
     normalized_server_host = (server_host or "").strip().rstrip(".").lower()
     if normalized_server_host not in LOCAL_SERVER_HOSTS:
-        raise ValueError("Base URL 本地代理只允许在 SERVER_HOST 为 127.0.0.1、localhost 或 ::1 时使用")
+        raise ValueError(
+            "Base URL 本地代理只允许在 SERVER_HOST=127.0.0.1、localhost 或 ::1 时使用。"
+            "公网或 0.0.0.0 部署请改用公网 HTTPS Base URL。"
+        )
 
     return normalized
 

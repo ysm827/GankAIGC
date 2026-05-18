@@ -5,7 +5,7 @@ import sys
 
 DEFAULT_SECRET_KEY = "your-secret-key-change-this-in-production"
 DEFAULT_ADMIN_PASSWORD = "admin123"
-DEFAULT_APP_VERSION = "1.0.8"
+DEFAULT_APP_VERSION = "1.0.9"
 
 
 def _normalize_app_version(value: str) -> str:

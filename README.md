@@ -232,8 +232,8 @@ EMOTION_API_KEY=你的API密钥
 EMOTION_BASE_URL=https://api.openai.com/v1
 ```
 
-如果你在本机使用 `cliproxy`、`new-api` 这类本地代理，并且地址是
-`http://127.0.0.1:8317/v1` 这种 HTTP 地址，需要同时满足：
+如果你在 Windows 一键包或本机源码运行时使用 `cliproxy`、`new-api` 这类本地代理，
+Base URL 请使用 `http://127.0.0.1:8317/v1` 这种 HTTP 地址，并同时满足：
 
 ```env
 SERVER_HOST=127.0.0.1
@@ -242,6 +242,10 @@ POLISH_BASE_URL=http://127.0.0.1:8317/v1
 ```
 
 修改 `SERVER_HOST` 或 `ALLOW_LOCAL_MODEL_PROXY` 后建议重启服务；本地代理安全边界按服务启动时的绑定地址判断。
+
+不要把本机代理写成 `https://127.0.0.1:8317/v1`。本地代理模式只放行
+`http://127.0.0.1:端口/v1`、`http://localhost:端口/v1`、`http://[::1]:端口/v1`
+或本地 Docker 场景的 `http://host.docker.internal:端口/v1`。
 
 本地 Docker 访问宿主机代理时，Base URL 可写成
 `http://host.docker.internal:8317/v1`。公网或 VPS 部署不要开启本地代理模式；
@@ -607,6 +611,12 @@ docker exec gankaigc-postgres rm "/tmp/$file"
 ### 用户无法使用自带 API？
 
 确认用户已保存 Base URL、API Key 和模型名称，并且服务端配置了有效的 `ENCRYPTION_KEY`。
+
+如果提示“你正在使用本地/内网模型地址”，按部署方式处理：
+
+- Windows 一键包本机使用：后台把 `SERVER_HOST` 改为 `127.0.0.1`，打开“允许本地 HTTP 模型代理”，Base URL 填 `http://127.0.0.1:端口/v1`。
+- 本地 Docker 测试：Base URL 填 `http://host.docker.internal:端口/v1`。
+- 云端/VPS/公网部署：不要填 `127.0.0.1`、`localhost`、`192.168.x.x`、`10.x.x.x` 或 `172.16-31.x.x`，必须使用公网 HTTPS 地址，例如 `https://proxy.example.com/v1`。
 
 ### AI 调用失败？
 

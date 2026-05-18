@@ -153,6 +153,10 @@ const ConfigManager = ({ adminToken }) => {
   const localProxyEnabledSafely =
     formData.ALLOW_LOCAL_MODEL_PROXY && ['127.0.0.1', 'localhost', '::1'].includes((formData.SERVER_HOST || '').trim().toLowerCase());
 
+  const modelBaseUrlHelp = localProxyEnabledSafely
+    ? '公网服务填 https://api.openai.com/v1；本机代理填 http://127.0.0.1:端口/v1。'
+    : '公网或 0.0.0.0 部署必须填公网 HTTPS 地址，例如 https://api.openai.com/v1。';
+
   const renderTestButton = (stage) => (
     <button
       type="button"
@@ -243,7 +247,7 @@ const ConfigManager = ({ adminToken }) => {
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
             />
             <p className="mt-1.5 text-xs text-gray-400">
-              API 服务地址，必须以 /v1 结尾。
+              {modelBaseUrlHelp}
             </p>
           </div>
         </div>
@@ -309,7 +313,7 @@ const ConfigManager = ({ adminToken }) => {
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
             />
             <p className="mt-1.5 text-xs text-gray-400">
-              可与润色模型使用相同的地址
+              {modelBaseUrlHelp}
             </p>
           </div>
         </div>
@@ -374,6 +378,9 @@ const ConfigManager = ({ adminToken }) => {
               placeholder="https://api.openai.com/v1"
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
             />
+            <p className="mt-1.5 text-xs text-gray-400">
+              {modelBaseUrlHelp}
+            </p>
           </div>
         </div>
       </div>
@@ -489,7 +496,7 @@ const ConfigManager = ({ adminToken }) => {
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-900">本地模型代理</h3>
-            <p className="text-xs text-gray-400">只允许本机运行时使用 http://127.0.0.1:端口/v1</p>
+            <p className="text-xs text-gray-400">Windows 一键包本机代理填 http://127.0.0.1:端口/v1</p>
           </div>
         </div>
 
@@ -506,7 +513,7 @@ const ConfigManager = ({ adminToken }) => {
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm font-mono"
             />
             <p className="mt-1.5 text-xs text-gray-400">
-              公网部署通常是 0.0.0.0；本机专用可设为 127.0.0.1
+              云端/公网部署保持 0.0.0.0；Windows 一键包本机专用可设为 127.0.0.1
             </p>
           </div>
 
@@ -516,7 +523,7 @@ const ConfigManager = ({ adminToken }) => {
                 允许本地 HTTP 模型代理
               </label>
               <p className="text-xs text-gray-400 mt-1">
-                仅当 SERVER_HOST 为 127.0.0.1、localhost 或 ::1 时生效
+                仅当 SERVER_HOST 为 127.0.0.1、localhost 或 ::1 时生效；云端不要开启
               </p>
             </div>
             <button
@@ -544,8 +551,8 @@ const ConfigManager = ({ adminToken }) => {
           : 'border-amber-100 bg-amber-50/70 text-amber-800'
           }`}>
           {localProxyEnabledSafely
-            ? '当前会允许 127.0.0.1、localhost、::1、host.docker.internal 的显式端口 HTTP 模型代理。'
-            : '当前不会放行本地 HTTP 模型代理；公网或 0.0.0.0 部署必须使用公网 HTTPS Base URL。'}
+            ? '当前会允许本机 HTTP 模型代理。Base URL 请填 http://127.0.0.1:端口/v1，不要填 https://127.0.0.1。'
+            : '当前不会放行本地 HTTP 模型代理；公网或 0.0.0.0 部署必须使用公网 HTTPS Base URL，不能填 127.0.0.1、localhost 或内网 IP。'}
         </div>
       </div>
 
@@ -629,7 +636,7 @@ const ConfigManager = ({ adminToken }) => {
               placeholder="https://api.openai.com/v1"
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
             />
-            <p className="mt-1.5 text-xs text-gray-400">可与其他模型使用相同的地址</p>
+            <p className="mt-1.5 text-xs text-gray-400">{modelBaseUrlHelp}</p>
           </div>
 
           <div className="md:col-span-2 flex justify-end">

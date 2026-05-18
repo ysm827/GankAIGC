@@ -55,7 +55,7 @@ const ACCOUNT_PANEL_TABS = [
   { id: 'creditTransactions', label: '啤酒流水' },
   { id: 'apiConfigs', label: 'API 配置' },
 ];
-const CURRENT_APP_VERSION = window.__GANKAIGC_RUNTIME__?.appVersion || import.meta.env.VITE_APP_VERSION || 'v1.0.8';
+const CURRENT_APP_VERSION = window.__GANKAIGC_RUNTIME__?.appVersion || import.meta.env.VITE_APP_VERSION || 'v1.0.9';
 
 const formatAdminNumber = (value) => Number(value || 0).toLocaleString();
 
