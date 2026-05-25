@@ -123,6 +123,7 @@ GankAIGC/
 | `python main.py` 源码运行 | 本机开发、调试、个人使用 | 需要 Python 和 PostgreSQL，可用 Docker 只启动数据库 |
 | Docker Compose 部署 | 本机 Docker、VPS、正式上线 | 一次启动 Web、worker、PostgreSQL 和自动备份 |
 | Windows 一键整合包 | Windows 新手直接使用 | Release 下载后解压，双击 `start.bat`，内置便携 PostgreSQL |
+| 云端网站运行 | 不想自行部署、直接体验 | 访问云端网站，邀请码进群获得 |
 
 Windows 用户如果只想直接使用，优先下载：
 
@@ -448,6 +449,15 @@ GankAIGC-Windows-OneClick.zip
 5. 停止服务双击 `stop.bat`。
 
 > 注意：不要删除 `data/`，否则用户、邀请码、兑换码、会话等数据会丢失。
+
+</details>
+
+<details>
+<summary><strong>4. 云端网站运行</strong></summary>
+
+网址：<https://ga.mumubuku.top>
+
+邀请码进群获得，QQ群：`1071743320`
 
 </details>
 
