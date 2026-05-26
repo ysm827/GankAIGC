@@ -432,6 +432,10 @@ docker compose --env-file .env.docker up -d --build
 
 > 注意：解压路径必须全是英文，路径中不要包含中文、空格或特殊符号。
 
+> **重要：一键包本地部署后，你自己就是管理员。**
+> 用户注册需要邀请码；邀请码需要登录管理后台后，在「用户管理」→「邀请码管理」里自己生成。
+> 后台账号密码首次启动会显示在窗口里，也会保存到 `logs/first-run-admin.txt`。
+
 #### 直接下载使用
 
 进入 [Releases](https://github.com/mumu-0922/GankAIGC/releases/latest)，下载：
