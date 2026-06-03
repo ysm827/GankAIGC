@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+﻿from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import func, and_, case
 from typing import List, Optional
@@ -174,6 +174,8 @@ async def start_optimization(
     # 根据处理模式设置初始阶段
     if data.processing_mode == 'emotion_polish':
         initial_stage = 'emotion_polish'
+    elif data.processing_mode == 'ai_detect_reduce':
+        initial_stage = 'ai_detect_reduce'
     elif data.processing_mode == 'paper_enhance':
         initial_stage = 'enhance'
     else:

@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+﻿from typing import List, Dict, Optional
 import json
 import re
 from openai import AsyncOpenAI, PermissionDeniedError, AuthenticationError, RateLimitError
@@ -469,6 +469,23 @@ class AIService:
             self._log_exception("AI ERROR", e)
             raise Exception(f"AI调用失败: {str(e)}")
     
+
+    async def generate(self, prompt: str):
+        """通用文本生成，用于降AI等场景"""
+        import json as _json
+        reasoning_effort = None
+        if settings.THINKING_MODE_ENABLED:
+            reasoning_effort = settings.THINKING_MODE_EFFORT
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            temperature=0.7,
+            reasoning_effort=reasoning_effort,
+        )
+        return (response.choices[0].message.content or '').strip()
     async def polish_text(
         self,
         text: str,

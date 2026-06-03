@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+﻿from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Any, Mapping, Optional
 import os
 import sys
@@ -136,6 +136,14 @@ class Settings(BaseSettings):
     EMOTION_MODEL: Optional[str] = None
     EMOTION_API_KEY: Optional[str] = None
     EMOTION_BASE_URL: Optional[str] = None
+
+    # 朱雀AI检测配置
+    ZHUQUE_CDP_PORT: int = 9223
+    ZHUQUE_DETECT_THRESHOLD: float = 20.0
+    ZHUQUE_MAX_REDUCE_ROUNDS: int = 3
+    ZHUQUE_FREE_USES_PER_USER: int = 20
+    ZHUQUE_DETECT_TIMEOUT: int = 60
+    ZHUQUE_DETECT_INTERVAL: float = 2.0
     
     # 流式输出配置
     USE_STREAMING: bool = False  # 默认使用非流式模式，避免被API阻止

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float
+﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.config import settings
@@ -23,6 +23,10 @@ class User(Base):
     usage_limit = Column(Integer, default=settings.DEFAULT_USAGE_LIMIT)
     usage_count = Column(Integer, default=0)
     token_version = Column(Integer, default=0)
+
+    # 朱雀检测配额
+    zhuque_free_uses_remaining = Column(Integer, default=20)
+    zhuque_total_uses = Column(Integer, default=0)
     
     # 关系
     sessions = relationship("OptimizationSession", back_populates="user")
@@ -147,6 +151,13 @@ class OptimizationSegment(Base):
     completed_at = Column(DateTime, nullable=True)
     
     # 关系
+
+    # 朱雀检测
+    zhuque_detect_rate = Column(Float, nullable=True)
+    zhuque_detect_result = Column(Text, nullable=True)
+    zhuque_detect_count = Column(Integer, default=0)
+    zhuque_reduce_attempt = Column(Integer, default=0)
+    zhuque_reduced_text = Column(Text, nullable=True)
     session = relationship("OptimizationSession", back_populates="segments")
 
 

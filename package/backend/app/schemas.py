@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+﻿from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
@@ -243,6 +243,12 @@ class SegmentResponse(BaseModel):
     is_title: bool
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+    # 朱雀检测
+    zhuque_detect_rate: Optional[float] = None
+    zhuque_detect_count: int = 0
+    zhuque_reduce_attempt: int = 0
+    zhuque_reduced_text: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 

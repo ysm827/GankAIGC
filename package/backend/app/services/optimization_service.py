@@ -1,5 +1,6 @@
-import json
+﻿import json
 import asyncio
+import logging
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from app.models.models import (
@@ -158,6 +159,8 @@ class OptimizationService:
                 # 论文润色 + 论文增强
                 await self._process_stage("polish")
                 await self._process_stage("enhance")
+            elif processing_mode == 'ai_detect_reduce':
+                await self._process_ai_detect_reduce()
             else:
                 raise ValueError(f"不支持的处理模式: {processing_mode}")
             
@@ -180,6 +183,116 @@ class OptimizationService:
             # 清理 AI 服务资源
             self._cleanup_ai_services()
     
+
+
+    async def _process_ai_detect_reduce(self):
+        """朱雀检测+降AI管线"""
+        from app.services.zhuque_service import zhuque_service
+        from app.services.credit_service import consume_zhuque_use
+
+        segments = self.db.query(OptimizationSegment).filter(
+            OptimizationSegment.session_id == self.session_obj.id
+        ).order_by(OptimizationSegment.segment_index).all()
+
+        threshold = settings.ZHUQUE_DETECT_THRESHOLD
+        max_rounds = settings.ZHUQUE_MAX_REDUCE_ROUNDS
+
+        # Step 1: 批量检测所有段落
+        async def progress_callback(idx, total, result):
+            self.session_obj.current_position = idx
+            progress = (idx / total) * 40  # detect phase: 0-40%
+            self.session_obj.progress = min(progress, 40.0)
+            self.db.commit()
+            await stream_manager.broadcast(self.session_obj.session_id, {
+                "type": "zhuque_detect",
+                "segment_index": idx,
+                "total": total,
+                "rate": result.get("rate", 0),
+                "success": result.get("success", False),
+            })
+
+        for i, seg in enumerate(segments):
+            # 消耗免费检测配额
+            user = self.db.query(User).filter(User.id == self.session_obj.user_id).first()
+            if user:
+                consume_zhuque_use(user, self.db)
+            try:
+                result = await zhuque_service.detect(seg.original_text)
+                seg.zhuque_detect_rate = result.get('rate', 0) if result.get('success') else None
+                seg.zhuque_detect_result = json.dumps(result, ensure_ascii=False)
+                seg.zhuque_detect_count = 1
+                self.db.commit()
+                await stream_manager.broadcast(self.session_obj.session_id, {
+                    "type": "zhuque_detect",
+                    "segment_index": i,
+                    "total": len(segments),
+                    "rate": result.get("rate", 0),
+                    "success": result.get("success", False),
+                })
+            except Exception as e:
+                logger.warning("Segment %s detect failed: %s", i, e)
+                seg.zhuque_detect_rate = None
+                seg.zhuque_detect_result = json.dumps({"error": str(e)})
+                self.db.commit()
+            interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
+            if interval > 0 and i < len(segments) - 1:
+                await asyncio.sleep(interval)
+
+        # Step 2: 筛选高AI段落
+        high_ai = [s for s in segments if s.zhuque_detect_rate is not None and s.zhuque_detect_rate > threshold]
+        if not high_ai:
+            logger.info("No high-AI segments detected, skipping reduce phase")
+            return
+
+        # Step 3-5: 循环降AI+复检
+        self._init_ai_services()  # Init LLM service for reduce
+
+        for round_num in range(max_rounds):
+            round_segments = [s for s in high_ai if s.zhuque_detect_rate is not None and s.zhuque_detect_rate > threshold]
+            if not round_segments:
+                break
+
+            for idx, seg in enumerate(round_segments):
+                # 消耗检测配额
+                user = self.db.query(User).filter(User.id == self.session_obj.user_id).first()
+                if user:
+                    consume_zhuque_use(user, self.db)
+
+                input_text = seg.zhuque_reduced_text or seg.original_text
+                prompt = REDUCE_AI_PROMPT.format(text=input_text)
+
+                try:
+                    reduced = await self.polish_service.generate(prompt)
+                    seg.zhuque_reduced_text = reduced
+                    seg.zhuque_reduce_attempt = round_num + 1
+                    self.db.commit()
+
+                    # 复检
+                    recheck = await zhuque_service.detect(reduced)
+                    seg.zhuque_detect_rate = recheck.get('rate', 0) if recheck.get('success') else seg.zhuque_detect_rate
+                    seg.zhuque_detect_result = json.dumps(recheck, ensure_ascii=False)
+                    seg.zhuque_detect_count += 1
+                    self.db.commit()
+
+                    # SSE推送
+                    progress = 40 + ((round_num * len(round_segments) + idx + 1) / (max_rounds * len(round_segments))) * 60
+                    self.session_obj.progress = min(progress, 100.0)
+                    self.session_obj.current_position = idx
+                    self.db.commit()
+                    await stream_manager.broadcast(self.session_obj.session_id, {
+                        "type": "zhuque_reduce",
+                        "round": round_num + 1,
+                        "segment_index": seg.segment_index,
+                        "old_rate": result.get("rate", 0),
+                        "new_rate": recheck.get("rate", 0),
+                    })
+                except Exception as e:
+                    logger.warning("Segment %s reduce round %s failed: %s", seg.segment_index, round_num + 1, e)
+
+                interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
+                if interval > 0 and idx < len(round_segments) - 1:
+                    await asyncio.sleep(interval)
+
     def _cleanup_ai_services(self):
         """清理 AI 服务资源"""
         # 将服务引用设置为 None，让 Python 的垃圾回收处理
