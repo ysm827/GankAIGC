@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -15,7 +15,7 @@ const PROCESSING_MODE_STAGE_MULTIPLIERS = {
   paper_polish: 1,
   paper_enhance: 1,
   paper_polish_enhance: 2,
-  emotion_polish: 1,
+  ai_detect_reduce: 1,
 };
 
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
@@ -620,7 +620,8 @@ const WorkspacePage = () => {
                     { id: 'paper_polish', title: '论文润色', desc: '提升学术表达质量' },
                     { id: 'paper_enhance', title: '论文增强', desc: '直接提升原创性' },
                     { id: 'paper_polish_enhance', title: '润色 + 增强', desc: '两阶段完整处理' },
-                    { id: 'emotion_polish', title: '感情文章润色', desc: '自然、人性化表达' }
+                    { id: 'emotion_polish', title: '感情文章润色', desc: '自然、人性化表达' },
+                    { id: 'ai_detect_reduce', title: 'AI检测 + 降重', desc: '检测AI浓度后自动降重' },
                   ].map((mode) => (
                     <label
                       key={mode.id}
@@ -771,6 +772,7 @@ const WorkspacePage = () => {
                   const getStageName = (stage) => {
                     if (stage === 'polish') return '论文润色';
                     if (stage === 'emotion_polish') return '感情文章润色';
+                    if (stage === 'ai_detect_reduce') return 'AI检测 + 降重';
                     if (stage === 'enhance') return '原创性增强';
                     return stage;
                   };
