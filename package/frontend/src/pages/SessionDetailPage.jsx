@@ -19,6 +19,7 @@ const SessionDetailPage = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportFormat, setExportFormat] = useState('docx');
   const [resultViewMode, setResultViewMode] = useState('enhanced');
+  const [zhuqueLiveEvents, setZhuqueLiveEvents] = useState([]);
 
   useEffect(() => {
     let eventSource = null;
@@ -40,6 +41,8 @@ const SessionDetailPage = () => {
           const data = JSON.parse(event.data);
           if (data.type === 'content') {
             handleStreamUpdate(data);
+          } else if (data.type === 'zhuque_detect' || data.type === 'zhuque_reduce') {
+            setZhuqueLiveEvents((current) => [...current.slice(-9), data]);
           } else if (data.type === 'history_compressed') {
             toast.info(data.message);
           }
@@ -200,6 +203,20 @@ const SessionDetailPage = () => {
     }
   };
 
+  const parseZhuqueAgentTrace = (rawTrace) => {
+    if (!rawTrace) {
+      return null;
+    }
+    if (typeof rawTrace === 'object') {
+      return rawTrace;
+    }
+    try {
+      return JSON.parse(rawTrace);
+    } catch (error) {
+      return { version: 1, events: [], final: { diagnosis: String(rawTrace) } };
+    }
+  };
+
   const getZhuqueReport = () => {
     if (session?.processing_mode !== 'ai_detect_reduce') {
       return null;
@@ -303,6 +320,7 @@ const SessionDetailPage = () => {
   };
 
   const zhuqueReport = getZhuqueReport();
+  const zhuqueAgentTrace = parseZhuqueAgentTrace(session?.zhuque_agent_trace);
   const zhuqueThreshold = 20;
   const zhuquePassed = zhuqueReport?.finalRate !== null && zhuqueReport?.finalRate <= zhuqueThreshold;
   const zhuqueLabelsRatio = formatLabelsRatio(zhuqueReport?.result?.labels_ratio);
@@ -538,6 +556,74 @@ const SessionDetailPage = () => {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {session?.processing_mode === 'ai_detect_reduce' && (zhuqueAgentTrace || zhuqueLiveEvents.length > 0) && (
+                <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+                  <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                        <Activity className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-[16px] font-semibold text-black">Agent 决策轨迹</h3>
+                        <p className="text-[12px] text-ios-gray mt-0.5">
+                          记录朱雀检测、策略选择、命中段落和风险率变化
+                        </p>
+                      </div>
+                    </div>
+                    {zhuqueAgentTrace?.final?.diagnosis && (
+                      <div className="rounded-full bg-amber-50 px-3 py-1.5 text-[13px] font-semibold text-amber-700">
+                        诊断建议：{zhuqueAgentTrace.final.diagnosis}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-5 space-y-4">
+                    {(zhuqueAgentTrace?.events || []).map((event, index) => (
+                      <div key={`${event.type}-${event.round}-${index}`} className="rounded-xl border border-gray-100 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <p className="text-[14px] font-semibold text-black">
+                            {event.type === 'detect' ? '全文检测' : `第 ${event.round} 轮降 AI`}
+                          </p>
+                          {event.strategy && (
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-ios-blue">
+                              {event.strategy}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 text-[13px] text-gray-600 md:grid-cols-3">
+                          {event.rate !== undefined && <p>风险率：{formatRate(event.rate)}</p>}
+                          {(event.old_rate !== undefined || event.new_rate !== undefined) && (
+                            <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
+                          )}
+                          {event.selected_segment_indices && (
+                            <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
+                          )}
+                          {event.decision && <p>决策：{event.decision}</p>}
+                        </div>
+                        {event.message && (
+                          <p className="mt-2 text-[13px] leading-6 text-gray-500">{event.message}</p>
+                        )}
+                      </div>
+                    ))}
+
+                    {zhuqueLiveEvents.length > 0 && (
+                      <div className="rounded-xl border border-purple-100 bg-purple-50/50 px-4 py-3">
+                        <p className="text-[14px] font-semibold text-black mb-2">实时 Agent 状态</p>
+                        <div className="space-y-1 text-[13px] text-gray-700">
+                          {zhuqueLiveEvents.map((event, index) => (
+                            <p key={`${event.type}-${index}`}>
+                              {event.type === 'zhuque_detect'
+                                ? `朱雀检测：${formatRate(event.rate)}`
+                                : `朱雀降重：第 ${event.round} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}`}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

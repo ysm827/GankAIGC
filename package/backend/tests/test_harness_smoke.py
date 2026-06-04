@@ -36,9 +36,11 @@ def test_startup_initializes_database_and_system_prompts(client):
 def test_startup_schema_includes_zhuque_columns(client):
     inspector = inspect(engine)
     user_columns = {column["name"] for column in inspector.get_columns("users")}
+    session_columns = {column["name"] for column in inspector.get_columns("optimization_sessions")}
     segment_columns = {column["name"] for column in inspector.get_columns("optimization_segments")}
 
     assert {"zhuque_free_uses_remaining", "zhuque_total_uses"}.issubset(user_columns)
+    assert {"zhuque_agent_trace"}.issubset(session_columns)
     assert {
         "zhuque_detect_rate",
         "zhuque_detect_result",

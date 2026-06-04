@@ -57,6 +57,7 @@ def test_alembic_upgrade_creates_current_schema():
         "project_id",
         "task_title",
         "charged_credits",
+        "zhuque_agent_trace",
         "queued_at",
         "started_at",
         "finished_at",

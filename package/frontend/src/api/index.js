@@ -128,6 +128,14 @@ export const optimizationAPI = {
     api.get('/optimization/zhuque/browser/status', {
       timeout: 5000, // 5秒超时
     }),
+  getZhuqueReadiness: () =>
+    api.get('/optimization/zhuque/readiness', {
+      timeout: 5000, // 5秒超时
+    }),
+  preflightZhuqueTask: (data) =>
+    api.post('/optimization/zhuque/preflight', data, {
+      timeout: 10000, // 10秒超时
+    }),
   getStreamUrl: (sessionId) => {
     const userToken = localStorage.getItem('userToken');
     const baseUrl = api.defaults.baseURL || '/api';

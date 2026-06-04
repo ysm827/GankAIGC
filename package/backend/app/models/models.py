@@ -117,6 +117,7 @@ class OptimizationSession(Base):
     charged_credits = Column(Integer, default=0)
     project_id = Column(Integer, ForeignKey("paper_projects.id"), nullable=True, index=True)
     task_title = Column(String(255), nullable=True)
+    zhuque_agent_trace = Column(Text, nullable=True)
     
     # 关系
     user = relationship("User", back_populates="sessions")

@@ -14,6 +14,24 @@ async def _noop_run_optimization(*args, **kwargs):
     return None
 
 
+class ReadyZhuqueService:
+    async def readiness(self, text=None):
+        return {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
+            "remaining_uses": 20,
+            "button_enabled": True,
+            "text_length": len(text or ""),
+            "text_length_ok": True,
+            "estimated_first_round_credits": 10,
+            "estimated_max_round_credits": 50,
+            "message": "朱雀已就绪",
+            "actions": [],
+        }
+
+
 def _allow_public_model_url_dns(monkeypatch):
     monkeypatch.setattr(
         socket,
@@ -175,6 +193,7 @@ def test_ai_detect_reduce_start_does_not_hold_platform_credit(client, monkeypatc
     user_id, token = _create_user(credit_balance=0)
     monkeypatch.setattr(optimization, "BackgroundTasks", NoRunBackgroundTasks)
     monkeypatch.setattr(optimization, "run_optimization", _noop_run_optimization)
+    monkeypatch.setattr(optimization, "zhuque_service", ReadyZhuqueService())
 
     response = client.post(
         "/api/optimization/start",

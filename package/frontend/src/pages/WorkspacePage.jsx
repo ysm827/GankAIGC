@@ -195,6 +195,7 @@ const WorkspacePage = () => {
   const [isLaunchingZhuque, setIsLaunchingZhuque] = useState(false);
   const [zhuqueLaunchInfo, setZhuqueLaunchInfo] = useState(null);
   const [zhuqueBrowserStatus, setZhuqueBrowserStatus] = useState(null);
+  const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
   const navigate = useNavigate();
 
   const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -291,6 +292,25 @@ const WorkspacePage = () => {
     }
   }, []);
 
+  const loadZhuqueReadiness = useCallback(async () => {
+    try {
+      const response = await optimizationAPI.getZhuqueReadiness();
+      setZhuqueReadiness(response.data);
+    } catch (error) {
+      setZhuqueReadiness({
+        ready: false,
+        connected: false,
+        page_found: false,
+        has_token: false,
+        remaining_uses: -1,
+        button_enabled: false,
+        text_length_ok: true,
+        message: '无法检测朱雀就绪状态',
+        actions: ['点击启动朱雀浏览器'],
+      });
+    }
+  }, []);
+
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
       const response = await optimizationAPI.getSessionProgress(sessionId);
@@ -360,9 +380,13 @@ const WorkspacePage = () => {
     }
 
     loadZhuqueBrowserStatus();
-    const interval = setInterval(loadZhuqueBrowserStatus, 5000);
+    loadZhuqueReadiness();
+    const interval = setInterval(() => {
+      loadZhuqueBrowserStatus();
+      loadZhuqueReadiness();
+    }, 5000);
     return () => clearInterval(interval);
-  }, [loadZhuqueBrowserStatus, processingMode]);
+  }, [loadZhuqueBrowserStatus, loadZhuqueReadiness, processingMode]);
 
   const handleCreateProject = useCallback(async (e) => {
     e.preventDefault();
@@ -471,6 +495,25 @@ const WorkspacePage = () => {
 
     try {
       setIsSubmitting(true);
+      if (processingMode === 'ai_detect_reduce') {
+        const preflightResponse = await optimizationAPI.preflightZhuqueTask({
+          original_text: text,
+          processing_mode: processingMode,
+          billing_mode: billingMode,
+        });
+        const preflight = preflightResponse.data;
+        setZhuqueReadiness(preflight);
+        if (!preflight.ready) {
+          toast.error(preflight.message || '朱雀尚未就绪');
+          return;
+        }
+        if (preflight.estimated_max_round_credits > 0) {
+          toast(`朱雀已就绪，预计最多消耗 ${preflight.estimated_max_round_credits} 啤酒（仅实际降重时扣）`);
+        } else {
+          toast.success('朱雀已就绪');
+        }
+      }
+
       const response = await optimizationAPI.startOptimization({
         original_text: text,
         processing_mode: processingMode,
@@ -502,13 +545,14 @@ const WorkspacePage = () => {
       const response = await optimizationAPI.startZhuqueBrowser();
       setZhuqueLaunchInfo(response.data);
       await loadZhuqueBrowserStatus();
+      await loadZhuqueReadiness();
       toast.success(`已打开朱雀检测浏览器，请保持窗口打开`);
     } catch (error) {
       toast.error(error.response?.data?.detail || '启动朱雀浏览器失败');
     } finally {
       setIsLaunchingZhuque(false);
     }
-  }, [isLaunchingZhuque, loadZhuqueBrowserStatus]);
+  }, [isLaunchingZhuque, loadZhuqueBrowserStatus, loadZhuqueReadiness]);
 
   const handleDeleteSession = useCallback(async (session) => {
     const confirmDelete = window.confirm('确认删除该会话及其结果吗?');
@@ -802,6 +846,38 @@ const WorkspacePage = () => {
                         <p className="mt-1 text-[12px] text-gray-500">
                           已尝试启动：{zhuqueLaunchInfo.url}
                         </p>
+                      )}
+                      {zhuqueReadiness && (
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-gray-600">
+                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
+                            <span className="font-semibold text-gray-800">页面状态：</span>
+                            {zhuqueReadiness.page_found ? '朱雀页面已打开' : '未找到朱雀页面'}
+                          </div>
+                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
+                            <span className="font-semibold text-gray-800">剩余次数：</span>
+                            {zhuqueReadiness.remaining_uses ?? '--'}
+                          </div>
+                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
+                            <span className="font-semibold text-gray-800">文本长度：</span>
+                            {zhuqueReadiness.text_length == null
+                              ? '输入后检查'
+                              : zhuqueReadiness.text_length_ok === false ? '不足 350 字' : '满足检测要求'}
+                          </div>
+                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
+                            <span className="font-semibold text-gray-800">Agent 状态：</span>
+                            {zhuqueReadiness.ready ? '朱雀已就绪' : (zhuqueReadiness.message || '等待就绪')}
+                          </div>
+                          {zhuqueReadiness.estimated_max_round_credits > 0 && (
+                            <div className="col-span-2 rounded-lg bg-amber-50 px-2.5 py-2 text-amber-700">
+                              预计最多消耗 {zhuqueReadiness.estimated_max_round_credits} 啤酒；检测不扣啤酒，仅实际高 AI 段落降重时扣。
+                            </div>
+                          )}
+                          {zhuqueReadiness.actions?.length > 0 && (
+                            <div className="col-span-2 rounded-lg bg-orange-50 px-2.5 py-2 text-orange-700">
+                              建议：{zhuqueReadiness.actions.join('、')}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                     <button

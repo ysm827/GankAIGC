@@ -237,6 +237,10 @@ def _migrate_database_schema():
                     if _add_column_safely(conn, "optimization_sessions", "task_title", "VARCHAR(255)"):
                         print("  ✓ 添加字段: optimization_sessions.task_title")
 
+                if "zhuque_agent_trace" not in columns:
+                    if _add_column_safely(conn, "optimization_sessions", "zhuque_agent_trace", "TEXT"):
+                        print("  ✓ 添加字段: optimization_sessions.zhuque_agent_trace")
+
                 if "emotion_model" not in columns:
                     added = _add_column_safely(conn, "optimization_sessions", "emotion_model", "VARCHAR(100)")
                     _add_column_safely(conn, "optimization_sessions", "emotion_api_key", "VARCHAR(255)")

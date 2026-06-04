@@ -155,6 +155,9 @@ class ZhuqueAPI:
                         var b = document.querySelector('.submit-btn');
                         return b ? b.textContent.trim() : 'NOT FOUND';
                     })(),
+                    page_found: location.href.indexOf('matrix.tencent.com/ai-detect') !== -1,
+                    textarea_present: !!document.querySelector('.el-textarea__inner'),
+                    submit_button_present: !!document.querySelector('.submit-btn'),
                     btn_disabled: (function(){
                         var b = document.querySelector('.submit-btn');
                         return b ? !!b.disabled : null;

@@ -15,9 +15,27 @@ class FakeZhuqueService:
         self.rates = list(rates)
         self.detected_texts = []
         self.start_calls = 0
+        self.readiness_calls = []
 
     async def start(self):
         self.start_calls += 1
+
+    async def readiness(self, text=None):
+        self.readiness_calls.append(text)
+        return {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
+            "remaining_uses": 99,
+            "button_enabled": True,
+            "text_length": len(text or ""),
+            "text_length_ok": len(text or "") >= 350 if text is not None else True,
+            "estimated_first_round_credits": 10,
+            "estimated_max_round_credits": 50,
+            "message": "朱雀已就绪",
+            "actions": [],
+        }
 
     async def detect(self, text):
         self.detected_texts.append(text)
@@ -72,6 +90,22 @@ class UnavailableZhuqueService:
     async def start(self):
         self.start_calls += 1
         raise RuntimeError(f"无法连接Chrome CDP端口 {self.port}。请确保Chrome以 --remote-debugging-port={self.port} 启动")
+
+    async def readiness(self, text=None):
+        return {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": False,
+            "text_length": len(text or ""),
+            "text_length_ok": len(text or "") >= 350 if text is not None else True,
+            "estimated_first_round_credits": 0,
+            "estimated_max_round_credits": 0,
+            "message": f"无法连接 Chrome CDP 端口 {self.port}",
+            "actions": ["点击启动朱雀浏览器"],
+        }
 
     async def detect(self, text):
         self.detect_calls += 1
@@ -441,6 +475,242 @@ def test_zhuque_service_allows_anonymous_page_with_remaining_free_uses(monkeypat
         service._consumer_task = None
 
 
+def test_zhuque_service_readiness_reports_page_state_and_text_length(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    fake_api = StatusOnlyZhuqueAPI(
+        {
+            "url": "https://matrix.tencent.com/ai-detect/",
+            "has_token": False,
+            "remaining_uses": 3,
+            "btn_text": "立即检测(今日剩余3次)",
+            "btn_disabled": False,
+            "textarea_present": True,
+            "submit_button_present": True,
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda cdp_port, debug=False: fake_api)
+    monkeypatch.setattr(zhuque_service_module.settings, "ZHUQUE_CDP_PORT", 9333, raising=False)
+
+    try:
+        result = asyncio.run(service.readiness("短文本"))
+
+        assert result["connected"] is True
+        assert result["page_found"] is True
+        assert result["has_token"] is False
+        assert result["remaining_uses"] == 3
+        assert result["button_enabled"] is True
+        assert result["text_length"] == 3
+        assert result["text_length_ok"] is False
+        assert result["ready"] is False
+        assert "350" in result["message"]
+        assert "补充文本到 350 字以上" in result["actions"]
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+
+
+def test_zhuque_readiness_endpoint_returns_actionable_state(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+
+    class FakeReadyService:
+        async def readiness(self, text=None):
+            return {
+                "ready": False,
+                "connected": True,
+                "page_found": True,
+                "has_token": False,
+                "remaining_uses": 0,
+                "button_enabled": False,
+                "text_length": len(text or ""),
+                "text_length_ok": True,
+                "estimated_first_round_credits": 0,
+                "estimated_max_round_credits": 0,
+                "message": "朱雀次数不足，请登录或切换账号",
+                "actions": ["登录或切换朱雀账号"],
+            }
+
+    monkeypatch.setattr(optimization, "zhuque_service", FakeReadyService())
+
+    response = client.get(
+        "/api/optimization/zhuque/readiness",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["connected"] is True
+    assert body["remaining_uses"] == 0
+    assert "登录或切换朱雀账号" in body["actions"]
+
+
+def test_ai_detect_reduce_start_rejects_short_text_before_creating_session(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    monkeypatch.setattr(optimization.settings, "INLINE_TASK_WORKER_ENABLED", False, raising=False)
+
+    response = client.post(
+        "/api/optimization/start",
+        json={
+            "original_text": "短文本",
+            "processing_mode": "ai_detect_reduce",
+            "billing_mode": "platform",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert "350" in response.json()["detail"]
+
+    db = SessionLocal()
+    try:
+        sessions = db.query(OptimizationSession).filter(OptimizationSession.user_id == user_id).all()
+        transactions = db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).all()
+        assert sessions == []
+        assert transactions == []
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_start_rejects_unready_zhuque_before_creating_session(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    monkeypatch.setattr(optimization.settings, "INLINE_TASK_WORKER_ENABLED", False, raising=False)
+
+    class FakeUnreadyService:
+        async def readiness(self, text=None):
+            return {
+                "ready": False,
+                "connected": False,
+                "page_found": False,
+                "has_token": False,
+                "remaining_uses": -1,
+                "button_enabled": False,
+                "text_length": len(text or ""),
+                "text_length_ok": True,
+                "estimated_first_round_credits": 10,
+                "estimated_max_round_credits": 50,
+                "message": "未连接到 Chrome CDP 端口 9333",
+                "actions": ["点击启动朱雀浏览器"],
+            }
+
+    monkeypatch.setattr(optimization, "zhuque_service", FakeUnreadyService())
+
+    response = client.post(
+        "/api/optimization/start",
+        json={
+            "original_text": "汉" * 500,
+            "processing_mode": "ai_detect_reduce",
+            "billing_mode": "platform",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert "未连接到 Chrome CDP 端口 9333" in response.json()["detail"]
+    assert "启动朱雀浏览器" in response.json()["detail"]
+
+    db = SessionLocal()
+    try:
+        assert db.query(OptimizationSession).filter(OptimizationSession.user_id == user_id).count() == 0
+        assert db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).count() == 0
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_byok_requires_provider_before_zhuque_preflight(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    readiness_calls = []
+
+    class FakeReadyService:
+        async def readiness(self, text=None):
+            readiness_calls.append(text)
+            return {
+                "ready": True,
+                "connected": True,
+                "page_found": True,
+                "has_token": True,
+                "remaining_uses": 20,
+                "button_enabled": True,
+                "text_length": len(text or ""),
+                "text_length_ok": True,
+                "estimated_first_round_credits": 10,
+                "estimated_max_round_credits": 50,
+                "message": "朱雀已就绪",
+                "actions": [],
+            }
+
+    monkeypatch.setattr(optimization, "zhuque_service", FakeReadyService())
+
+    response = client.post(
+        "/api/optimization/start",
+        json={
+            "original_text": "汉" * 500,
+            "processing_mode": "ai_detect_reduce",
+            "billing_mode": "byok",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请先保存自带 API 配置"
+    assert readiness_calls == []
+
+    db = SessionLocal()
+    try:
+        assert db.query(OptimizationSession).filter(OptimizationSession.user_id == user_id).count() == 0
+    finally:
+        db.close()
+
+
+def test_zhuque_preflight_byok_requires_provider_before_readiness(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    readiness_calls = []
+
+    class FakeReadyService:
+        async def readiness(self, text=None):
+            readiness_calls.append(text)
+            return {"ready": True, "connected": True, "page_found": True, "has_token": True, "remaining_uses": 20, "button_enabled": True, "text_length": len(text or ""), "text_length_ok": True, "estimated_first_round_credits": 10, "estimated_max_round_credits": 50, "message": "朱雀已就绪", "actions": []}
+
+    monkeypatch.setattr(optimization, "zhuque_service", FakeReadyService())
+
+    response = client.post(
+        "/api/optimization/zhuque/preflight",
+        json={
+            "original_text": "汉" * 500,
+            "processing_mode": "ai_detect_reduce",
+            "billing_mode": "byok",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请先保存自带 API 配置"
+    assert readiness_calls == []
+
+
 def test_session_detail_includes_zhuque_report_payload(client):
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
     token = create_user_access_token(user_id, "zhuque-user")
@@ -494,6 +764,7 @@ def test_session_detail_includes_zhuque_report_payload(client):
     )
 
     assert response.status_code == 200
+    assert "zhuque_agent_trace" in response.json()
     segment = response.json()["segments"][0]
     assert segment["zhuque_detect_result"] == json.dumps(report, ensure_ascii=False)
 
@@ -596,6 +867,19 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         transactions = db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).all()
 
         assert session.status == "completed"
+        trace = json.loads(session.zhuque_agent_trace)
+        assert trace["version"] == 1
+        assert trace["threshold"] == 20.0
+        assert trace["events"][0]["type"] == "detect"
+        assert trace["events"][0]["rate"] == 80
+        assert trace["events"][1]["type"] == "reduce"
+        assert trace["events"][1]["round"] == 1
+        assert trace["events"][1]["strategy"] == "轻度自然化"
+        assert trace["events"][1]["selected_segment_indices"] == [0]
+        assert trace["events"][1]["old_rate"] == 80
+        assert trace["events"][1]["new_rate"] == 12
+        assert trace["final"]["status"] == "completed"
+        assert trace["final"]["rate"] == 12
         assert segment.zhuque_detect_count == 2
         assert segment.zhuque_reduce_attempt == 1
         assert segment.polished_text == f"润色后:{segment.original_text}"

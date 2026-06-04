@@ -253,11 +253,22 @@ class OptimizationService:
         result = await self._detect_full_text_once(segments, prefer_reduced=has_reduced_text)
         if not result.get("success"):
             message = result.get("message") or "朱雀检测返回失败"
+            self._finalize_zhuque_trace("failed", None, f"初始朱雀检测失败：{message}")
             raise RuntimeError(f"朱雀检测失败: 全文: {message}")
 
         full_text_rate = self._get_zhuque_risk_rate(result)
+        self._append_zhuque_trace_event({
+            "type": "detect",
+            "round": existing_rounds,
+            "source": "reduced" if has_reduced_text else "original",
+            "rate": full_text_rate,
+            "threshold": threshold,
+            "remaining_uses": result.get("remaining_uses"),
+            "message": "初始全文检测超过阈值" if full_text_rate > threshold else "初始全文检测已达标",
+        })
         if full_text_rate <= threshold:
             logger.info("No high-AI segments detected, skipping reduce phase")
+            self._finalize_zhuque_trace("completed", full_text_rate, "风险率未超过阈值，无需降 AI")
             return
 
         # Step 3-5: 循环降AI+复检
@@ -307,6 +318,23 @@ class OptimizationService:
                     "new_rate": full_text_rate,
                     "strategy": strategy["name"],
                 })
+                decision = (
+                    "rate_dropped_keep_strategy"
+                    if full_text_rate < old_rate
+                    else "rate_not_dropped_upgrade_strategy"
+                )
+                self._append_zhuque_trace_event({
+                    "type": "reduce",
+                    "round": round_number,
+                    "strategy": strategy["name"],
+                    "old_rate": old_rate,
+                    "new_rate": full_text_rate,
+                    "threshold": threshold,
+                    "selected_segment_indices": [seg.segment_index for seg in segments_to_reduce],
+                    "label_source": "segment_labels" if (recheck.get("segment_labels") or result.get("segment_labels")) else "fallback_all_segments",
+                    "decision": decision,
+                    "message": "风险率下降，下一轮继续当前策略" if decision == "rate_dropped_keep_strategy" else "风险率未下降，下一轮升级策略",
+                })
                 strategy_level = self._next_zhuque_strategy_level(
                     current_level=strategy_level,
                     old_rate=old_rate,
@@ -332,9 +360,16 @@ class OptimizationService:
             for seg in segments:
                 seg.status = "failed"
             self.db.commit()
+            self._finalize_zhuque_trace(
+                "failed",
+                full_text_rate,
+                "风险率仍高于阈值，建议人工处理命中段落后复检",
+            )
             raise RuntimeError(
                 f"朱雀降重未达标：本次已完成 {max_rounds} 轮，累计 {existing_rounds + max_rounds} 轮，当前全文 AI 率 {full_text_rate}%，仍高于阈值 {threshold}%"
             )
+
+        self._finalize_zhuque_trace("completed", full_text_rate, "朱雀风险率已达标")
 
     async def _process_zhuque_reduce_round(
         self,
@@ -613,6 +648,46 @@ class OptimizationService:
             f"{strategy['instruction'].strip()}\n"
             "只返回处理后的当前段落文本，不要解释使用了哪种策略。"
         )
+
+    def _load_zhuque_trace(self) -> dict:
+        raw = self.session_obj.zhuque_agent_trace
+        if raw:
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    data.setdefault("version", 1)
+                    data.setdefault("threshold", settings.ZHUQUE_DETECT_THRESHOLD)
+                    data.setdefault("events", [])
+                    return data
+            except (TypeError, json.JSONDecodeError):
+                logger.warning("Invalid zhuque_agent_trace JSON for session %s", self.session_obj.session_id)
+        return {
+            "version": 1,
+            "started_from": "reduced" if any(
+                (seg.zhuque_reduced_text or "").strip()
+                for seg in getattr(self.session_obj, "segments", [])
+            ) else "original",
+            "threshold": settings.ZHUQUE_DETECT_THRESHOLD,
+            "events": [],
+        }
+
+    def _save_zhuque_trace(self, trace: dict) -> None:
+        self.session_obj.zhuque_agent_trace = json.dumps(trace, ensure_ascii=False)
+        self.db.commit()
+
+    def _append_zhuque_trace_event(self, event: dict) -> None:
+        trace = self._load_zhuque_trace()
+        trace.setdefault("events", []).append(event)
+        self._save_zhuque_trace(trace)
+
+    def _finalize_zhuque_trace(self, status: str, rate: Optional[float], diagnosis: str) -> None:
+        trace = self._load_zhuque_trace()
+        trace["final"] = {
+            "status": status,
+            "rate": rate,
+            "diagnosis": diagnosis,
+        }
+        self._save_zhuque_trace(trace)
 
     def _cleanup_ai_services(self):
         """清理 AI 服务资源"""

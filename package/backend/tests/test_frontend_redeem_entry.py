@@ -524,6 +524,37 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "/optimization/zhuque/browser/status" in api
 
 
+def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
+
+    assert "getZhuqueReadiness" in api
+    assert "preflightZhuqueTask" in api
+    assert "/optimization/zhuque/readiness" in api
+    assert "/optimization/zhuque/preflight" in api
+    assert "zhuqueReadiness" in workspace
+    assert "loadZhuqueReadiness" in workspace
+    assert "preflightZhuqueTask" in workspace
+    assert "朱雀已就绪" in workspace
+    assert "页面状态" in workspace
+    assert "剩余次数" in workspace
+    assert "文本长度" in workspace
+    assert "预计最多消耗" in workspace
+
+
+def test_session_detail_shows_zhuque_agent_trace():
+    session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
+
+    assert "zhuque_agent_trace" in session_detail
+    assert "Agent 决策轨迹" in session_detail
+    assert "parseZhuqueAgentTrace" in session_detail
+    assert "zhuque_detect" in session_detail
+    assert "zhuque_reduce" in session_detail
+    assert "命中段落" in session_detail
+    assert "风险率变化" in session_detail
+    assert "诊断建议" in session_detail
+
+
 def test_api_config_guide_lists_current_model_recommendations():
     api_guide = (FRONTEND_SRC / "components" / "ApiConfigGuide.jsx").read_text(encoding="utf-8")
 

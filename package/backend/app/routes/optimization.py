@@ -11,14 +11,17 @@ from app.models.models import User, OptimizationSession, OptimizationSegment, Ch
 from app.schemas import (
     OptimizationCreate, SessionResponse, SessionDetailResponse,
     QueueStatusResponse, ProgressUpdate, ChangeLogResponse, ExportConfirmation,
-    SessionRetryRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse
+    SessionRetryRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
+    ZhuquePreflightRequest, ZhuqueReadinessResponse,
 )
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, calculate_optimization_credits
 from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
+from app.services.zhuque_service import zhuque_service
 from app.services.zhuque_browser_launcher import launch_zhuque_chrome, get_zhuque_browser_status
+from app.services.ai_service import split_text_into_segments
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
@@ -147,6 +150,33 @@ def _validate_request_model_base_url(config, label: str) -> str:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _with_zhuque_cost_estimate(readiness: dict, text: str) -> dict:
+    segments = split_text_into_segments(text or "") if text else []
+    segment_count = max(len(segments), 1) if text else 0
+    return {
+        **readiness,
+        "estimated_first_round_credits": segment_count * 10,
+        "estimated_max_round_credits": segment_count * settings.ZHUQUE_MAX_REDUCE_ROUNDS * 10,
+    }
+
+
+def _zhuque_preflight_error(readiness: dict) -> str:
+    message = readiness.get("message") or "朱雀尚未就绪"
+    actions = readiness.get("actions") or []
+    if actions:
+        return f"{message}；请先" + "、".join(actions)
+    return message
+
+
+async def _run_zhuque_preflight_or_raise(text: str) -> dict:
+    if len(text or "") < 350:
+        raise HTTPException(status_code=400, detail=f"朱雀 AI 检测要求文本长度不少于 350 字，当前 {len(text or '')} 字")
+    readiness = _with_zhuque_cost_estimate(await zhuque_service.readiness(text), text)
+    if not readiness.get("ready"):
+        raise HTTPException(status_code=400, detail=_zhuque_preflight_error(readiness))
+    return readiness
+
+
 @router.post("/start", response_model=SessionResponse)
 async def start_optimization(
     data: OptimizationCreate,
@@ -216,6 +246,9 @@ async def start_optimization(
             }
         else:
             provider_config = ProviderConfigService(db).get_runtime_config(user)
+
+    if data.processing_mode == "ai_detect_reduce":
+        await _run_zhuque_preflight_or_raise(data.original_text)
 
     polish_model = data.polish_config.model if data.polish_config else None
     polish_api_key = data.polish_config.api_key if data.polish_config else None
@@ -315,6 +348,46 @@ async def get_zhuque_browser_connection_status(
 ):
     """检查用于朱雀 AI 检测的本地 Chrome CDP 端口是否仍可连接。"""
     return get_zhuque_browser_status()
+
+
+@router.get("/zhuque/readiness", response_model=ZhuqueReadinessResponse)
+async def get_zhuque_readiness(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """读取朱雀页面是否可用于检测；不点击检测，不消耗朱雀次数。"""
+    return await zhuque_service.readiness()
+
+
+@router.post("/zhuque/preflight", response_model=ZhuqueReadinessResponse)
+async def preflight_zhuque_task(
+    payload: ZhuquePreflightRequest,
+    user: User = Depends(get_current_user_with_legacy_fallback),
+    db: Session = Depends(get_db),
+):
+    """带文本执行朱雀任务预检；不创建任务，不扣费。"""
+    if payload.processing_mode != "ai_detect_reduce":
+        return {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "text_length": len(payload.original_text or ""),
+            "text_length_ok": True,
+            "estimated_first_round_credits": 0,
+            "estimated_max_round_credits": 0,
+            "message": "非朱雀模式无需预检",
+            "actions": [],
+        }
+
+    if payload.billing_mode == "byok":
+        ProviderConfigService(db).get_runtime_config(user)
+
+    return _with_zhuque_cost_estimate(
+        await zhuque_service.readiness(payload.original_text),
+        payload.original_text,
+    )
 
 
 @router.get("/status", response_model=QueueStatusResponse)

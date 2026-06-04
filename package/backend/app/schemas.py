@@ -248,6 +248,29 @@ class ZhuqueBrowserStatusResponse(BaseModel):
     message: str
 
 
+class ZhuquePreflightRequest(BaseModel):
+    """朱雀任务预检请求"""
+    original_text: str = ""
+    processing_mode: str = "ai_detect_reduce"
+    billing_mode: str = Field(default="platform", pattern="^(platform|byok)$")
+
+
+class ZhuqueReadinessResponse(BaseModel):
+    """朱雀检测页面就绪状态"""
+    ready: bool
+    connected: bool
+    page_found: bool
+    has_token: bool
+    remaining_uses: int = -1
+    button_enabled: bool
+    text_length: Optional[int] = None
+    text_length_ok: bool = True
+    estimated_first_round_credits: int = 0
+    estimated_max_round_credits: int = 0
+    message: str
+    actions: List[str] = []
+
+
 class SegmentResponse(BaseModel):
     """段落响应"""
     id: int
@@ -291,6 +314,7 @@ class SessionResponse(BaseModel):
     project_id: Optional[int] = None
     project_title: Optional[str] = None
     task_title: Optional[str] = None
+    zhuque_agent_trace: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
