@@ -29,6 +29,8 @@ def _extract_segment_context(message: str) -> tuple[Optional[int], Optional[str]
 def _classify_error_message(message: str) -> str:
     normalized = message.lower()
 
+    if any(keyword in normalized for keyword in ("朱雀", "zhuque", "chrome cdp", "chrome ", "matrix.tencent.com/ai-detect", "remote-debugging-port")):
+        return message.strip()
     if any(keyword in normalized for keyword in ("incorrect api key", "invalid api key", "authentication", "unauthorized", "401")):
         return "API Key 无效或权限不足，请在系统配置或自带 API 配置里重新填写。"
     if any(keyword in normalized for keyword in ("insufficient_quota", "insufficient quota", "quota", "余额不足", "额度不足", "billing")):

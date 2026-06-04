@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     # 朱雀AI检测配置
     ZHUQUE_CDP_PORT: int = 9223
     ZHUQUE_DETECT_THRESHOLD: float = 20.0
-    ZHUQUE_MAX_REDUCE_ROUNDS: int = 3
+    ZHUQUE_MAX_REDUCE_ROUNDS: int = 5
     ZHUQUE_FREE_USES_PER_USER: int = 20
     ZHUQUE_DETECT_TIMEOUT: int = 60
     ZHUQUE_DETECT_INTERVAL: float = 2.0

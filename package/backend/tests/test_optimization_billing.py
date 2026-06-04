@@ -169,6 +169,89 @@ def test_platform_mode_rejects_user_with_insufficient_credits(client, monkeypatc
     assert response.json()["detail"] == "平台剩余啤酒不足，本次需要 6 啤酒，当前剩余 5 啤酒"
 
 
+def test_ai_detect_reduce_start_does_not_hold_platform_credit(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id, token = _create_user(credit_balance=0)
+    monkeypatch.setattr(optimization, "BackgroundTasks", NoRunBackgroundTasks)
+    monkeypatch.setattr(optimization, "run_optimization", _noop_run_optimization)
+
+    response = client.post(
+        "/api/optimization/start",
+        json={
+            "original_text": "汉" * 1000,
+            "processing_mode": "ai_detect_reduce",
+            "billing_mode": "platform",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processing_mode"] == "ai_detect_reduce"
+    assert response.json()["current_stage"] == "ai_detect_reduce"
+    assert response.json()["charge_status"] == "not_charged"
+    assert response.json()["charged_credits"] == 0
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).one()
+        transactions = db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).all()
+        assert user.credit_balance == 0
+        assert transactions == []
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_retry_does_not_hold_platform_credit(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id, token = _create_user(credit_balance=0)
+    monkeypatch.setattr(optimization, "run_optimization", _noop_run_optimization)
+
+    db = SessionLocal()
+    try:
+        failed_session = OptimizationSession(
+            user_id=user_id,
+            session_id="failed-ai-detect-reduce-no-prehold",
+            original_text="汉" * 1000,
+            current_stage="ai_detect_reduce",
+            status="failed",
+            error_message="朱雀降重未达标",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            charged_credits=0,
+        )
+        db.add(failed_session)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/optimization/sessions/failed-ai-detect-reduce-no-prehold/retry",
+        json={"billing_mode": "keep"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).one()
+        session = db.query(OptimizationSession).filter(
+            OptimizationSession.session_id == "failed-ai-detect-reduce-no-prehold"
+        ).one()
+        transactions = db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id).all()
+        assert user.credit_balance == 0
+        assert session.status == "queued"
+        assert session.billing_mode == "platform"
+        assert session.charge_status == "not_charged"
+        assert session.charged_credits == 0
+        assert transactions == []
+    finally:
+        db.close()
+
+
 def test_credit_service_public_error_messages_use_beer_unit():
     from fastapi import HTTPException
     from app.services.credit_service import CreditService

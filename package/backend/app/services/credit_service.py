@@ -27,7 +27,6 @@ CREDIT_TRANSACTION_REASON_LABELS = {
     "word_formatter_preprocess_refund": "Word 预处理退款",
     "word_formatter_format": "Word 排版消耗",
     "word_formatter_format_refund": "Word 排版退款",
-    "zhuque_detect": "朱雀AI检测",
     "zhuque_reduce": "AI降重处理",
 }
 
@@ -227,22 +226,3 @@ class CreditService:
         credit_code.redeemed_by_user_id = user.id
         credit_code.redeemed_at = utcnow()
         return transaction
-
-
-def check_zhuque_quota(user) -> bool:
-    """检查用户是否还有朱雀免费检测额度（检测和啤酒分通道）"""
-    if (user.zhuque_free_uses_remaining or 0) > 0:
-        return True
-    return False
-
-
-def consume_zhuque_use(user, db: Session) -> None:
-    """消耗一次朱雀免费检测额度"""
-    if (user.zhuque_free_uses_remaining or 0) > 0:
-        user.zhuque_free_uses_remaining -= 1
-    else:
-        raise RuntimeError("朱雀免费检测次数已用完，每日自动重置")
-    user.zhuque_total_uses = (user.zhuque_total_uses or 0) + 1
-    db.commit()
-    db.commit()
-

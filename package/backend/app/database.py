@@ -304,6 +304,14 @@ def _migrate_database_schema():
                     if _add_column_safely(conn, "users", "token_version", "INTEGER DEFAULT 0"):
                         print("  ✓ 添加字段: users.token_version")
 
+                if "zhuque_free_uses_remaining" not in user_columns:
+                    if _add_column_safely(conn, "users", "zhuque_free_uses_remaining", "INTEGER DEFAULT 20"):
+                        print("  ✓ 添加字段: users.zhuque_free_uses_remaining")
+
+                if "zhuque_total_uses" not in user_columns:
+                    if _add_column_safely(conn, "users", "zhuque_total_uses", "INTEGER DEFAULT 0"):
+                        print("  ✓ 添加字段: users.zhuque_total_uses")
+
                 try:
                     conn.execute(text("UPDATE users SET is_unlimited = false WHERE is_unlimited IS NULL"))
                     conn.execute(text("UPDATE users SET credit_balance = 0 WHERE credit_balance IS NULL"))
@@ -315,6 +323,8 @@ def _migrate_database_schema():
                     )
                     conn.execute(text("UPDATE users SET usage_count = 0 WHERE usage_count IS NULL"))
                     conn.execute(text("UPDATE users SET token_version = 0 WHERE token_version IS NULL"))
+                    conn.execute(text("UPDATE users SET zhuque_free_uses_remaining = 20 WHERE zhuque_free_uses_remaining IS NULL"))
+                    conn.execute(text("UPDATE users SET zhuque_total_uses = 0 WHERE zhuque_total_uses IS NULL"))
                     conn.commit()
                 except Exception:
                     conn.rollback()
@@ -325,6 +335,26 @@ def _migrate_database_schema():
                 if "is_title" not in segment_columns:
                     if _add_column_safely(conn, "optimization_segments", "is_title", "BOOLEAN DEFAULT false"):
                         print("  ✓ 添加字段: optimization_segments.is_title")
+
+                if "zhuque_detect_rate" not in segment_columns:
+                    if _add_column_safely(conn, "optimization_segments", "zhuque_detect_rate", "FLOAT"):
+                        print("  ✓ 添加字段: optimization_segments.zhuque_detect_rate")
+
+                if "zhuque_detect_result" not in segment_columns:
+                    if _add_column_safely(conn, "optimization_segments", "zhuque_detect_result", "TEXT"):
+                        print("  ✓ 添加字段: optimization_segments.zhuque_detect_result")
+
+                if "zhuque_detect_count" not in segment_columns:
+                    if _add_column_safely(conn, "optimization_segments", "zhuque_detect_count", "INTEGER DEFAULT 0"):
+                        print("  ✓ 添加字段: optimization_segments.zhuque_detect_count")
+
+                if "zhuque_reduce_attempt" not in segment_columns:
+                    if _add_column_safely(conn, "optimization_segments", "zhuque_reduce_attempt", "INTEGER DEFAULT 0"):
+                        print("  ✓ 添加字段: optimization_segments.zhuque_reduce_attempt")
+
+                if "zhuque_reduced_text" not in segment_columns:
+                    if _add_column_safely(conn, "optimization_segments", "zhuque_reduced_text", "TEXT"):
+                        print("  ✓ 添加字段: optimization_segments.zhuque_reduced_text")
 
             if "custom_prompts" in tables:
                 prompt_columns = {column["name"] for column in inspector.get_columns("custom_prompts")}

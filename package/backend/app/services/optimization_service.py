@@ -1,11 +1,11 @@
 ﻿import json
 import asyncio
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.models.models import (
     OptimizationSession, OptimizationSegment,
-    SessionHistory, ChangeLog, CustomPrompt,
+    SessionHistory, ChangeLog, CustomPrompt, User,
 )
 from app.services.ai_service import (
     AIService, split_text_into_segments,
@@ -16,11 +16,53 @@ from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService
 from app.services.error_messages import build_task_error_message
 from app.services.stream_manager import stream_manager
+from app.services.zhuque_service import zhuque_service
 from app.config import settings
 from app.utils.time import utcnow
 
 # 错误信息最大长度，避免数据库字段溢出
 MAX_ERROR_MESSAGE_LENGTH = 500
+logger = logging.getLogger(__name__)
+
+ZHUQUE_HUMANIZE_STRATEGIES = [
+    {
+        "name": "轻度自然化",
+        "instruction": """
+
+## 朱雀降 AI 策略：轻度自然化
+- 在保持原有论文润色/增强目标的基础上，优先去掉过度规整、模板化的 AI 写作痕迹。
+- 适当保留原文中自然的表达顺序，不要把所有句子都改成同一种学术长句。
+- 减少机械连接词和套话，如“综上”“因此可以看出”“具有重要意义”“显著提升”等，只有原文确实需要时才保留。
+- 必须保留专业术语、专有名词、数字、引用、实验指标和关键结论。
+- 不得改变原文意思、研究对象、因果关系、实验结果和专业术语。
+""",
+    },
+    {
+        "name": "句式重组",
+        "instruction": """
+
+## 朱雀降 AI 策略：句式重组
+- 当前朱雀 AI 率没有明显下降，本轮需要主动改变句式节奏，而不是继续输出更规整的论文腔。
+- 将过长、过顺滑的复合句拆成短中句混合；把连续相同结构的句子改成不同起笔和不同谓语结构。
+- 删除泛化评价、空泛铺垫和三段式总结，保留具体事实、方法、数据、限定条件和结论。
+- 避免统一替换同义词导致术语漂移；必须保留专业术语、专有名词、数字、引用、实验指标和关键结论。
+- 不得改变原文意思、研究对象、因果关系、实验结果和专业术语。
+""",
+    },
+    {
+        "name": "强结构重写",
+        "instruction": """
+
+## 朱雀降 AI 策略：强结构重写
+- 当前多轮朱雀 AI 率仍未下降，本轮要对表达结构做更明显的人工化重写，但不能改变事实。
+- 优先按“具体动作/对象/结果”重新组织句子，减少抽象名词堆叠、并列套话和过度平衡的句式。
+- 可以调整句子顺序、拆分或合并相邻句，但段落主题、专业术语、数据、引用、限定条件和结论必须保持一致。
+- 避免生成过于完美、整齐、总结式的段落；允许更自然的停顿和不完全对称的句式。
+- 必须保留专业术语、专有名词、数字、引用、实验指标和关键结论。
+- 不得改变原文意思、研究对象、因果关系、实验结果和专业术语。
+""",
+    },
+]
 
 
 class OptimizationService:
@@ -89,8 +131,10 @@ class OptimizationService:
     async def start_optimization(self):
         """开始优化流程"""
         try:
-            # 初始化AI服务
-            self._init_ai_services()
+            processing_mode = self.session_obj.processing_mode or 'paper_polish_enhance'
+            if processing_mode != 'ai_detect_reduce':
+                # 朱雀模式只有命中高AI段落后才需要LLM降重，避免Chrome预检失败时误初始化模型。
+                self._init_ai_services()
 
             # 重置错误状态
             self.session_obj.error_message = None
@@ -132,7 +176,7 @@ class OptimizationService:
                     segment = OptimizationSegment(
                         session_id=self.session_obj.id,
                         segment_index=idx,
-                        stage="polish",
+                        stage="ai_detect_reduce" if processing_mode == "ai_detect_reduce" else "polish",
                         original_text=segment_text,
                         status="pending"
                     )
@@ -144,8 +188,6 @@ class OptimizationService:
                 self.db.commit()
             
             # 根据处理模式执行不同的阶段
-            processing_mode = self.session_obj.processing_mode or 'paper_polish_enhance'
-
             if processing_mode == 'paper_polish':
                 # 只进行论文润色
                 await self._process_stage("polish")
@@ -187,111 +229,390 @@ class OptimizationService:
 
     async def _process_ai_detect_reduce(self):
         """朱雀检测+降AI管线"""
-        from app.services.zhuque_service import zhuque_service
-        from app.services.credit_service import consume_zhuque_use
-
         segments = self.db.query(OptimizationSegment).filter(
             OptimizationSegment.session_id == self.session_obj.id
         ).order_by(OptimizationSegment.segment_index).all()
 
         threshold = settings.ZHUQUE_DETECT_THRESHOLD
         max_rounds = settings.ZHUQUE_MAX_REDUCE_ROUNDS
+        existing_rounds = max((seg.zhuque_reduce_attempt or 0) for seg in segments) if segments else 0
+        has_reduced_text = any((seg.zhuque_reduced_text or "").strip() for seg in segments)
 
-        # Step 1: 批量检测所有段落
-        async def progress_callback(idx, total, result):
-            self.session_obj.current_position = idx
-            progress = (idx / total) * 40  # detect phase: 0-40%
-            self.session_obj.progress = min(progress, 40.0)
-            self.db.commit()
-            await stream_manager.broadcast(self.session_obj.session_id, {
-                "type": "zhuque_detect",
-                "segment_index": idx,
-                "total": total,
-                "rate": result.get("rate", 0),
-                "success": result.get("success", False),
-            })
+        try:
+            await zhuque_service.start()
+        except Exception as e:
+            cdp_port = settings.ZHUQUE_CDP_PORT
+            raise RuntimeError(
+                f"朱雀检测启动失败：无法连接本机 Chrome {cdp_port} 调试端口或朱雀页面不可用。"
+                "请先在工作台选择“AI检测 + 降重”，点击“启动朱雀浏览器”，"
+                "在弹出的朱雀页面保持窗口打开后再重试；未登录也可使用朱雀提供的免费次数，"
+                "次数用尽时请登录或切换账号刷新次数。"
+                f"原始错误: {e}"
+            ) from e
 
-        for i, seg in enumerate(segments):
-            # 消耗免费检测配额
-            user = self.db.query(User).filter(User.id == self.session_obj.user_id).first()
-            if user:
-                consume_zhuque_use(user, self.db)
-            try:
-                result = await zhuque_service.detect(seg.original_text)
-                seg.zhuque_detect_rate = result.get('rate', 0) if result.get('success') else None
-                seg.zhuque_detect_result = json.dumps(result, ensure_ascii=False)
-                seg.zhuque_detect_count = 1
-                self.db.commit()
-                await stream_manager.broadcast(self.session_obj.session_id, {
-                    "type": "zhuque_detect",
-                    "segment_index": i,
-                    "total": len(segments),
-                    "rate": result.get("rate", 0),
-                    "success": result.get("success", False),
-                })
-            except Exception as e:
-                logger.warning("Segment %s detect failed: %s", i, e)
-                seg.zhuque_detect_rate = None
-                seg.zhuque_detect_result = json.dumps({"error": str(e)})
-                self.db.commit()
-            interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
-            if interval > 0 and i < len(segments) - 1:
-                await asyncio.sleep(interval)
+        result = await self._detect_full_text_once(segments, prefer_reduced=has_reduced_text)
+        if not result.get("success"):
+            message = result.get("message") or "朱雀检测返回失败"
+            raise RuntimeError(f"朱雀检测失败: 全文: {message}")
 
-        # Step 2: 筛选高AI段落
-        high_ai = [s for s in segments if s.zhuque_detect_rate is not None and s.zhuque_detect_rate > threshold]
-        if not high_ai:
+        full_text_rate = self._get_zhuque_risk_rate(result)
+        if full_text_rate <= threshold:
             logger.info("No high-AI segments detected, skipping reduce phase")
             return
 
         # Step 3-5: 循环降AI+复检
         self._init_ai_services()  # Init LLM service for reduce
 
-        for round_num in range(max_rounds):
-            round_segments = [s for s in high_ai if s.zhuque_detect_rate is not None and s.zhuque_detect_rate > threshold]
-            if not round_segments:
+        strategy_level = self._select_zhuque_strategy_level(existing_rounds)
+        segments_to_reduce = self._select_zhuque_reduce_segments(
+            segments,
+            result,
+            prefer_reduced=has_reduced_text,
+        )
+        for round_offset in range(max_rounds):
+            if full_text_rate <= threshold:
                 break
 
-            for idx, seg in enumerate(round_segments):
-                # 消耗检测配额
-                user = self.db.query(User).filter(User.id == self.session_obj.user_id).first()
-                if user:
-                    consume_zhuque_use(user, self.db)
+            round_number = existing_rounds + round_offset + 1
+            reduce_failures = []
+            try:
+                strategy = ZHUQUE_HUMANIZE_STRATEGIES[strategy_level]
+                await self._process_zhuque_reduce_round(segments_to_reduce, round_number, strategy)
 
-                input_text = seg.zhuque_reduced_text or seg.original_text
-                prompt = REDUCE_AI_PROMPT.format(text=input_text)
+                recheck = await self._detect_full_text_once(
+                    segments,
+                    prefer_reduced=True,
+                    previous_detect_count_increment=True,
+                )
+                if not recheck.get("success"):
+                    raise RuntimeError(recheck.get("message") or "朱雀复检返回失败")
+                old_rate = full_text_rate
+                full_text_rate = self._get_zhuque_risk_rate(recheck)
 
-                try:
-                    reduced = await self.polish_service.generate(prompt)
-                    seg.zhuque_reduced_text = reduced
-                    seg.zhuque_reduce_attempt = round_num + 1
-                    self.db.commit()
+                for seg in segments:
+                    seg.status = "completed"
+                self.db.commit()
 
-                    # 复检
-                    recheck = await zhuque_service.detect(reduced)
-                    seg.zhuque_detect_rate = recheck.get('rate', 0) if recheck.get('success') else seg.zhuque_detect_rate
-                    seg.zhuque_detect_result = json.dumps(recheck, ensure_ascii=False)
+                # SSE推送
+                progress = 40 + (((round_offset + 1) / max_rounds) * 60)
+                self.session_obj.progress = min(progress, 100.0)
+                self.session_obj.current_position = len(segments) - 1
+                self.db.commit()
+                await stream_manager.broadcast(self.session_obj.session_id, {
+                    "type": "zhuque_reduce",
+                    "round": round_number,
+                    "segment_index": 0,
+                    "segment_indices": [seg.segment_index for seg in segments_to_reduce],
+                    "old_rate": old_rate,
+                    "new_rate": full_text_rate,
+                    "strategy": strategy["name"],
+                })
+                strategy_level = self._next_zhuque_strategy_level(
+                    current_level=strategy_level,
+                    old_rate=old_rate,
+                    new_rate=full_text_rate,
+                )
+                segments_to_reduce = self._select_zhuque_reduce_segments(
+                    segments,
+                    recheck,
+                    prefer_reduced=True,
+                )
+            except Exception as e:
+                reduce_failures.append(str(e))
+                logger.warning("Full text reduce round %s failed: %s", round_number, e)
+                raise RuntimeError(
+                    f"朱雀降重失败: 全文第 {round_number} 轮失败: {reduce_failures[0]}"
+                ) from e
+
+            interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
+            if interval > 0 and round_offset < max_rounds - 1 and full_text_rate > threshold:
+                await asyncio.sleep(interval)
+
+        if full_text_rate > threshold:
+            for seg in segments:
+                seg.status = "failed"
+            self.db.commit()
+            raise RuntimeError(
+                f"朱雀降重未达标：本次已完成 {max_rounds} 轮，累计 {existing_rounds + max_rounds} 轮，当前全文 AI 率 {full_text_rate}%，仍高于阈值 {threshold}%"
+            )
+
+    async def _process_zhuque_reduce_round(
+        self,
+        segments: List[OptimizationSegment],
+        round_number: int,
+        strategy: Dict[str, str],
+    ) -> None:
+        """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
+        polish_prompt = self._with_zhuque_strategy(self._get_prompt("polish"), strategy)
+        enhance_prompt = self._with_zhuque_strategy(self._get_prompt("enhance"), strategy)
+        use_stream = settings.USE_STREAMING
+
+        polish_history: List[Dict[str, str]] = []
+        polish_chars = 0
+
+        self.session_obj.current_stage = "polish"
+        self.db.commit()
+
+        for idx, seg in enumerate(segments):
+            self.db.refresh(self.session_obj)
+            if self.session_obj.status == "stopped":
+                raise Exception("会话已被用户停止")
+
+            user = self.db.query(User).filter(User.id == self.session_obj.user_id).first()
+            if user:
+                CreditService(self.db).hold_platform_credit(
+                    user,
+                    reason="zhuque_reduce",
+                    session_id=self.session_obj.id,
+                    amount=10,
+                )
+                self.db.commit()
+
+            input_text = seg.zhuque_reduced_text or seg.original_text
+            seg.status = "processing"
+            seg.stage = "polish"
+            seg.zhuque_reduce_attempt = round_number
+            self.session_obj.current_position = seg.segment_index
+            self.db.commit()
+
+            async def execute_polish_call(
+                ai_service=self.polish_service,
+                text=input_text,
+                prompt=polish_prompt,
+                history=polish_history,
+                segment_index=seg.segment_index,
+            ):
+                response = await ai_service.polish_text(text, prompt, history, stream=use_stream)
+                if use_stream:
+                    return await self._collect_stream_response(response, segment_index, "polish")
+                return response
+
+            polished = await self._run_with_retry(seg.segment_index, "polish", execute_polish_call)
+            seg.polished_text = polished
+            self.db.commit()
+
+            await self._record_change(seg, input_text, polished, "polish")
+            polish_history.append({"role": "assistant", "content": polished})
+            polish_chars += count_chinese_characters(polished)
+            if polish_chars > settings.HISTORY_COMPRESSION_THRESHOLD:
+                polish_history = await self._compress_history(polish_history, "polish")
+                polish_chars = sum(count_chinese_characters(msg.get("content", "")) for msg in polish_history)
+
+        enhance_history: List[Dict[str, str]] = []
+        enhance_chars = 0
+
+        self.session_obj.current_stage = "enhance"
+        self.db.commit()
+
+        for idx, seg in enumerate(segments):
+            self.db.refresh(self.session_obj)
+            if self.session_obj.status == "stopped":
+                raise Exception("会话已被用户停止")
+
+            input_text = seg.polished_text or seg.zhuque_reduced_text or seg.original_text
+            seg.status = "processing"
+            seg.stage = "enhance"
+            self.session_obj.current_position = seg.segment_index
+            self.db.commit()
+
+            async def execute_enhance_call(
+                ai_service=self.enhance_service,
+                text=input_text,
+                prompt=enhance_prompt,
+                history=enhance_history,
+                segment_index=seg.segment_index,
+            ):
+                response = await ai_service.enhance_text(text, prompt, history, stream=use_stream)
+                if use_stream:
+                    return await self._collect_stream_response(response, segment_index, "enhance")
+                return response
+
+            enhanced = await self._run_with_retry(seg.segment_index, "enhance", execute_enhance_call)
+            seg.enhanced_text = enhanced
+            seg.zhuque_reduced_text = enhanced
+            seg.status = "completed"
+            seg.completed_at = utcnow()
+            self.db.commit()
+
+            await self._record_change(seg, input_text, enhanced, "enhance")
+            enhance_history.append({"role": "assistant", "content": enhanced})
+            enhance_chars += count_chinese_characters(enhanced)
+            if enhance_chars > settings.HISTORY_COMPRESSION_THRESHOLD:
+                enhance_history = await self._compress_history(enhance_history, "enhance")
+                enhance_chars = sum(count_chinese_characters(msg.get("content", "")) for msg in enhance_history)
+
+    async def _collect_stream_response(self, response, segment_index: int, stage: str) -> str:
+        full_text = ""
+        async for chunk in response:
+            if chunk:
+                full_text += chunk
+                await stream_manager.broadcast(self.session_obj.session_id, {
+                    "type": "content",
+                    "segment_index": segment_index,
+                    "stage": stage,
+                    "content": chunk,
+                    "full_text": full_text,
+                })
+        return full_text
+
+    async def _detect_full_text_once(
+        self,
+        segments: List[OptimizationSegment],
+        *,
+        prefer_reduced: bool = False,
+        previous_detect_count_increment: bool = False,
+    ) -> dict:
+        detect_text = self._join_segment_texts(segments, prefer_reduced=prefer_reduced)
+        try:
+            result = await zhuque_service.detect(detect_text)
+            result_success = bool(result.get("success"))
+            detect_rate = self._get_zhuque_risk_rate(result) if result_success else None
+            result_json = json.dumps(result, ensure_ascii=False)
+            for seg in segments:
+                seg.zhuque_detect_rate = detect_rate
+                seg.zhuque_detect_result = result_json
+                if previous_detect_count_increment:
                     seg.zhuque_detect_count += 1
-                    self.db.commit()
+                else:
+                    seg.zhuque_detect_count = 1
+                seg.status = "completed" if result_success else "failed"
+            self.db.commit()
+            await stream_manager.broadcast(self.session_obj.session_id, {
+                "type": "zhuque_detect",
+                "segment_index": 0,
+                "segment_indices": [seg.segment_index for seg in segments],
+                "total": 1,
+                "group_index": 0,
+                "rate": detect_rate,
+                "success": result_success,
+                "message": result.get("message"),
+            })
+            return result
+        except Exception as e:
+            logger.warning("Full text detect failed: %s", e)
+            for seg in segments:
+                seg.zhuque_detect_rate = None
+                seg.zhuque_detect_result = json.dumps({"error": str(e)})
+                seg.status = "failed"
+            self.db.commit()
+            raise RuntimeError(f"全文: {e}") from e
 
-                    # SSE推送
-                    progress = 40 + ((round_num * len(round_segments) + idx + 1) / (max_rounds * len(round_segments))) * 60
-                    self.session_obj.progress = min(progress, 100.0)
-                    self.session_obj.current_position = idx
-                    self.db.commit()
-                    await stream_manager.broadcast(self.session_obj.session_id, {
-                        "type": "zhuque_reduce",
-                        "round": round_num + 1,
-                        "segment_index": seg.segment_index,
-                        "old_rate": result.get("rate", 0),
-                        "new_rate": recheck.get("rate", 0),
-                    })
-                except Exception as e:
-                    logger.warning("Segment %s reduce round %s failed: %s", seg.segment_index, round_num + 1, e)
+    def _join_segment_texts(
+        self,
+        segments: List[OptimizationSegment],
+        *,
+        prefer_reduced: bool = False,
+    ) -> str:
+        return "\n\n".join(self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced) for seg in segments)
 
-                interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
-                if interval > 0 and idx < len(round_segments) - 1:
-                    await asyncio.sleep(interval)
+    def _get_zhuque_risk_rate(self, result: dict) -> float:
+        labels_ratio = result.get("labels_ratio") or {}
+        try:
+            ai_rate = float(labels_ratio.get("1", 0)) * 100
+        except (TypeError, ValueError):
+            ai_rate = 0.0
+        try:
+            suspicious_rate = float(labels_ratio.get("2", 0)) * 100
+        except (TypeError, ValueError):
+            suspicious_rate = 0.0
+
+        if labels_ratio:
+            return round(max(ai_rate, suspicious_rate), 2)
+
+        try:
+            return float(result.get("rate", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _get_zhuque_segment_text(
+        self,
+        segment: OptimizationSegment,
+        *,
+        prefer_reduced: bool = False,
+    ) -> str:
+        if prefer_reduced:
+            return segment.zhuque_reduced_text or segment.original_text or ""
+        return segment.original_text or ""
+
+    def _build_joined_segment_spans(
+        self,
+        segments: List[OptimizationSegment],
+        *,
+        prefer_reduced: bool = False,
+    ) -> List[Tuple[OptimizationSegment, int, int]]:
+        spans: List[Tuple[OptimizationSegment, int, int]] = []
+        cursor = 0
+        for index, seg in enumerate(segments):
+            text = self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced)
+            start = cursor
+            end = start + len(text)
+            spans.append((seg, start, end))
+            cursor = end
+            if index < len(segments) - 1:
+                cursor += 2
+        return spans
+
+    def _select_zhuque_reduce_segments(
+        self,
+        segments: List[OptimizationSegment],
+        result: dict,
+        *,
+        prefer_reduced: bool = False,
+    ) -> List[OptimizationSegment]:
+        labels = result.get("segment_labels") or []
+        high_ai_spans: List[Tuple[int, int]] = []
+
+        for item in labels:
+            if not isinstance(item, dict) or item.get("label") not in (1, 2):
+                continue
+            position = item.get("position")
+            if (
+                not isinstance(position, list)
+                or len(position) != 2
+                or not all(isinstance(value, (int, float)) for value in position)
+            ):
+                continue
+            start, end = int(position[0]), int(position[1])
+            if end > start:
+                high_ai_spans.append((start, end))
+
+        if not high_ai_spans:
+            return list(segments)
+
+        selected: List[OptimizationSegment] = []
+        for seg, seg_start, seg_end in self._build_joined_segment_spans(
+            segments,
+            prefer_reduced=prefer_reduced,
+        ):
+            if any(seg_start < span_end and span_start < seg_end for span_start, span_end in high_ai_spans):
+                selected.append(seg)
+
+        return selected or list(segments)
+
+    def _select_zhuque_strategy_level(self, existing_rounds: int) -> int:
+        if existing_rounds >= 2:
+            return 2
+        if existing_rounds >= 1:
+            return 1
+        return 0
+
+    def _next_zhuque_strategy_level(
+        self,
+        *,
+        current_level: int,
+        old_rate: float,
+        new_rate: float,
+    ) -> int:
+        if new_rate < old_rate:
+            return current_level
+        return min(current_level + 1, len(ZHUQUE_HUMANIZE_STRATEGIES) - 1)
+
+    def _with_zhuque_strategy(self, prompt: str, strategy: Dict[str, str]) -> str:
+        return (
+            f"{prompt.rstrip()}\n"
+            f"{strategy['instruction'].strip()}\n"
+            "只返回处理后的当前段落文本，不要解释使用了哪种策略。"
+        )
 
     def _cleanup_ai_services(self):
         """清理 AI 服务资源"""

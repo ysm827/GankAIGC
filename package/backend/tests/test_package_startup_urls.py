@@ -55,3 +55,9 @@ def test_main_uses_display_host_for_prints_and_uvicorn_host_for_binding():
     assert "browser_host = get_browser_host(host)" in package_main_source
     assert "uvicorn_host = get_uvicorn_host(host, server_deployment)" in package_main_source
     assert "host=uvicorn_host" in package_main_source
+
+
+def test_main_configures_fast_graceful_shutdown_for_sse_connections():
+    package_main_source = PACKAGE_MAIN.read_text(encoding="utf-8")
+
+    assert "timeout_graceful_shutdown=" in package_main_source

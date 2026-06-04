@@ -231,6 +231,23 @@ class SessionRetryRequest(BaseModel):
     billing_mode: str = Field(default="keep", pattern="^(keep|platform|byok)$")
 
 
+class ZhuqueBrowserLaunchResponse(BaseModel):
+    """朱雀浏览器启动响应"""
+    status: str
+    port: int
+    url: str
+    user_data_dir: str
+
+
+class ZhuqueBrowserStatusResponse(BaseModel):
+    """朱雀浏览器连接状态响应"""
+    status: str
+    connected: bool
+    port: int
+    url: str
+    message: str
+
+
 class SegmentResponse(BaseModel):
     """段落响应"""
     id: int
@@ -246,6 +263,7 @@ class SegmentResponse(BaseModel):
 
     # 朱雀检测
     zhuque_detect_rate: Optional[float] = None
+    zhuque_detect_result: Optional[str] = None
     zhuque_detect_count: int = 0
     zhuque_reduce_attempt: int = 0
     zhuque_reduced_text: Optional[str] = None

@@ -33,6 +33,21 @@ def test_startup_initializes_database_and_system_prompts(client):
     assert prompt_stages == {"polish", "enhance"}
 
 
+def test_startup_schema_includes_zhuque_columns(client):
+    inspector = inspect(engine)
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    segment_columns = {column["name"] for column in inspector.get_columns("optimization_segments")}
+
+    assert {"zhuque_free_uses_remaining", "zhuque_total_uses"}.issubset(user_columns)
+    assert {
+        "zhuque_detect_rate",
+        "zhuque_detect_result",
+        "zhuque_detect_count",
+        "zhuque_reduce_attempt",
+        "zhuque_reduced_text",
+    }.issubset(segment_columns)
+
+
 def test_repeated_startup_does_not_duplicate_system_prompts():
     with TestClient(app) as first_client:
         response = first_client.get("/health")

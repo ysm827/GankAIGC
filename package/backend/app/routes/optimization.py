@@ -11,13 +11,14 @@ from app.models.models import User, OptimizationSession, OptimizationSegment, Ch
 from app.schemas import (
     OptimizationCreate, SessionResponse, SessionDetailResponse,
     QueueStatusResponse, ProgressUpdate, ChangeLogResponse, ExportConfirmation,
-    SessionRetryRequest
+    SessionRetryRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse
 )
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, calculate_optimization_credits
 from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
+from app.services.zhuque_browser_launcher import launch_zhuque_chrome, get_zhuque_browser_status
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
@@ -108,6 +109,14 @@ def _apply_retry_billing_mode(
         return
 
     if target_billing_mode == "platform":
+        if session.processing_mode == "ai_detect_reduce":
+            session.billing_mode = "platform"
+            session.credential_source = "system"
+            session.charge_status = "not_charged"
+            session.charged_credits = 0
+            _clear_session_provider_fields(session)
+            return
+
         already_held = (
             session.billing_mode == "platform"
             and session.charge_status == "held"
@@ -149,7 +158,7 @@ async def start_optimization(
     usage_count = user.usage_count or 0
     
     # 验证处理模式
-    valid_modes = ['paper_polish', 'paper_enhance', 'paper_polish_enhance', 'emotion_polish']
+    valid_modes = ['paper_polish', 'paper_enhance', 'paper_polish_enhance', 'emotion_polish', 'ai_detect_reduce']
     if data.processing_mode not in valid_modes:
         raise HTTPException(
             status_code=400,
@@ -264,7 +273,7 @@ async def start_optimization(
     
     db.add(session)
     db.flush()
-    if data.billing_mode == "platform":
+    if data.billing_mode == "platform" and data.processing_mode != "ai_detect_reduce":
         CreditService(db).hold_platform_credit(
             user,
             reason="optimization_start",
@@ -287,6 +296,25 @@ async def start_optimization(
         background_tasks.add_task(run_optimization, session.id)
     
     return session
+
+
+@router.post("/zhuque/browser/start", response_model=ZhuqueBrowserLaunchResponse)
+async def start_zhuque_browser(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """启动用于朱雀 AI 检测的本地 Chrome 调试窗口。"""
+    try:
+        return launch_zhuque_chrome()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/zhuque/browser/status", response_model=ZhuqueBrowserStatusResponse)
+async def get_zhuque_browser_connection_status(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """检查用于朱雀 AI 检测的本地 Chrome CDP 端口是否仍可连接。"""
+    return get_zhuque_browser_status()
 
 
 @router.get("/status", response_model=QueueStatusResponse)
@@ -547,7 +575,7 @@ async def export_session(
     
     # 组合最终文本
     final_text = "\n\n".join([
-        seg.enhanced_text or seg.polished_text or seg.original_text
+        seg.zhuque_reduced_text or seg.enhanced_text or seg.polished_text or seg.original_text
         for seg in segments
     ])
     

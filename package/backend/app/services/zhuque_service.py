@@ -37,14 +37,13 @@ class ZhuqueService:
             return
         self.api = ZhuqueAPI(cdp_port=settings.ZHUQUE_CDP_PORT, debug=False)
         status = await self.api.status()
-        if not status.get("has_token"):
-            raise RuntimeError(
-                "Chrome未登录朱雀。请打开 https://matrix.tencent.com/ai-detect/ 完成登录"
-            )
         self._ready = True
         self._consumer_task = asyncio.create_task(self._consumer())
         logger.info(
-            "[ZhuqueService] 就绪 | Token: %s...",
+            "[ZhuqueService] 就绪 | logged_in=%s | remaining=%s | button=%s | Token: %s...",
+            bool(status.get("has_token")),
+            status.get("remaining_uses"),
+            status.get("btn_text", ""),
             status.get("token_preview", "")[:10],
         )
 

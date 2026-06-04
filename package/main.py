@@ -753,7 +753,8 @@ def main():
             host=uvicorn_host,
             port=port,
             log_level="info",
-            access_log=True
+            access_log=True,
+            timeout_graceful_shutdown=3,
         )
     except KeyboardInterrupt:
         print("\n\n👋 服务已停止")
