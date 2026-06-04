@@ -494,6 +494,36 @@ def test_session_export_modal_only_offers_word_and_markdown():
     assert "responseType" not in api
 
 
+def test_session_detail_shows_zhuque_report_and_process_timeline():
+    session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
+
+    assert "朱雀 AI 报告" in session_detail
+    assert "处理过程" in session_detail
+    assert "zhuque_detect_result" in session_detail
+    assert "全文检测" in session_detail
+    assert "全文复检" in session_detail
+
+
+def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
+
+    assert "启动朱雀浏览器" in workspace
+    assert "已连接" in workspace
+    assert "未连接" in workspace
+    assert "未登录也可使用朱雀免费次数" in workspace
+    assert "次数不足时请登录或切换账号" in workspace
+    assert "startZhuqueBrowser" in workspace
+    assert "loadZhuqueBrowserStatus" in workspace
+    assert "zhuqueBrowserStatus?.connected" in workspace
+    assert "可在下方一键启动朱雀检测浏览器" in workspace
+    assert "需先按后端配置端口启动" not in workspace
+    assert "startZhuqueBrowser" in api
+    assert "getZhuqueBrowserStatus" in api
+    assert "/optimization/zhuque/browser/start" in api
+    assert "/optimization/zhuque/browser/status" in api
+
+
 def test_api_config_guide_lists_current_model_recommendations():
     api_guide = (FRONTEND_SRC / "components" / "ApiConfigGuide.jsx").read_text(encoding="utf-8")
 

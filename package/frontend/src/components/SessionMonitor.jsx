@@ -355,6 +355,7 @@ const SessionMonitor = ({ adminToken }) => {
                            session.processing_mode === 'paper_enhance' ? '论文增强' :
                            session.processing_mode === 'paper_polish_enhance' ? '论文润色+增强' :
                            session.processing_mode === 'emotion_polish' ? '感情文章润色' :
+                           session.processing_mode === 'ai_detect_reduce' ? 'AI检测+降重' :
                            session.processing_mode}
                         </span>
                       )}
@@ -464,6 +465,7 @@ const SessionMonitor = ({ adminToken }) => {
                              session.processing_mode === 'paper_enhance' ? '论文增强' :
                              session.processing_mode === 'paper_polish_enhance' ? '论文润色+增强' :
                              session.processing_mode === 'emotion_polish' ? '感情文章润色' :
+                           session.processing_mode === 'ai_detect_reduce' ? 'AI检测+降重' :
                              session.processing_mode}
                           </span>
                         )}

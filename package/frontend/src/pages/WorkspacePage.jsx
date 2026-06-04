@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   FileText, History, Play,
-  ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Info, Pencil
+  ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Info, Pencil, ExternalLink
 } from 'lucide-react';
 import { optimizationAPI, projectAPI, userAPI } from '../api';
 import UserMenu from '../components/UserMenu';
@@ -15,12 +15,30 @@ const PROCESSING_MODE_STAGE_MULTIPLIERS = {
   paper_polish: 1,
   paper_enhance: 1,
   paper_polish_enhance: 2,
-  ai_detect_reduce: 1,
+};
+
+const PROCESSING_MODE_OPTIONS = [
+  { id: 'paper_polish', title: '论文润色', desc: '提升学术表达质量' },
+  { id: 'paper_enhance', title: '论文增强', desc: '直接提升原创性' },
+  { id: 'paper_polish_enhance', title: '润色 + 增强', desc: '两阶段完整处理' },
+  { id: 'ai_detect_reduce', title: 'AI检测 + 降重', desc: 'AI浓度超过20%自动改写' },
+  { id: 'emotion_polish', title: '感情文章润色', desc: '自然、人性化表达' },
+];
+
+const PROCESSING_MODE_DESCRIPTIONS = {
+  paper_polish: '仅进行论文润色，提升文本的学术性和表达质量。',
+  paper_enhance: '直接进行原创性增强，跳过润色阶段，适合已经润色过的文本。',
+  paper_polish_enhance: '先进行论文润色，然后自动进行原创性增强，两阶段处理。',
+  ai_detect_reduce: '先调用朱雀AI检测文本浓度，AI浓度超过20%的段落会自动降重并复检。检测不消耗啤酒，实际降重改写按次数扣啤酒。',
+  emotion_polish: '专为感情文章设计，生成更自然、更具人性化的表达。',
 };
 
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
 
 const calculateEstimatedCredits = (value, mode) => {
+  if (mode === 'ai_detect_reduce') {
+    return 0;
+  }
   const billableCharacters = countBillableCharacters(value);
   const baseCredits = Math.max(1, Math.ceil(billableCharacters / CREDIT_UNIT_CHARACTERS));
   return baseCredits * (PROCESSING_MODE_STAGE_MULTIPLIERS[mode] || 1);
@@ -174,6 +192,9 @@ const WorkspacePage = () => {
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [announcements, setAnnouncements] = useState([]);
+  const [isLaunchingZhuque, setIsLaunchingZhuque] = useState(false);
+  const [zhuqueLaunchInfo, setZhuqueLaunchInfo] = useState(null);
+  const [zhuqueBrowserStatus, setZhuqueBrowserStatus] = useState(null);
   const navigate = useNavigate();
 
   const activeProject = projects.find((project) => project.id === activeProjectId);
@@ -253,6 +274,23 @@ const WorkspacePage = () => {
     }
   }, []);
 
+  const loadZhuqueBrowserStatus = useCallback(async () => {
+    try {
+      const response = await optimizationAPI.getZhuqueBrowserStatus();
+      setZhuqueBrowserStatus(response.data);
+      if (!response.data.connected) {
+        setZhuqueLaunchInfo(null);
+      }
+    } catch (error) {
+      setZhuqueBrowserStatus({
+        status: 'disconnected',
+        connected: false,
+        message: '无法检测朱雀浏览器状态',
+      });
+      setZhuqueLaunchInfo(null);
+    }
+  }, []);
+
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
       const response = await optimizationAPI.getSessionProgress(sessionId);
@@ -315,6 +353,16 @@ const WorkspacePage = () => {
       return () => clearInterval(interval);
     }
   }, [activeSession, updateSessionProgress]);
+
+  useEffect(() => {
+    if (processingMode !== 'ai_detect_reduce') {
+      return;
+    }
+
+    loadZhuqueBrowserStatus();
+    const interval = setInterval(loadZhuqueBrowserStatus, 5000);
+    return () => clearInterval(interval);
+  }, [loadZhuqueBrowserStatus, processingMode]);
 
   const handleCreateProject = useCallback(async (e) => {
     e.preventDefault();
@@ -410,7 +458,7 @@ const WorkspacePage = () => {
       return;
     }
 
-    if (billingMode === 'platform' && credits && !credits.is_unlimited && credits.credit_balance < estimatedCredits) {
+    if (processingMode !== 'ai_detect_reduce' && billingMode === 'platform' && credits && !credits.is_unlimited && credits.credit_balance < estimatedCredits) {
       toast.error(`平台啤酒不足，本次需要 ${estimatedCredits} 啤酒，当前剩余 ${credits.credit_balance ?? 0} 啤酒`);
       return;
     }
@@ -443,6 +491,24 @@ const WorkspacePage = () => {
       setIsSubmitting(false);
     }
   }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, navigate]);
+
+  const handleLaunchZhuqueBrowser = useCallback(async () => {
+    if (isLaunchingZhuque) {
+      return;
+    }
+
+    try {
+      setIsLaunchingZhuque(true);
+      const response = await optimizationAPI.startZhuqueBrowser();
+      setZhuqueLaunchInfo(response.data);
+      await loadZhuqueBrowserStatus();
+      toast.success(`已打开朱雀检测浏览器，请保持窗口打开`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '启动朱雀浏览器失败');
+    } finally {
+      setIsLaunchingZhuque(false);
+    }
+  }, [isLaunchingZhuque, loadZhuqueBrowserStatus]);
 
   const handleDeleteSession = useCallback(async (session) => {
     const confirmDelete = window.confirm('确认删除该会话及其结果吗?');
@@ -589,10 +655,7 @@ const WorkspacePage = () => {
                 <div className="text-[15px] text-black">
                   <p className="font-semibold mb-1 text-ios-blue">当前模式说明</p>
                   <p className="text-gray-700 leading-relaxed">
-                    {processingMode === 'paper_polish' && '仅进行论文润色，提升文本的学术性和表达质量。'}
-                    {processingMode === 'paper_enhance' && '直接进行原创性增强，跳过润色阶段，适合已经润色过的文本。'}
-                    {processingMode === 'paper_polish_enhance' && '先进行论文润色，然后自动进行原创性增强，两阶段处理。'}
-                    {processingMode === 'emotion_polish' && '专为感情文章设计，生成更自然、更具人性化的表达。'}
+                    {PROCESSING_MODE_DESCRIPTIONS[processingMode]}
                   </p>
                 </div>
               </div>
@@ -616,13 +679,7 @@ const WorkspacePage = () => {
                   选择模式
                 </label>
                 <div className="space-y-3">
-                  {[
-                    { id: 'paper_polish', title: '论文润色', desc: '提升学术表达质量' },
-                    { id: 'paper_enhance', title: '论文增强', desc: '直接提升原创性' },
-                    { id: 'paper_polish_enhance', title: '润色 + 增强', desc: '两阶段完整处理' },
-                    { id: 'emotion_polish', title: '感情文章润色', desc: '自然、人性化表达' },
-                    { id: 'ai_detect_reduce', title: 'AI检测 + 降重', desc: '检测AI浓度后自动降重' },
-                  ].map((mode) => (
+                  {PROCESSING_MODE_OPTIONS.map((mode) => (
                     <label
                       key={mode.id}
                       className={`flex items-center p-3.5 rounded-xl cursor-pointer transition-all border ${
@@ -675,13 +732,20 @@ const WorkspacePage = () => {
                     <span className="font-semibold text-black">平台模式</span>
                     <p className="text-xs text-gray-500 mt-1">
                       剩余 {credits?.is_unlimited ? '无限啤酒' : `${credits?.credit_balance ?? '-'} 啤酒`}
-                      {text.trim() && (
+                      {text.trim() && processingMode !== 'ai_detect_reduce' && (
                         <span className="block mt-0.5 text-amber-600">
                           预计消耗 {estimatedCredits} 啤酒
                         </span>
                       )}
+                      {processingMode === 'ai_detect_reduce' && (
+                        <span className="block mt-0.5 text-amber-600">
+                          检测不扣啤酒；仅高AI段落降重时按次扣费
+                        </span>
+                      )}
                       <span className="block mt-0.5 text-gray-400">
-                        1 啤酒 = 1000 非空白字符，综合模式按两阶段计费
+                        {processingMode === 'ai_detect_reduce'
+                          ? '可在下方一键启动朱雀检测浏览器'
+                          : '1 啤酒 = 1000 非空白字符，综合模式按两阶段计费'}
                       </span>
                     </p>
                   </label>
@@ -707,6 +771,69 @@ const WorkspacePage = () => {
                   </label>
                 </div>
               </div>
+
+              {processingMode === 'ai_detect_reduce' && (
+                <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4 text-ios-blue" />
+                        <p className="text-[15px] font-semibold text-black">朱雀检测浏览器</p>
+                      </div>
+                      <p className="mt-1 text-[13px] leading-5 text-gray-600">
+                        点击启动后会打开独立 Chrome 窗口。未登录也可使用朱雀免费次数；次数不足时请登录或切换账号，并保持窗口打开。
+                      </p>
+                      <p
+                        className={`mt-2 text-[12px] ${
+                          zhuqueBrowserStatus?.connected ? 'text-ios-green' : 'text-orange-600'
+                        }`}
+                      >
+                        {zhuqueBrowserStatus?.connected ? (
+                          <>
+                            已连接端口 {zhuqueBrowserStatus.port}：{zhuqueBrowserStatus.url}
+                          </>
+                        ) : (
+                          <>
+                            未连接{zhuqueBrowserStatus?.port ? `端口 ${zhuqueBrowserStatus.port}` : ''}，关闭朱雀窗口后会自动变为未连接
+                          </>
+                        )}
+                      </p>
+                      {zhuqueLaunchInfo && !zhuqueBrowserStatus?.connected && (
+                        <p className="mt-1 text-[12px] text-gray-500">
+                          已尝试启动：{zhuqueLaunchInfo.url}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLaunchZhuqueBrowser}
+                      disabled={isLaunchingZhuque}
+                      className={`shrink-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[14px] font-semibold text-white transition-all disabled:bg-gray-300 disabled:cursor-not-allowed ${
+                        zhuqueBrowserStatus?.connected
+                          ? 'bg-ios-green hover:bg-green-600'
+                          : 'bg-ios-blue hover:bg-blue-600'
+                      }`}
+                    >
+                      {isLaunchingZhuque ? (
+                        <>
+                          <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                          启动中
+                        </>
+                      ) : zhuqueBrowserStatus?.connected ? (
+                        <>
+                          <CheckCircle className="h-4 w-4" />
+                          已连接
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink className="h-4 w-4" />
+                          启动朱雀浏览器
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
               
               <div className="mb-4">
                 <label className="block text-[13px] font-medium text-ios-gray mb-2 ml-1 uppercase tracking-wide">

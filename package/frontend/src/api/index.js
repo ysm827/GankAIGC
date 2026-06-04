@@ -120,6 +120,14 @@ export const optimizationAPI = {
     api.post(`/optimization/sessions/${sessionId}/retry`, data, {
       timeout: 15000, // 15秒超时
     }),
+  startZhuqueBrowser: () =>
+    api.post('/optimization/zhuque/browser/start', null, {
+      timeout: 10000, // 10秒超时
+    }),
+  getZhuqueBrowserStatus: () =>
+    api.get('/optimization/zhuque/browser/status', {
+      timeout: 5000, // 5秒超时
+    }),
   getStreamUrl: (sessionId) => {
     const userToken = localStorage.getItem('userToken');
     const baseUrl = api.defaults.baseURL || '/api';

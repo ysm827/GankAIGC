@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Download, FileText, GitCompare,
-  CheckCircle, AlertCircle, Shield, Square
+  CheckCircle, AlertCircle, Shield, Square, Activity, BarChart3
 } from 'lucide-react';
 import { optimizationAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
@@ -182,8 +182,98 @@ const SessionDetailPage = () => {
   const getFinalText = () => {
     return segments
       .sort((a, b) => a.segment_index - b.segment_index)
-      .map(seg => seg.enhanced_text || seg.polished_text || seg.original_text)
+      .map(seg => seg.zhuque_reduced_text || seg.enhanced_text || seg.polished_text || seg.original_text)
       .join('\n\n');
+  };
+
+  const parseZhuqueResult = (rawResult) => {
+    if (!rawResult) {
+      return null;
+    }
+    if (typeof rawResult === 'object') {
+      return rawResult;
+    }
+    try {
+      return JSON.parse(rawResult);
+    } catch (error) {
+      return { raw: rawResult };
+    }
+  };
+
+  const getZhuqueReport = () => {
+    if (session?.processing_mode !== 'ai_detect_reduce') {
+      return null;
+    }
+
+    const detectedSegments = segments.filter(
+      seg => seg.zhuque_detect_count > 0 || seg.zhuque_detect_rate !== null || seg.zhuque_detect_result
+    );
+    if (detectedSegments.length === 0) {
+      return {
+        finalRate: null,
+        detectCount: 0,
+        reduceRounds: 0,
+        segmentCount: segments.length,
+        result: null,
+      };
+    }
+
+    const sortedDetected = [...detectedSegments].sort((a, b) => a.segment_index - b.segment_index);
+    const reportSegment = [...sortedDetected]
+      .reverse()
+      .find(seg => seg.zhuque_detect_result || seg.zhuque_detect_rate !== null) || sortedDetected[0];
+    const result = parseZhuqueResult(reportSegment.zhuque_detect_result);
+    const finalRate = getZhuqueRiskRate(result, reportSegment.zhuque_detect_rate);
+
+    return {
+      finalRate,
+      detectCount: Math.max(...detectedSegments.map(seg => seg.zhuque_detect_count || 0)),
+      reduceRounds: Math.max(...segments.map(seg => seg.zhuque_reduce_attempt || 0), 0),
+      segmentCount: segments.length,
+      result,
+    };
+  };
+
+  const formatRate = (rate) => {
+    if (rate === null || rate === undefined || Number.isNaN(Number(rate))) {
+      return '--';
+    }
+    const number = Number(rate);
+    return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
+  };
+
+  const getZhuqueRiskRate = (result, fallbackRate = null) => {
+    const labelsRatio = result?.labels_ratio;
+    if (labelsRatio && typeof labelsRatio === 'object') {
+      const aiRate = Number(labelsRatio[1] ?? labelsRatio['1'] ?? 0) * 100;
+      const suspiciousRate = Number(labelsRatio[2] ?? labelsRatio['2'] ?? 0) * 100;
+      const riskRate = Math.max(
+        Number.isNaN(aiRate) ? 0 : aiRate,
+        Number.isNaN(suspiciousRate) ? 0 : suspiciousRate,
+      );
+      return Number(riskRate.toFixed(2));
+    }
+    return result?.risk_rate ?? fallbackRate ?? result?.rate ?? null;
+  };
+
+  const formatLabelsRatio = (labelsRatio) => {
+    if (!labelsRatio || typeof labelsRatio !== 'object') {
+      return null;
+    }
+    const labelNames = {
+      0: '人工特征',
+      1: 'AI特征',
+      2: '疑似AI',
+    };
+    return Object.entries(labelsRatio)
+      .map(([label, value]) => {
+        const ratio = Number(value);
+        const displayValue = Number.isNaN(ratio)
+          ? String(value)
+          : `${(ratio * 100).toFixed(1)}%`;
+        return `${labelNames[label] || label}: ${displayValue}`;
+      })
+      .join(' / ');
   };
 
   const getOriginalText = () => {
@@ -211,6 +301,11 @@ const SessionDetailPage = () => {
     return session?.processing_mode === 'paper_polish_enhance'
       && segments.some(seg => seg.polished_text && seg.enhanced_text);
   };
+
+  const zhuqueReport = getZhuqueReport();
+  const zhuqueThreshold = 20;
+  const zhuquePassed = zhuqueReport?.finalRate !== null && zhuqueReport?.finalRate <= zhuqueThreshold;
+  const zhuqueLabelsRatio = formatLabelsRatio(zhuqueReport?.result?.labels_ratio);
 
   if (!session) {
     return (
@@ -349,72 +444,171 @@ const SessionDetailPage = () => {
           )}
 
           {activeTab === 'result' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                <div className="p-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-[15px] font-semibold text-black ml-2">
-                      {shouldShowResultSwitch()
-                        ? (resultViewMode === 'enhanced' ? '增强后的文本' : '润色后的文本')
-                        : '优化后的文本'}
-                    </h3>
-
-                    {shouldShowResultSwitch() && (
-                      <div className="bg-gray-200/80 p-0.5 rounded-lg inline-flex">
-                        <button
-                          onClick={() => setResultViewMode('polished')}
-                          className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
-                            resultViewMode === 'polished'
-                              ? 'bg-white text-black shadow-sm'
-                              : 'text-gray-600 hover:text-black'
-                          }`}
-                        >
-                          润色
-                        </button>
-                        <button
-                          onClick={() => setResultViewMode('enhanced')}
-                          className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
-                            resultViewMode === 'enhanced'
-                              ? 'bg-white text-black shadow-sm'
-                              : 'text-gray-600 hover:text-black'
-                          }`}
-                        >
-                          增强
-                        </button>
+            <>
+              {zhuqueReport && (
+                <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+                  <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-ios-blue flex items-center justify-center">
+                        <BarChart3 className="w-5 h-5" />
                       </div>
-                    )}
+                      <div>
+                        <h3 className="text-[16px] font-semibold text-black">朱雀 AI 报告</h3>
+                        <p className="text-[12px] text-ios-gray mt-0.5">
+                          全文合并检测，阈值 {zhuqueThreshold}%，检测不消耗啤酒
+                        </p>
+                      </div>
+                    </div>
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold ${
+                      zhuquePassed ? 'bg-green-50 text-ios-green' : 'bg-red-50 text-ios-red'
+                    }`}>
+                      {zhuquePassed ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                      {zhuqueReport.finalRate === null ? '暂无报告' : (zhuquePassed ? '已达标' : '未达标')}
+                    </div>
                   </div>
 
-                  <button
-                    className="text-ios-blue text-[13px] px-3 py-1 hover:bg-blue-50 rounded-md transition-colors"
-                    onClick={() => {
+                  <div className="p-5 space-y-5">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <p className="text-[12px] text-ios-gray mb-1">最终风险率</p>
+                        <p className="text-[24px] font-bold text-black tracking-tight">
+                          {formatRate(zhuqueReport.finalRate)}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <p className="text-[12px] text-ios-gray mb-1">朱雀检测</p>
+                        <p className="text-[24px] font-bold text-black tracking-tight">
+                          {zhuqueReport.detectCount}
+                          <span className="text-[13px] font-medium text-ios-gray ml-1">次</span>
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <p className="text-[12px] text-ios-gray mb-1">降重轮次</p>
+                        <p className="text-[24px] font-bold text-black tracking-tight">
+                          {zhuqueReport.reduceRounds}
+                          <span className="text-[13px] font-medium text-ios-gray ml-1">轮</span>
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <p className="text-[12px] text-ios-gray mb-1">朱雀剩余</p>
+                        <p className="text-[24px] font-bold text-black tracking-tight">
+                          {zhuqueReport.result?.remaining_uses ?? '--'}
+                          <span className="text-[13px] font-medium text-ios-gray ml-1">次</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {(zhuqueLabelsRatio || zhuqueReport.result?.message || zhuqueReport.result?.text_length) && (
+                      <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3 text-[13px] text-gray-700 leading-6">
+                        {zhuqueLabelsRatio && <p>分类占比：{zhuqueLabelsRatio}</p>}
+                        {zhuqueReport.result?.text_length != null && <p>检测字数：{zhuqueReport.result.text_length}</p>}
+                        {zhuqueReport.result?.message && <p>朱雀提示：{zhuqueReport.result.message}</p>}
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Activity className="w-4 h-4 text-ios-blue" />
+                        <h4 className="text-[14px] font-semibold text-black">处理过程</h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                          <p className="text-[13px] font-semibold text-black">1. 全文检测</p>
+                          <p className="text-[12px] text-ios-gray mt-1">
+                            合并 {zhuqueReport.segmentCount} 段调用朱雀
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                          <p className="text-[13px] font-semibold text-black">2. 论文润色</p>
+                          <p className="text-[12px] text-ios-gray mt-1">
+                            {zhuqueReport.reduceRounds > 0 ? `已执行 ${zhuqueReport.reduceRounds} 轮` : '风险率未超阈值，未调用'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                          <p className="text-[13px] font-semibold text-black">3. 论文增强</p>
+                          <p className="text-[12px] text-ios-gray mt-1">
+                            {zhuqueReport.reduceRounds > 0 ? '使用增强结果作为最终文本' : '保留原文'}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                          <p className="text-[13px] font-semibold text-black">4. 全文复检</p>
+                          <p className="text-[12px] text-ios-gray mt-1">
+                            {zhuqueReport.detectCount > 1 ? `已复检 ${zhuqueReport.detectCount - 1} 次` : '无需复检'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-[15px] font-semibold text-black ml-2">
+                        {shouldShowResultSwitch()
+                          ? (resultViewMode === 'enhanced' ? '增强后的文本' : '润色后的文本')
+                          : '优化后的文本'}
+                      </h3>
+
+                      {shouldShowResultSwitch() && (
+                        <div className="bg-gray-200/80 p-0.5 rounded-lg inline-flex">
+                          <button
+                            onClick={() => setResultViewMode('polished')}
+                            className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
+                              resultViewMode === 'polished'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-gray-600 hover:text-black'
+                            }`}
+                          >
+                            润色
+                          </button>
+                          <button
+                            onClick={() => setResultViewMode('enhanced')}
+                            className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
+                              resultViewMode === 'enhanced'
+                                ? 'bg-white text-black shadow-sm'
+                                : 'text-gray-600 hover:text-black'
+                            }`}
+                          >
+                            增强
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      className="text-ios-blue text-[13px] px-3 py-1 hover:bg-blue-50 rounded-md transition-colors"
+                      onClick={() => {
                         navigator.clipboard.writeText(getDisplayText());
                         toast.success('已复制到剪贴板');
-                    }}
-                  >
-                    复制全文
-                  </button>
+                      }}
+                    >
+                      复制全文
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5 bg-white custom-scrollbar">
+                    <pre className="whitespace-pre-wrap font-sans text-[16px] text-black leading-relaxed">
+                      {getDisplayText()}
+                    </pre>
+                  </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-5 bg-white custom-scrollbar">
-                  <pre className="whitespace-pre-wrap font-sans text-[16px] text-black leading-relaxed">
-                    {getDisplayText()}
-                  </pre>
-                </div>
-              </div>
               
-              <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                <div className="p-3 bg-gray-50 border-b border-gray-100">
-                  <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
-                    原始文本
-                  </h3>
-                </div>
-                <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 custom-scrollbar">
-                  <pre className="whitespace-pre-wrap font-sans text-[15px] text-gray-500 leading-relaxed">
-                    {getOriginalText()}
-                  </pre>
+                <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-gray-50 border-b border-gray-100">
+                    <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
+                      原始文本
+                    </h3>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 custom-scrollbar">
+                    <pre className="whitespace-pre-wrap font-sans text-[15px] text-gray-500 leading-relaxed">
+                      {getOriginalText()}
+                    </pre>
+                  </div>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
           {activeTab === 'compare' && (
