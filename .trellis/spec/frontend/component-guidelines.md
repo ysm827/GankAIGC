@@ -93,6 +93,7 @@ Questions to answer:
 - Session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
 - Zhuque report risk rate in UI must use `max(labels_ratio[1], labels_ratio[2]) * 100` when `labels_ratio` is present, matching backend threshold semantics.
 - Session detail must parse `zhuque_agent_trace` defensively and render the "Agent 决策轨迹" panel when trace or live Zhuque SSE events exist.
+- When trace contains `type="reflection"` events, render them as "收敛反思" rows and show `stubborn_segment_indices`, `stagnation_count`, `current_strategy`, `next_strategy`, and `action` when present.
 - Session detail SSE must consume `zhuque_detect` and `zhuque_reduce` in addition to `content`; live state is supplemental and refresh must still recover from stored trace.
 
 ### 4. Validation & Error Matrix
@@ -110,6 +111,7 @@ Questions to answer:
 - Good: selecting `ai_detect_reduce` shows browser launcher, connected state updates from polling, and detail page shows final risk rate, detect count, reduce rounds, remaining uses, labels ratio, text length, and process timeline.
 - Good: readiness shows page status, remaining uses, text length, action suggestions, and a "朱雀已就绪" state before task start.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
+- Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
 - Bad: UI treats `labels_ratio[0]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, or marks browser connected just because launch was attempted.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
@@ -117,7 +119,7 @@ Questions to answer:
 ### 6. Tests Required
 
 - Static/frontend tests should assert mode option text, launcher/status endpoint strings, browser status polling state usage, report field rendering, and `zhuque_reduced_text` final-text priority.
-- Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
+- Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace/reflection panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Build must pass with `npm.cmd run build` on Windows PowerShell environments where `npm.ps1` may be blocked by execution policy.
 - After any production frontend change, sync `package/frontend/dist` into `package/static` before committing. Because `package/static` is ignored, new hashed assets must be staged with `git add -f package/static/...`; old hashed assets must be staged as deletions so `package/static/index.html` never points at missing files.
 

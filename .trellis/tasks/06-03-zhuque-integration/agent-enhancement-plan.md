@@ -389,6 +389,61 @@
     - `docs: update Zhuque agent contracts`
   - 完成证据：本次提交包含 Readiness/Preflight/Trace Agent、前端展示、测试与 spec。
 
+### Phase I: Convergence Reflection Agent
+
+- [x] I1. 后端收敛反思规则
+  - 行为：
+    - 每轮复检后计算 `rate_delta = old_rate - new_rate`。
+    - `rate_delta >= 1.0` 视为有效下降，沿用当前策略。
+    - `0 < rate_delta < 1.0` 视为微弱下降，计入停滞并升级策略。
+    - `rate_delta <= 0` 视为未下降，计入停滞并升级策略。
+    - 记录 `stagnation_count` 与 `stubborn_segment_indices`，失败诊断里给出顽固段落建议。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments`
+
+- [x] I2. Trace 增加 reflection 事件
+  - 字段：
+    - `type="reflection"`
+    - `round`
+    - `rate_delta`
+    - `stagnation_count`
+    - `current_strategy`
+    - `next_strategy`
+    - `selected_segment_indices`
+    - `stubborn_segment_indices`
+    - `action`
+    - `message`
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments`
+
+- [x] I3. 反思结果进入下一轮提示词
+  - 行为：
+    - 当出现连续停滞或顽固段落时，在现有润色/增强提示词后追加“朱雀收敛反思”约束。
+    - 不新增独立 LLM Planner，不存全文，不改变原有 `polish_text` + `enhance_text` 调用合同。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments`
+
+- [x] I4. 前端展示收敛反思
+  - 行为：
+    - 详情页 Agent 决策轨迹展示“收敛反思”事件。
+    - 展示顽固段落、连续停滞轮数、当前策略、下一轮策略和动作。
+  - 完成证据：
+    - 文件：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_session_detail_shows_zhuque_agent_trace`
+
+- [x] I5. 前端静态资源同步
+  - 行为：
+    - 已执行 `npm.cmd run build`。
+    - 已同步 `package/frontend/dist` → `package/static`。
+    - `package/static/index.html` 已指向新 hash `assets/index-B2FGBwfO.js`。
+  - 完成证据：
+    - 新增：`package/static/assets/index-B2FGBwfO.js`
+    - 删除旧 hash：`package/static/assets/index-9tVwYd_1.js`
+    - 构建命令：`cd package/frontend; npm.cmd run build`
+
 ## 4. 可拆分 Agent 包
 
 > 当前 inline 模式不实际派发实现/检查子代理。若后续切到可用多 Agent 环境，可按以下方式拆。

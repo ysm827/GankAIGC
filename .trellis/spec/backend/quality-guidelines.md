@@ -89,7 +89,10 @@ Questions to answer:
 - Zhuque `segment_labels[].position` is relative to the joined text using `"\n\n"` separators. Only labels `1` (AI) and `2` (suspicious) select segments for rewrite. If usable positions are absent, rewrite all segments as a safe fallback.
 - Retry after failure must detect `zhuque_reduced_text` first when present and continue from `max(zhuque_reduce_attempt) + 1`; it must not restart from original text.
 - Export and session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
-- `zhuque_agent_trace` must be compact metadata only: event kind, round, strategy, rates, selected segment indices, decision, message, and final diagnosis. Do not store full text in trace.
+- `zhuque_agent_trace` must be compact metadata only: event kind, round, strategy, rates, selected segment indices, decision, convergence reflection, message, and final diagnosis. Do not store full text in trace.
+- Convergence reflection treats `old_rate - new_rate >= 1.0` as meaningful progress. Smaller positive drops and non-drops are stagnation signals, increment `stagnation_count`, mark repeated `stubborn_segment_indices`, and force the next stronger Zhuque strategy.
+- Reflection trace events use `type="reflection"` and may include `rate_delta`, `stagnation_count`, `current_strategy`, `next_strategy`, `selected_segment_indices`, `stubborn_segment_indices`, `action`, and `message`.
+- Reflection prompt notes may be appended to existing polish/enhance prompts when stagnation is observed, but the pipeline must still call the existing `polish_text` and `enhance_text` methods; do not add a separate planner/reducer LLM call for this agent.
 
 ### 4. Validation & Error Matrix
 
@@ -99,7 +102,7 @@ Questions to answer:
 - Zhuque page/button unusable or quota exhausted -> task `failed`, error tells the user to login/switch accounts/wait for quota restoration.
 - Initial full-text detection returns `success=false` -> task `failed`; do not initialize or call LLM services.
 - Full-text risk rate <= threshold -> complete without beer transactions and without modifying segment text.
-- Risk rate remains above threshold after `ZHUQUE_MAX_REDUCE_ROUNDS` -> task `failed`; error includes current rate, threshold, per-run round count, and cumulative round count.
+- Risk rate remains above threshold after `ZHUQUE_MAX_REDUCE_ROUNDS` -> task `failed`; error includes current rate, threshold, per-run round count, and cumulative round count; trace final diagnosis should include stubborn segment indices when reflection identified them.
 - Platform beer balance below 10 during an actual reduce call -> fail before polish/enhance; no partial LLM output should be written for that segment.
 - Trace JSON invalid/missing on older sessions -> session detail API still returns `zhuque_agent_trace=null`; frontend handles it as absent.
 
@@ -108,6 +111,7 @@ Questions to answer:
 - Good: full text returns labels for only segments 1 and 3; only those segments run polish/enhance, two `zhuque_reduce` transactions are recorded, and the recheck writes the final report to all segments.
 - Good: Workspace preflight sees ready Zhuque page and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
+- Good: A session with repeated minor drops records reflection events, upgrades strategy despite nominal rate decreases, and shows stubborn segments in final diagnosis if still above threshold.
 - Base: full text risk rate is below threshold; all segments keep original text, detect count is 1, and no beer transaction exists.
 - Bad: retrying a failed `ai_detect_reduce` session with 0 beers pre-holds `optimization_start` or redetects original text; both violate the contract.
 - Bad: `byok` start with no provider config calls Zhuque readiness first; this leaks setup order and can produce confusing Zhuque errors before the API config error.
@@ -120,7 +124,7 @@ Questions to answer:
 - Browser launcher: configured port/profile in launched Chrome args, missing Chrome error, status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
-- Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce events; detail response includes trace.
+- Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection events; detail response includes trace.
 
 ### 7. Wrong vs Correct
 

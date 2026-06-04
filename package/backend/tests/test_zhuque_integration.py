@@ -1540,6 +1540,72 @@ def test_ai_detect_reduce_escalates_humanize_strategy_when_rate_does_not_drop(mo
         db.close()
 
 
+def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([80, 79.8, 79.6, 10])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 3, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-convergence-reflection",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 30,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+
+        assert session.status == "completed"
+        assert segment.zhuque_reduce_attempt == 3
+        assert "策略：轻度自然化" in fake_ai.polish_calls[0]["prompt"]
+        assert "策略：句式重组" in fake_ai.polish_calls[1]["prompt"]
+        assert "策略：强结构重写" in fake_ai.polish_calls[2]["prompt"]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        reduce_events = [event for event in trace["events"] if event["type"] == "reduce"]
+        reflection_events = [event for event in trace["events"] if event["type"] == "reflection"]
+
+        assert reduce_events[0]["decision"] == "minor_drop_upgrade_strategy"
+        assert reduce_events[1]["decision"] == "minor_drop_upgrade_strategy"
+        assert len(reflection_events) >= 2
+        assert reflection_events[0]["stagnation_count"] == 1
+        assert reflection_events[0]["stubborn_segment_indices"] == [0]
+        assert reflection_events[0]["next_strategy"] == "句式重组"
+        assert reflection_events[1]["stagnation_count"] == 2
+        assert reflection_events[1]["action"] == "force_stronger_strategy"
+        assert reflection_events[1]["next_strategy"] == "强结构重写"
+        assert "连续" in reflection_events[1]["message"]
+    finally:
+        db.close()
+
+
 def test_ai_detect_reduce_preflights_zhuque_before_segment_loop(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 

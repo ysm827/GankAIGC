@@ -586,11 +586,25 @@ const SessionDetailPage = () => {
                       <div key={`${event.type}-${event.round}-${index}`} className="rounded-xl border border-gray-100 px-4 py-3">
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <p className="text-[14px] font-semibold text-black">
-                            {event.type === 'detect' ? '全文检测' : `第 ${event.round} 轮降 AI`}
+                            {event.type === 'detect'
+                              ? '全文检测'
+                              : event.type === 'reflection'
+                                ? `第 ${event.round} 轮收敛反思`
+                                : `第 ${event.round} 轮降 AI`}
                           </p>
                           {event.strategy && (
                             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-ios-blue">
                               {event.strategy}
+                            </span>
+                          )}
+                          {event.current_strategy && (
+                            <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[12px] font-semibold text-purple-700">
+                              当前：{event.current_strategy}
+                            </span>
+                          )}
+                          {event.next_strategy && (
+                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-semibold text-amber-700">
+                              下一轮：{event.next_strategy}
                             </span>
                           )}
                         </div>
@@ -602,7 +616,14 @@ const SessionDetailPage = () => {
                           {event.selected_segment_indices && (
                             <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
                           )}
+                          {event.stubborn_segment_indices && (
+                            <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
+                          )}
+                          {event.stagnation_count !== undefined && (
+                            <p>连续停滞：{event.stagnation_count} 轮</p>
+                          )}
                           {event.decision && <p>决策：{event.decision}</p>}
+                          {event.action && <p>动作：{event.action}</p>}
                         </div>
                         {event.message && (
                           <p className="mt-2 text-[13px] leading-6 text-gray-500">{event.message}</p>

@@ -553,6 +553,9 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "命中段落" in session_detail
     assert "风险率变化" in session_detail
     assert "诊断建议" in session_detail
+    assert "收敛反思" in session_detail
+    assert "顽固段落" in session_detail
+    assert "stubborn_segment_indices" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

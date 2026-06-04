@@ -64,6 +64,8 @@ ZHUQUE_HUMANIZE_STRATEGIES = [
     },
 ]
 
+ZHUQUE_MIN_MEANINGFUL_RATE_DROP = 1.0
+
 
 class OptimizationService:
     """优化处理服务"""
@@ -280,6 +282,9 @@ class OptimizationService:
             result,
             prefer_reduced=has_reduced_text,
         )
+        stagnation_count = self._load_last_zhuque_stagnation_count()
+        stubborn_segment_counts: Dict[int, int] = {}
+        active_stubborn_indices: List[int] = []
         for round_offset in range(max_rounds):
             if full_text_rate <= threshold:
                 break
@@ -288,7 +293,16 @@ class OptimizationService:
             reduce_failures = []
             try:
                 strategy = ZHUQUE_HUMANIZE_STRATEGIES[strategy_level]
-                await self._process_zhuque_reduce_round(segments_to_reduce, round_number, strategy)
+                reflection_note = self._build_zhuque_reflection_prompt_note(
+                    stagnation_count=stagnation_count,
+                    stubborn_segment_indices=active_stubborn_indices,
+                )
+                await self._process_zhuque_reduce_round(
+                    segments_to_reduce,
+                    round_number,
+                    strategy,
+                    reflection_note=reflection_note,
+                )
 
                 recheck = await self._detect_full_text_once(
                     segments,
@@ -318,11 +332,19 @@ class OptimizationService:
                     "new_rate": full_text_rate,
                     "strategy": strategy["name"],
                 })
-                decision = (
-                    "rate_dropped_keep_strategy"
-                    if full_text_rate < old_rate
-                    else "rate_not_dropped_upgrade_strategy"
+                selected_segment_indices = [seg.segment_index for seg in segments_to_reduce]
+                reflection = self._reflect_zhuque_convergence(
+                    round_number=round_number,
+                    old_rate=old_rate,
+                    new_rate=full_text_rate,
+                    threshold=threshold,
+                    current_strategy_level=strategy_level,
+                    selected_segment_indices=selected_segment_indices,
+                    stagnation_count=stagnation_count,
+                    stubborn_segment_counts=stubborn_segment_counts,
                 )
+                stagnation_count = reflection["stagnation_count"]
+                active_stubborn_indices = reflection["stubborn_segment_indices"]
                 self._append_zhuque_trace_event({
                     "type": "reduce",
                     "round": round_number,
@@ -330,16 +352,31 @@ class OptimizationService:
                     "old_rate": old_rate,
                     "new_rate": full_text_rate,
                     "threshold": threshold,
-                    "selected_segment_indices": [seg.segment_index for seg in segments_to_reduce],
+                    "selected_segment_indices": selected_segment_indices,
                     "label_source": "segment_labels" if (recheck.get("segment_labels") or result.get("segment_labels")) else "fallback_all_segments",
-                    "decision": decision,
-                    "message": "风险率下降，下一轮继续当前策略" if decision == "rate_dropped_keep_strategy" else "风险率未下降，下一轮升级策略",
+                    "decision": reflection["decision"],
+                    "rate_delta": reflection["rate_delta"],
+                    "stagnation_count": stagnation_count,
+                    "stubborn_segment_indices": active_stubborn_indices,
+                    "next_strategy": reflection.get("next_strategy"),
+                    "message": reflection["reduce_message"],
                 })
-                strategy_level = self._next_zhuque_strategy_level(
-                    current_level=strategy_level,
-                    old_rate=old_rate,
-                    new_rate=full_text_rate,
-                )
+                if reflection["record_reflection"]:
+                    self._append_zhuque_trace_event({
+                        "type": "reflection",
+                        "round": round_number,
+                        "old_rate": old_rate,
+                        "new_rate": full_text_rate,
+                        "rate_delta": reflection["rate_delta"],
+                        "stagnation_count": stagnation_count,
+                        "current_strategy": strategy["name"],
+                        "next_strategy": reflection.get("next_strategy"),
+                        "selected_segment_indices": selected_segment_indices,
+                        "stubborn_segment_indices": active_stubborn_indices,
+                        "action": reflection["action"],
+                        "message": reflection["reflection_message"],
+                    })
+                strategy_level = reflection["next_strategy_level"]
                 segments_to_reduce = self._select_zhuque_reduce_segments(
                     segments,
                     recheck,
@@ -360,10 +397,16 @@ class OptimizationService:
             for seg in segments:
                 seg.status = "failed"
             self.db.commit()
+            diagnosis = self._build_zhuque_failure_diagnosis(
+                rate=full_text_rate,
+                threshold=threshold,
+                stubborn_segment_indices=active_stubborn_indices,
+            )
             self._finalize_zhuque_trace(
                 "failed",
                 full_text_rate,
-                "风险率仍高于阈值，建议人工处理命中段落后复检",
+                diagnosis,
+                stubborn_segment_indices=active_stubborn_indices,
             )
             raise RuntimeError(
                 f"朱雀降重未达标：本次已完成 {max_rounds} 轮，累计 {existing_rounds + max_rounds} 轮，当前全文 AI 率 {full_text_rate}%，仍高于阈值 {threshold}%"
@@ -376,10 +419,20 @@ class OptimizationService:
         segments: List[OptimizationSegment],
         round_number: int,
         strategy: Dict[str, str],
+        *,
+        reflection_note: str = "",
     ) -> None:
         """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
-        polish_prompt = self._with_zhuque_strategy(self._get_prompt("polish"), strategy)
-        enhance_prompt = self._with_zhuque_strategy(self._get_prompt("enhance"), strategy)
+        polish_prompt = self._with_zhuque_strategy(
+            self._get_prompt("polish"),
+            strategy,
+            reflection_note=reflection_note,
+        )
+        enhance_prompt = self._with_zhuque_strategy(
+            self._get_prompt("enhance"),
+            strategy,
+            reflection_note=reflection_note,
+        )
         use_stream = settings.USE_STREAMING
 
         polish_history: List[Dict[str, str]] = []
@@ -631,21 +684,136 @@ class OptimizationService:
             return 1
         return 0
 
-    def _next_zhuque_strategy_level(
+    def _reflect_zhuque_convergence(
         self,
         *,
-        current_level: int,
+        round_number: int,
         old_rate: float,
         new_rate: float,
-    ) -> int:
-        if new_rate < old_rate:
-            return current_level
-        return min(current_level + 1, len(ZHUQUE_HUMANIZE_STRATEGIES) - 1)
+        threshold: float,
+        current_strategy_level: int,
+        selected_segment_indices: List[int],
+        stagnation_count: int,
+        stubborn_segment_counts: Dict[int, int],
+    ) -> dict:
+        rate_delta = round(old_rate - new_rate, 2)
+        next_strategy_level = current_strategy_level
+        if new_rate <= threshold:
+            decision = "threshold_reached"
+            action = "stop"
+            reduce_message = "风险率已达标，停止降 AI"
+            reflection_message = "朱雀风险率已低于阈值，本轮无需继续升级策略。"
+            new_stagnation_count = 0
+            record_reflection = False
+        elif rate_delta >= ZHUQUE_MIN_MEANINGFUL_RATE_DROP:
+            decision = "rate_dropped_keep_strategy"
+            action = "keep_strategy"
+            reduce_message = "风险率有效下降，下一轮继续当前策略"
+            reflection_message = "收敛趋势正常，继续观察下一轮复检结果。"
+            new_stagnation_count = 0
+            record_reflection = False
+        elif rate_delta > 0:
+            decision = "minor_drop_upgrade_strategy"
+            action = "force_stronger_strategy"
+            new_stagnation_count = stagnation_count + 1
+            next_strategy_level = min(current_strategy_level + 1, len(ZHUQUE_HUMANIZE_STRATEGIES) - 1)
+            reduce_message = "风险率仅小幅下降，视为收敛停滞，下一轮升级策略"
+            reflection_message = (
+                f"第 {round_number} 轮仅下降 {rate_delta}% ，低于 "
+                f"{ZHUQUE_MIN_MEANINGFUL_RATE_DROP}% 的有效下降阈值，连续停滞 {new_stagnation_count} 轮。"
+            )
+            record_reflection = True
+        else:
+            decision = "rate_not_dropped_upgrade_strategy"
+            action = "force_stronger_strategy"
+            new_stagnation_count = stagnation_count + 1
+            next_strategy_level = min(current_strategy_level + 1, len(ZHUQUE_HUMANIZE_STRATEGIES) - 1)
+            reduce_message = "风险率未下降，下一轮升级策略"
+            reflection_message = (
+                f"第 {round_number} 轮风险率未下降，连续停滞 {new_stagnation_count} 轮，"
+                "下一轮对重复命中段落使用更强结构重写约束。"
+            )
+            record_reflection = True
 
-    def _with_zhuque_strategy(self, prompt: str, strategy: Dict[str, str]) -> str:
+        if record_reflection:
+            for segment_index in selected_segment_indices:
+                stubborn_segment_counts[segment_index] = stubborn_segment_counts.get(segment_index, 0) + 1
+        else:
+            for segment_index in selected_segment_indices:
+                stubborn_segment_counts.pop(segment_index, None)
+
+        stubborn_segment_indices = [
+            segment_index
+            for segment_index, count in sorted(stubborn_segment_counts.items())
+            if count >= 1
+        ]
+        next_strategy = ZHUQUE_HUMANIZE_STRATEGIES[next_strategy_level]["name"]
+        return {
+            "decision": decision,
+            "action": action,
+            "rate_delta": rate_delta,
+            "stagnation_count": new_stagnation_count,
+            "stubborn_segment_indices": stubborn_segment_indices,
+            "next_strategy_level": next_strategy_level,
+            "next_strategy": next_strategy,
+            "reduce_message": reduce_message,
+            "reflection_message": reflection_message,
+            "record_reflection": record_reflection,
+        }
+
+    def _load_last_zhuque_stagnation_count(self) -> int:
+        trace = self._load_zhuque_trace()
+        events = trace.get("events") or []
+        for event in reversed(events):
+            if isinstance(event, dict) and event.get("type") == "reflection":
+                try:
+                    return max(int(event.get("stagnation_count") or 0), 0)
+                except (TypeError, ValueError):
+                    return 0
+        return 0
+
+    def _build_zhuque_reflection_prompt_note(
+        self,
+        *,
+        stagnation_count: int,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        if stagnation_count <= 0 and not stubborn_segment_indices:
+            return ""
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        return (
+            "\n## 朱雀收敛反思\n"
+            f"- 已连续 {stagnation_count} 轮风险率无有效下降，顽固段落：{segments_text}。\n"
+            "- 本轮不要继续做轻微同义改写；请更明显地调整句子组织、信息顺序和表达节奏。\n"
+            "- 仍必须保护专业术语、专有名词、数字、引用、实验指标和关键结论。"
+        )
+
+    def _build_zhuque_failure_diagnosis(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        if stubborn_segment_indices:
+            joined = "、".join(str(index) for index in stubborn_segment_indices)
+            return (
+                f"风险率 {rate}% 仍高于阈值 {threshold}%。顽固段落：{joined}；"
+                "建议人工改写这些段落后复检，或切换朱雀账号/适当调整阈值后重试。"
+            )
+        return "风险率仍高于阈值，建议人工处理命中段落后复检"
+
+    def _with_zhuque_strategy(
+        self,
+        prompt: str,
+        strategy: Dict[str, str],
+        *,
+        reflection_note: str = "",
+    ) -> str:
         return (
             f"{prompt.rstrip()}\n"
             f"{strategy['instruction'].strip()}\n"
+            f"{reflection_note.strip()}\n"
             "只返回处理后的当前段落文本，不要解释使用了哪种策略。"
         )
 
@@ -680,13 +848,22 @@ class OptimizationService:
         trace.setdefault("events", []).append(event)
         self._save_zhuque_trace(trace)
 
-    def _finalize_zhuque_trace(self, status: str, rate: Optional[float], diagnosis: str) -> None:
+    def _finalize_zhuque_trace(
+        self,
+        status: str,
+        rate: Optional[float],
+        diagnosis: str,
+        *,
+        stubborn_segment_indices: Optional[List[int]] = None,
+    ) -> None:
         trace = self._load_zhuque_trace()
         trace["final"] = {
             "status": status,
             "rate": rate,
             "diagnosis": diagnosis,
         }
+        if stubborn_segment_indices:
+            trace["final"]["stubborn_segment_indices"] = stubborn_segment_indices
         self._save_zhuque_trace(trace)
 
     def _cleanup_ai_services(self):
