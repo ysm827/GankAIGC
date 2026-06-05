@@ -763,3 +763,62 @@
 - [x] H3. 已写入可勾选任务计划文档。
 - [x] H4. 等待用户确认是否按 MVP 开始实现。
 - [x] H5. 实现完成后逐项勾选并补充完成证据。
+
+### Phase M: Paper Reconstruction Agent
+
+> 用户要求顺序：针对论文场景，中英文兼容；完成一项勾选一项；前端改完必须 build 并同步 `package/static`。
+
+- [x] M1. 修复 breakthrough 触发太晚的问题
+  - 行为：当失败任务已到强结构重写且已有停滞信号时，本轮直接进入 `rewrite_mode="breakthrough"`，不再等下一轮才触发。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_activates_breakthrough_on_first_strong_stagnation`
+
+- [x] M2. 新增 `paper_reconstruction` rewrite_mode
+  - 行为：更深层连续停滞后进入 `rewrite_mode="paper_reconstruction"`。
+  - 仍复用 `polish_text` + `enhance_text`，不新增正文改写 API。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_uses_paper_reconstruction_for_repeated_paper_stagnation`
+
+- [x] M3. 新增中英文论文 AI 痕迹规则
+  - 中文规则覆盖：模板开头/连接词、空泛意义词、抽象名词堆叠、句式过均匀。
+  - 英文规则覆盖：inflated academic vocabulary、formulaic transitions、generic contribution claims、uniform rhythm。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - Trace 字段：`paper_language`, `paper_section`, `paper_ai_patterns`
+
+- [x] M4. 新增事实卡片抽取 prompt
+  - Prompt 要求保护术语、数字、引用、公式变量、方法、结果和结论。
+  - 本地 metadata 只记录 `fact_card_count`，不存全文和候选正文。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - Trace 字段：`fact_card_count`
+
+- [x] M5. 新增 2-3 候选生成与本地评分
+  - `polish_text` 生成候选 A/B/C；本地 `local_ai_pattern_score` 选择；`enhance_text` 定稿。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - Trace 字段：`candidate_count`, `candidate_selector`, `selected_candidate_ids`
+
+- [x] M6. 接入长度控制 ±10%
+  - Paper Reconstruction 继续走现有 `_repair_zhuque_length_if_needed()`，按原段落长度控制 90%-110%。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 复用 Phase K 长度合同与测试。
+
+- [x] M7. 前端展示中文/英文、章节、AI 痕迹、重构模式
+  - 详情页展示 `论文重构`、语言、章节、候选数量、事实卡片数和论文 AI 痕迹。
+  - 完成证据：
+    - 文件：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_session_detail_shows_zhuque_agent_trace`
+
+- [x] M8. 后端测试
+  - 完成证据：
+    - 朱雀专项：`python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `39 passed in 21.17s`。
+    - 后端全量：`python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `320 passed in 125.10s`。
+
+- [x] M9. 前端 build 并同步 `package/static`
+  - 完成证据：
+    - 前端构建：`cd package/frontend; npm.cmd run build` 成功，生成 `assets/index-r7PXR3PZ.js` 与 `assets/index-BncyE3zn.css`。
+    - 静态同步：`package/frontend/dist` → `package/static`，`package/static/index.html` 已指向 `assets/index-r7PXR3PZ.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`。

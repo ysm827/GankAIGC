@@ -146,6 +146,17 @@ class FakeAIService:
                 "stream": stream,
             }
         )
+        if "rewrite_mode: paper_reconstruction" in prompt:
+            return json.dumps(
+                {
+                    "candidates": [
+                        {"id": "A", "text": text.replace("具有重要支撑", "提供参考")},
+                        {"id": "B", "text": text.replace("进一步为临床辅助诊断提供重要支撑", "可作为临床辅助诊断的参考")},
+                        {"id": "C", "text": text.replace("有效提升", "改善").replace("重要支撑", "参考")},
+                    ]
+                },
+                ensure_ascii=False,
+            )
         return f"润色后:{text}"
 
     async def enhance_text(self, text, prompt, history=None, stream=False):
@@ -1705,6 +1716,159 @@ def test_ai_detect_reduce_escalates_humanize_strategy_when_rate_does_not_drop(mo
         assert reduce_events[0]["rewrite_mode"] == "standard"
         assert reduce_events[1]["rewrite_mode"] == "standard"
         assert reduce_events[2]["rewrite_mode"] == "breakthrough"
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_activates_breakthrough_on_first_strong_stagnation(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([100, 10])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 2, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-breakthrough-no-lag",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps({
+                "version": 1,
+                "threshold": 20.0,
+                "events": [
+                    {
+                        "type": "reflection",
+                        "round": 2,
+                        "stagnation_count": 1,
+                        "stubborn_segment_indices": [0],
+                    }
+                ],
+            }, ensure_ascii=False),
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 30,
+            zhuque_reduced_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 30,
+            zhuque_reduce_attempt=2,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+
+        assert session.status == "completed"
+        assert len(fake_ai.polish_calls) == 1
+        assert "策略：强结构重写" in fake_ai.polish_calls[0]["prompt"]
+        assert "朱雀逃逸改写" in fake_ai.polish_calls[0]["prompt"]
+        assert "Nature / Science" not in fake_ai.polish_calls[0]["prompt"]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        reduce_events = [event for event in trace["events"] if event["type"] == "reduce"]
+        assert reduce_events[-1]["rewrite_mode"] == "breakthrough"
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_uses_paper_reconstruction_for_repeated_paper_stagnation(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([100, 10])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 3, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-paper-reconstruction",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps({
+                "version": 1,
+                "threshold": 20.0,
+                "events": [
+                    {
+                        "type": "reflection",
+                        "round": 5,
+                        "stagnation_count": 2,
+                        "stubborn_segment_indices": [0],
+                    }
+                ],
+            }, ensure_ascii=False),
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text=(
+                "本文围绕深度学习模型在医学影像分割任务中的应用展开研究。"
+                "通过构建多尺度特征融合机制，模型能够有效提升边界区域识别能力，"
+                "进一步为临床辅助诊断提供重要支撑。"
+            ) * 8,
+            zhuque_reduced_text=(
+                "本文围绕深度学习模型在医学影像分割任务中的应用展开研究。"
+                "通过构建多尺度特征融合机制，模型能够有效提升边界区域识别能力，"
+                "进一步为临床辅助诊断提供重要支撑。"
+            ) * 8,
+            zhuque_reduce_attempt=5,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+
+        assert session.status == "completed"
+        assert len(fake_ai.polish_calls) == 1
+        assert "rewrite_mode: paper_reconstruction" in fake_ai.polish_calls[0]["prompt"]
+        assert "论文事实卡片" in fake_ai.polish_calls[0]["prompt"]
+        assert "中文论文 AI 痕迹规则" in fake_ai.polish_calls[0]["prompt"]
+        assert "候选 A" in fake_ai.polish_calls[0]["prompt"]
+        assert "本地 AI 痕迹自检" in fake_ai.enhance_calls[0]["prompt"]
+        assert "字数控制在原段落 90%-110%" in fake_ai.enhance_calls[0]["prompt"]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        paper_events = [event for event in trace["events"] if event.get("rewrite_mode") == "paper_reconstruction"]
+        assert paper_events
+        paper_event = paper_events[0]
+        assert paper_event["paper_language"] == "zh"
+        assert "template_transition" in paper_event["paper_ai_patterns"]
+        assert paper_event["candidate_count"] == 3
+        assert paper_event["candidate_selector"] == "local_ai_pattern_score"
+        assert paper_event["fact_card_count"] >= 1
     finally:
         db.close()
 

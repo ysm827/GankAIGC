@@ -563,6 +563,13 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "长度校正" in session_detail
     assert "rewrite_mode" in session_detail
     assert "逃逸改写" in session_detail
+    assert "paper_reconstruction" in session_detail
+    assert "论文重构" in session_detail
+    assert "paper_language" in session_detail
+    assert "paper_section" in session_detail
+    assert "paper_ai_patterns" in session_detail
+    assert "candidate_count" in session_detail
+    assert "fact_card_count" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

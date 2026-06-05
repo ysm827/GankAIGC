@@ -613,9 +613,15 @@ const SessionDetailPage = () => {
                             <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${
                               event.rewrite_mode === 'breakthrough'
                                 ? 'bg-red-50 text-ios-red'
+                                : event.rewrite_mode === 'paper_reconstruction'
+                                  ? 'bg-emerald-50 text-emerald-700'
                                 : 'bg-gray-100 text-gray-600'
                             }`}>
-                              {event.rewrite_mode === 'breakthrough' ? '逃逸改写' : `rewrite_mode：${event.rewrite_mode}`}
+                              {event.rewrite_mode === 'breakthrough'
+                                ? '逃逸改写'
+                                : event.rewrite_mode === 'paper_reconstruction'
+                                  ? '论文重构'
+                                  : `rewrite_mode：${event.rewrite_mode}`}
                             </span>
                           )}
                         </div>
@@ -637,7 +643,18 @@ const SessionDetailPage = () => {
                           {event.action && <p>动作：{event.action}</p>}
                           {event.source && <p>来源：{event.source === 'memory' ? '历史记忆' : event.source}</p>}
                           {event.safety_status && <p>安全校验：{event.safety_status}</p>}
+                          {event.paper_language && <p>论文语言：{event.paper_language === 'zh' ? '中文' : 'English'}</p>}
+                          {event.paper_section && <p>论文章节：{event.paper_section}</p>}
+                          {event.candidate_count !== undefined && <p>候选数量：{event.candidate_count}</p>}
+                          {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
                         </div>
+                        {Array.isArray(event.paper_ai_patterns) && event.paper_ai_patterns.length > 0 && (
+                          <div className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-[13px] leading-6 text-emerald-800">
+                            <p className="font-semibold">论文 AI 痕迹</p>
+                            <p>{event.paper_ai_patterns.join('；')}</p>
+                            {event.candidate_selector && <p>候选选择：{event.candidate_selector}</p>}
+                          </div>
+                        )}
                         {event.root_causes && event.root_causes.length > 0 && (
                           <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] leading-6 text-amber-800">
                             <p className="font-semibold">失败原因</p>

@@ -1,6 +1,7 @@
 ﻿import json
 import asyncio
 import logging
+import re
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.models.models import (
@@ -69,6 +70,7 @@ ZHUQUE_MIN_MEANINGFUL_RATE_DROP = 1.0
 ZHUQUE_LENGTH_TOLERANCE = 0.10
 ZHUQUE_REWRITE_MODE_STANDARD = "standard"
 ZHUQUE_REWRITE_MODE_BREAKTHROUGH = "breakthrough"
+ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION = "paper_reconstruction"
 
 ZHUQUE_BREAKTHROUGH_POLISH_PROMPT = """
 # 朱雀逃逸改写：反模板草稿重写
@@ -111,6 +113,44 @@ ZHUQUE_BREAKTHROUGH_ENHANCE_PROMPT = """
 5. 字数控制在原段落 90%-110% 内，语义完整。
 
 只返回最终段落文本。
+"""
+
+ZHUQUE_PAPER_RECONSTRUCTION_POLISH_PROMPT = """
+# 论文重构候选生成：Paper Reconstruction Agent
+
+当前任务是中英文论文专用降 AI 重构，不是普通润色、扩写或口语化改写。你需要先保留论文事实，再生成多个结构不同但语义一致的候选段落。
+
+## 总原则
+- 保留研究对象、专业术语、专有名词、公式变量、数据、年份、引用、实验指标、方法步骤、因果关系和关键结论。
+- 不新增原文没有的背景、意义、局限、展望、实验结果或文献判断。
+- 不使用零宽字符、错别字、同形字、随机标点、故意语病等检测规避手段。
+- 字数控制在原段落 90%-110%。
+
+## 候选生成
+请在内部抽取“论文事实卡片”，再生成 3 个候选：
+- 候选 A：保守重构，保留原信息顺序，只删除模板化连接和空泛意义句。
+- 候选 B：结构重排，按对象、动作、条件、结果重新组织信息。
+- 候选 C：压缩抽象评价，保留具体事实、方法、数据和限制。
+
+## 输出格式
+优先输出 JSON，格式如下：
+{"candidates":[{"id":"A","text":"..."},{"id":"B","text":"..."},{"id":"C","text":"..."}]}
+不要输出解释。
+"""
+
+ZHUQUE_PAPER_RECONSTRUCTION_ENHANCE_PROMPT = """
+# 论文重构候选定稿：Local AI-Check + Finalizer
+
+你收到的是本地 AI 痕迹评分后选出的候选段落。请在不改变事实的前提下定稿。
+
+## 本地 AI 痕迹自检
+- 检查是否仍有模板连接词、空泛价值判断、过度抽象名词堆叠、三段式总结或均匀句式。
+- 中文论文避免“重要、显著、有效、进一步、持续推进、具有重要意义、提供有力支撑”等空泛词。
+- English academic writing avoids inflated words such as "crucial", "pivotal", "significant", "comprehensive", "robust", "underscore", and formulaic transitions such as "Moreover", "Furthermore", and "In conclusion" unless necessary.
+- 方法/公式/参数/数据/引用/结果不能被重写错。
+- 字数控制在原段落 90%-110%，语义完整。
+
+只返回最终论文段落。
 """
 
 
@@ -356,8 +396,9 @@ class OptimizationService:
                 rewrite_mode = self._select_zhuque_rewrite_mode(
                     stagnation_count=stagnation_count,
                     strategy_level=strategy_level,
+                    round_number=round_number,
                 )
-                length_adjustments = await self._process_zhuque_reduce_round(
+                round_result = await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
                     strategy,
@@ -365,6 +406,8 @@ class OptimizationService:
                     reflection_note=reflection_note,
                     prompt_evolution_note=prompt_evolution_note,
                 )
+                length_adjustments = round_result["length_adjustments"]
+                paper_metadata = round_result.get("paper_metadata")
 
                 recheck = await self._detect_full_text_once(
                     segments,
@@ -402,6 +445,8 @@ class OptimizationService:
                 }
                 if length_adjustments:
                     reduce_payload["length_adjustments"] = length_adjustments
+                if paper_metadata:
+                    reduce_payload.update(paper_metadata)
                 await stream_manager.broadcast(self.session_obj.session_id, reduce_payload)
                 selected_segment_indices = [seg.segment_index for seg in segments_to_reduce]
                 reflection = self._reflect_zhuque_convergence(
@@ -437,6 +482,13 @@ class OptimizationService:
                     reduce_event["length_adjustments"] = length_adjustments
                     reduce_event["message"] = (
                         f"{reduce_event['message']}；已对 {len(length_adjustments)} 个段落做长度校正"
+                    )
+                if paper_metadata:
+                    reduce_event.update(paper_metadata)
+                    reduce_event["message"] = (
+                        f"{reduce_event['message']}；论文重构已按"
+                        f"{paper_metadata.get('paper_language', '--')}/"
+                        f"{paper_metadata.get('paper_section', '--')} 规则选择候选"
                     )
                 self._append_zhuque_trace_event(reduce_event)
                 if reflection["record_reflection"]:
@@ -501,7 +553,7 @@ class OptimizationService:
         rewrite_mode: str = ZHUQUE_REWRITE_MODE_STANDARD,
         reflection_note: str = "",
         prompt_evolution_note: str = "",
-    ) -> List[Dict[str, object]]:
+    ) -> Dict[str, object]:
         """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
         polish_prompt = self._with_zhuque_strategy(
             self._get_zhuque_round_base_prompt("polish", rewrite_mode),
@@ -521,6 +573,7 @@ class OptimizationService:
 
         polish_history: List[Dict[str, str]] = []
         polish_chars = 0
+        paper_segment_metadata: List[Dict[str, object]] = []
 
         self.session_obj.current_stage = "polish"
         self.db.commit()
@@ -560,6 +613,14 @@ class OptimizationService:
                 return response
 
             polished = await self._run_with_retry(seg.segment_index, "polish", execute_polish_call)
+            if rewrite_mode == ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION:
+                selected_candidate, paper_metadata = self._select_zhuque_paper_candidate(
+                    original_text=seg.original_text or "",
+                    raw_candidates=polished,
+                    segment_index=seg.segment_index,
+                )
+                polished = selected_candidate
+                paper_segment_metadata.append(paper_metadata)
             seg.polished_text = polished
             self.db.commit()
 
@@ -573,7 +634,6 @@ class OptimizationService:
         enhance_history: List[Dict[str, str]] = []
         enhance_chars = 0
         length_adjustments: List[Dict[str, object]] = []
-
         self.session_obj.current_stage = "enhance"
         self.db.commit()
 
@@ -624,7 +684,12 @@ class OptimizationService:
                 enhance_history = await self._compress_history(enhance_history, "enhance")
                 enhance_chars = sum(count_chinese_characters(msg.get("content", "")) for msg in enhance_history)
 
-        return length_adjustments
+        return {
+            "length_adjustments": length_adjustments,
+            "paper_metadata": self._summarize_zhuque_paper_metadata(paper_segment_metadata)
+            if paper_segment_metadata
+            else None,
+        }
 
     async def _repair_zhuque_length_if_needed(
         self,
@@ -894,17 +959,197 @@ class OptimizationService:
             return 1
         return 0
 
-    def _select_zhuque_rewrite_mode(self, *, stagnation_count: int, strategy_level: int) -> str:
-        if stagnation_count >= 2 and strategy_level >= 2:
+    def _select_zhuque_rewrite_mode(
+        self,
+        *,
+        stagnation_count: int,
+        strategy_level: int,
+        round_number: int = 0,
+    ) -> str:
+        if stagnation_count >= 2 and strategy_level >= 2 and round_number >= 4:
+            return ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION
+        if stagnation_count >= 1 and strategy_level >= 2:
             return ZHUQUE_REWRITE_MODE_BREAKTHROUGH
         return ZHUQUE_REWRITE_MODE_STANDARD
 
     def _get_zhuque_round_base_prompt(self, stage: str, rewrite_mode: str) -> str:
+        if rewrite_mode == ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION:
+            if stage == "polish":
+                return ZHUQUE_PAPER_RECONSTRUCTION_POLISH_PROMPT
+            return ZHUQUE_PAPER_RECONSTRUCTION_ENHANCE_PROMPT
         if rewrite_mode == ZHUQUE_REWRITE_MODE_BREAKTHROUGH:
             if stage == "polish":
                 return ZHUQUE_BREAKTHROUGH_POLISH_PROMPT
             return ZHUQUE_BREAKTHROUGH_ENHANCE_PROMPT
         return self._get_prompt(stage)
+
+    def _select_zhuque_paper_candidate(
+        self,
+        *,
+        original_text: str,
+        raw_candidates: str,
+        segment_index: int,
+    ) -> Tuple[str, Dict[str, object]]:
+        candidates = self._parse_zhuque_paper_candidates(raw_candidates)
+        language = self._detect_zhuque_paper_language(original_text)
+        section = self._detect_zhuque_paper_section(original_text, language=language)
+        patterns = self._detect_zhuque_paper_ai_patterns(original_text, language=language)
+        fact_card = self._build_zhuque_paper_fact_card(original_text)
+
+        lower, upper = self._zhuque_length_bounds(count_text_length(original_text))
+        scored = []
+        for candidate in candidates:
+            text = candidate.get("text") or ""
+            length = count_text_length(text)
+            score = self._score_zhuque_paper_candidate(text, language=language)
+            if lower <= length <= upper:
+                score -= 3
+            else:
+                score += min(abs(length - lower), abs(length - upper), 20)
+            scored.append({**candidate, "score": score, "length": length})
+
+        selected = min(scored, key=lambda item: (item["score"], item["length"])) if scored else {
+            "id": "fallback",
+            "text": raw_candidates,
+            "score": 999,
+            "length": count_text_length(raw_candidates),
+        }
+        metadata = {
+            "segment_index": segment_index,
+            "paper_language": language,
+            "paper_section": section,
+            "paper_ai_patterns": patterns,
+            "candidate_count": len(candidates),
+            "candidate_selector": "local_ai_pattern_score",
+            "selected_candidate_id": selected.get("id"),
+            "selected_candidate_score": selected.get("score"),
+            "fact_card_count": sum(len(value) for value in fact_card.values() if isinstance(value, list)),
+        }
+        return selected.get("text") or raw_candidates, metadata
+
+    def _parse_zhuque_paper_candidates(self, raw_candidates: str) -> List[Dict[str, str]]:
+        text = (raw_candidates or "").strip()
+        if not text:
+            return [{"id": "fallback", "text": ""}]
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list):
+                candidates = [
+                    {"id": str(item.get("id") or index), "text": str(item.get("text") or "").strip()}
+                    for index, item in enumerate(parsed["candidates"])
+                    if isinstance(item, dict) and str(item.get("text") or "").strip()
+                ]
+                if candidates:
+                    return candidates[:3]
+        except (TypeError, json.JSONDecodeError):
+            pass
+
+        matches = re.findall(
+            r"(?:候选|Candidate)\s*([ABC])[:：]\s*(.*?)(?=(?:候选|Candidate)\s*[ABC][:：]|$)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if matches:
+            return [
+                {"id": candidate_id.upper(), "text": candidate_text.strip()}
+                for candidate_id, candidate_text in matches
+                if candidate_text.strip()
+            ][:3]
+        return [{"id": "fallback", "text": text}]
+
+    def _detect_zhuque_paper_language(self, text: str) -> str:
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text or ""))
+        latin_words = len(re.findall(r"[A-Za-z]{3,}", text or ""))
+        return "zh" if chinese_chars >= max(latin_words, 1) else "en"
+
+    def _detect_zhuque_paper_section(self, text: str, *, language: str) -> str:
+        lowered = (text or "").lower()
+        if language == "zh":
+            if any(word in text for word in ["摘要", "研究目的", "研究方法", "研究结果"]):
+                return "abstract"
+            if any(word in text for word in ["本文", "研究背景", "研究现状", "研究意义", "研究缺口"]):
+                return "introduction"
+            if any(word in text for word in ["方法", "模型", "算法", "公式", "参数", "实验设置"]):
+                return "method"
+            if any(word in text for word in ["结果", "表明", "提升", "降低", "准确率", "F1", "Dice"]):
+                return "results"
+            if any(word in text for word in ["讨论", "局限", "未来", "启示"]):
+                return "discussion"
+        else:
+            if any(word in lowered for word in ["abstract", "we propose", "this paper presents"]):
+                return "abstract"
+            if any(word in lowered for word in ["introduction", "prior work", "literature", "gap"]):
+                return "introduction"
+            if any(word in lowered for word in ["method", "model", "algorithm", "parameter", "dataset"]):
+                return "method"
+            if any(word in lowered for word in ["result", "accuracy", "f1", "auc", "table", "figure"]):
+                return "results"
+            if any(word in lowered for word in ["discussion", "limitation", "future work"]):
+                return "discussion"
+        return "unknown"
+
+    def _detect_zhuque_paper_ai_patterns(self, text: str, *, language: str) -> List[str]:
+        patterns: List[str] = []
+        if language == "zh":
+            if any(word in text for word in ["本文围绕", "本文旨在", "首先", "其次", "最后", "综上", "因此可以看出", "由此可见"]):
+                patterns.append("template_transition")
+            if any(word in text for word in ["重要意义", "有力支撑", "持续推进", "高质量发展", "显著", "有效", "进一步"]):
+                patterns.append("inflated_significance")
+            if re.search(r"(机制|路径|体系|效能|能力|水平|模式|框架).{0,4}(优化|构建|提升|完善|推进)", text):
+                patterns.append("abstract_noun_stack")
+            if len(re.findall(r"[；;，,]", text)) >= 6:
+                patterns.append("uniform_sentence_rhythm")
+        else:
+            lowered = text.lower()
+            if any(word in lowered for word in ["moreover", "furthermore", "in conclusion", "therefore", "consequently"]):
+                patterns.append("template_transition")
+            if any(word in lowered for word in ["crucial", "pivotal", "significant", "comprehensive", "robust", "underscore", "highlight"]):
+                patterns.append("inflated_significance")
+            if "this study contributes" in lowered or "contributes to the literature" in lowered:
+                patterns.append("generic_contribution")
+            if len(re.findall(r",\s*(which|thereby|therefore|thus)\b", lowered)) >= 2:
+                patterns.append("uniform_sentence_rhythm")
+        return patterns or ["paper_reconstruction"]
+
+    def _build_zhuque_paper_fact_card(self, text: str) -> Dict[str, List[str]]:
+        return {
+            "numbers": re.findall(r"\d+(?:\.\d+)?%?|\b\d{4}\b", text or ""),
+            "citations": re.findall(r"\[[^\]]+\]|\([A-Z][A-Za-z]+,\s*\d{4}\)", text or ""),
+            "terms": re.findall(r"[A-Za-z][A-Za-z0-9_\-]{2,}|[\u4e00-\u9fff]{2,}(?:模型|算法|机制|指标|方法|实验|系统|数据集|任务)", text or "")[:20],
+        }
+
+    def _score_zhuque_paper_candidate(self, text: str, *, language: str) -> int:
+        score = 0
+        for pattern in self._detect_zhuque_paper_ai_patterns(text, language=language):
+            if pattern != "paper_reconstruction":
+                score += 4
+        if language == "zh":
+            score += len(re.findall(r"重要|显著|有效|进一步|持续|深入|充分|支撑", text or ""))
+            sentence_lengths = [count_text_length(item) for item in re.split(r"[。！？!?]", text or "") if item.strip()]
+        else:
+            score += len(re.findall(r"\b(crucial|pivotal|significant|comprehensive|robust|underscore|highlight)\b", text.lower()))
+            sentence_lengths = [len(item.split()) for item in re.split(r"[.!?]", text or "") if item.strip()]
+        if len(sentence_lengths) >= 3 and max(sentence_lengths) - min(sentence_lengths) <= 8:
+            score += 3
+        return score
+
+    def _summarize_zhuque_paper_metadata(self, metadata_items: List[Dict[str, object]]) -> Dict[str, object]:
+        first = metadata_items[0]
+        patterns: List[str] = []
+        for item in metadata_items:
+            for pattern in item.get("paper_ai_patterns") or []:
+                if pattern not in patterns:
+                    patterns.append(pattern)
+        return {
+            "paper_language": first.get("paper_language"),
+            "paper_section": first.get("paper_section"),
+            "paper_ai_patterns": patterns,
+            "candidate_count": max(int(item.get("candidate_count") or 0) for item in metadata_items),
+            "candidate_selector": "local_ai_pattern_score",
+            "selected_candidate_ids": [item.get("selected_candidate_id") for item in metadata_items],
+            "fact_card_count": sum(int(item.get("fact_card_count") or 0) for item in metadata_items),
+        }
 
     def _reflect_zhuque_convergence(
         self,
@@ -1126,6 +1371,15 @@ class OptimizationService:
                 "- rewrite_mode: breakthrough。\n"
                 "- 已禁用默认学术增益/风格拟态提示词底座；本轮只执行朱雀逃逸改写约束。\n"
                 "- 不要把文本改得更整齐、更宏大或更像论文模板。"
+            )
+        elif rewrite_mode == ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION:
+            rewrite_mode_note = (
+                "\n## 当前改写模式\n"
+                "- rewrite_mode: paper_reconstruction。\n"
+                "- 论文事实卡片：先保护术语、数字、引用、方法、结果和结论，再重构表达。\n"
+                "- 中文论文 AI 痕迹规则：减少模板连接词、空泛意义句、抽象名词堆叠和均匀长句。\n"
+                "- English paper rules: avoid inflated academic vocabulary, generic contribution claims, and formulaic transitions.\n"
+                "- 候选 A / B / C 由本地 AI 痕迹自检评分选择，不改变事实。"
             )
         return (
             f"{prompt.rstrip()}\n"

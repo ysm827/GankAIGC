@@ -100,6 +100,8 @@ Questions to answer:
 - Prompt Evolution trace events use `type="prompt_evolution"` and may include `failure_signature`, `root_causes`, `prompt_patch`, `memory_id`, `source`, `safety_status`, and `blocked_reasons`.
 - Prompt patch safety validation must reject detector-hacking tactics: zero-width/invisible characters, deliberate typos, homoglyphs, random punctuation, intentional grammar errors, and changing data/citations/conclusions. Unsafe generated patches fall back to the built-in safe strong-rewrite patch.
 - Breakthrough Rewrite mode must activate after repeated stagnation reaches the strongest Zhuque strategy. In this mode the pipeline still calls `polish_text` and `enhance_text`, but it must use Zhuque-specific anti-template base prompts instead of the default "Nature/Science editor" or "style mimicry" prompts, because those default prompts can reinforce the exact regular academic tone Zhuque flags. Reduce trace/SSE events should include `rewrite_mode="breakthrough"` when active.
+- Paper Reconstruction mode must activate after deeper repeated stagnation in the strongest Zhuque strategy. It is still implemented through the existing `polish_text` and `enhance_text` calls: `polish_text` generates paper-specific candidates, local scoring selects a candidate, and `enhance_text` finalizes it. It must not introduce a separate body-rewrite API. Trace/SSE events should include `rewrite_mode="paper_reconstruction"` plus compact metadata only: `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, `candidate_selector`, selected candidate ids, and `fact_card_count`.
+- Paper Reconstruction must support Chinese and English academic writing without casualizing the paper. It should preserve terms, numbers, citations, formulas, methods, results, and conclusions; identify common paper AI patterns such as template transitions, inflated significance, abstract noun stacks, generic contribution claims, and uniform sentence rhythm; and keep the existing ±10% Zhuque length contract.
 
 ### 4. Validation & Error Matrix
 
@@ -124,6 +126,7 @@ Questions to answer:
 - Good: A session with repeated minor drops records reflection events, upgrades strategy despite nominal rate decreases, and shows stubborn segments in final diagnosis if still above threshold.
 - Good: A session with repeated stagnation records a `prompt_evolution` trace event, appends a safe strong-rewrite prompt patch to existing polish/enhance prompts, and records a compact prompt memory.
 - Good: A session stuck at 100% for multiple rounds enters `rewrite_mode="breakthrough"`, stops using the default polish/enhance base prompts for that round, and records the rewrite mode in trace.
+- Good: A session that remains stuck after breakthrough enters `rewrite_mode="paper_reconstruction"`, records Chinese/English paper pattern metadata, selects among 2-3 candidates by local AI-pattern score, preserves facts, and still enforces the ±10% length contract before Zhuque recheck.
 - Base: full text risk rate is below threshold; all segments keep original text, detect count is 1, and no beer transaction exists.
 - Bad: retrying a failed `ai_detect_reduce` session with 0 beers pre-holds `optimization_start` or redetects original text; both violate the contract.
 - Bad: `byok` start with no provider config calls Zhuque readiness first; this leaks setup order and can produce confusing Zhuque errors before the API config error.
@@ -137,6 +140,7 @@ Questions to answer:
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.
+- Paper Reconstruction: repeated paper stagnation records `rewrite_mode="paper_reconstruction"`, language/section/pattern metadata, candidate selection metadata, and fact-card counts without storing full candidate text in trace.
 - Prompt Evolution: memory table exists after Alembic/startup; signature builder, safety validator, memory selection, and pipeline prompt patch insertion have regression tests.
 
 ### 7. Wrong vs Correct
