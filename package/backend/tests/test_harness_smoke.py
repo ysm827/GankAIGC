@@ -38,6 +38,7 @@ def test_startup_schema_includes_zhuque_columns(client):
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     session_columns = {column["name"] for column in inspector.get_columns("optimization_sessions")}
     segment_columns = {column["name"] for column in inspector.get_columns("optimization_segments")}
+    tables = set(inspector.get_table_names())
 
     assert {"zhuque_free_uses_remaining", "zhuque_total_uses"}.issubset(user_columns)
     assert {"zhuque_agent_trace"}.issubset(session_columns)
@@ -48,6 +49,7 @@ def test_startup_schema_includes_zhuque_columns(client):
         "zhuque_reduce_attempt",
         "zhuque_reduced_text",
     }.issubset(segment_columns)
+    assert "zhuque_prompt_memories" in tables
 
 
 def test_repeated_startup_does_not_duplicate_system_prompts():

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.database import SessionLocal
-from app.models.models import CreditTransaction, OptimizationSegment, OptimizationSession, User
+from app.models.models import CreditTransaction, OptimizationSegment, OptimizationSession, User, ZhuquePromptMemory
 from app.services.optimization_service import OptimizationService
 from app.utils.auth import create_user_access_token, get_password_hash
 
@@ -1544,7 +1544,12 @@ def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monke
     import app.services.optimization_service as optimization_service_module
 
     user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
-    fake_zhuque = FakeZhuqueService([80, 79.8, 79.6, 10])
+    fake_zhuque = FakeZhuqueService([
+        {"rate": 80, "labels_ratio": {"0": 0.2, "1": 0.0, "2": 0.8}},
+        {"rate": 79.8, "labels_ratio": {"0": 0.202, "1": 0.0, "2": 0.798}},
+        {"rate": 79.6, "labels_ratio": {"0": 0.204, "1": 0.0, "2": 0.796}},
+        {"rate": 10, "labels_ratio": {"0": 0.9, "1": 0.0, "2": 0.1}},
+    ])
     fake_ai = FakeAIService()
     monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
     monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
@@ -1587,10 +1592,12 @@ def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monke
         assert "策略：轻度自然化" in fake_ai.polish_calls[0]["prompt"]
         assert "策略：句式重组" in fake_ai.polish_calls[1]["prompt"]
         assert "策略：强结构重写" in fake_ai.polish_calls[2]["prompt"]
+        assert "顽固段落强改写策略" in fake_ai.polish_calls[2]["prompt"]
 
         trace = json.loads(session.zhuque_agent_trace)
         reduce_events = [event for event in trace["events"] if event["type"] == "reduce"]
         reflection_events = [event for event in trace["events"] if event["type"] == "reflection"]
+        evolution_events = [event for event in trace["events"] if event["type"] == "prompt_evolution"]
 
         assert reduce_events[0]["decision"] == "minor_drop_upgrade_strategy"
         assert reduce_events[1]["decision"] == "minor_drop_upgrade_strategy"
@@ -1602,6 +1609,13 @@ def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monke
         assert reflection_events[1]["action"] == "force_stronger_strategy"
         assert reflection_events[1]["next_strategy"] == "强结构重写"
         assert "连续" in reflection_events[1]["message"]
+        assert evolution_events
+        assert evolution_events[0]["source"] in {"fallback", "memory"}
+        assert evolution_events[0]["safety_status"] == "safe"
+        assert evolution_events[0]["failure_signature"]["dominant_label"] == "suspicious"
+        assert "顽固段落强改写策略" in evolution_events[0]["prompt_patch"]
+        memory = db.query(ZhuquePromptMemory).filter(ZhuquePromptMemory.id == evolution_events[0]["memory_id"]).one()
+        assert memory.uses >= 1
     finally:
         db.close()
 

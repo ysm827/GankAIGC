@@ -590,7 +590,9 @@ const SessionDetailPage = () => {
                               ? '全文检测'
                               : event.type === 'reflection'
                                 ? `第 ${event.round} 轮收敛反思`
-                                : `第 ${event.round} 轮降 AI`}
+                                : event.type === 'prompt_evolution'
+                                  ? `第 ${event.round} 轮 Agent 学习结果`
+                                  : `第 ${event.round} 轮降 AI`}
                           </p>
                           {event.strategy && (
                             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-ios-blue">
@@ -624,7 +626,21 @@ const SessionDetailPage = () => {
                           )}
                           {event.decision && <p>决策：{event.decision}</p>}
                           {event.action && <p>动作：{event.action}</p>}
+                          {event.source && <p>来源：{event.source === 'memory' ? '历史记忆' : event.source}</p>}
+                          {event.safety_status && <p>安全校验：{event.safety_status}</p>}
                         </div>
+                        {event.root_causes && event.root_causes.length > 0 && (
+                          <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] leading-6 text-amber-800">
+                            <p className="font-semibold">失败原因</p>
+                            <p>{event.root_causes.join('；')}</p>
+                          </div>
+                        )}
+                        {event.prompt_patch && (
+                          <details className="mt-2 rounded-lg border border-purple-100 bg-purple-50/40 px-3 py-2 text-[13px] text-gray-700">
+                            <summary className="cursor-pointer font-semibold text-purple-700">查看 prompt_patch</summary>
+                            <pre className="mt-2 whitespace-pre-wrap font-sans leading-6">{event.prompt_patch}</pre>
+                          </details>
+                        )}
                         {event.message && (
                           <p className="mt-2 text-[13px] leading-6 text-gray-500">{event.message}</p>
                         )}

@@ -72,6 +72,7 @@ Questions to answer:
   - `users.zhuque_free_uses_remaining`, `users.zhuque_total_uses`.
   - `optimization_sessions.zhuque_agent_trace` stores compact JSON trace for Zhuque Agent decisions.
   - `optimization_segments.zhuque_detect_rate`, `zhuque_detect_result`, `zhuque_detect_count`, `zhuque_reduce_attempt`, `zhuque_reduced_text`.
+  - `zhuque_prompt_memories` stores Prompt Evolution metadata: failure signature, prompt patch, source, before/after rates, success/failure counters, and enabled state.
 - Service:
   - `OptimizationService._process_ai_detect_reduce()` owns the full-text detect → selective reduce → full-text recheck loop.
   - `ZhuqueService.detect(text)` is serialized through the singleton queue.
@@ -93,6 +94,9 @@ Questions to answer:
 - Convergence reflection treats `old_rate - new_rate >= 1.0` as meaningful progress. Smaller positive drops and non-drops are stagnation signals, increment `stagnation_count`, mark repeated `stubborn_segment_indices`, and force the next stronger Zhuque strategy.
 - Reflection trace events use `type="reflection"` and may include `rate_delta`, `stagnation_count`, `current_strategy`, `next_strategy`, `selected_segment_indices`, `stubborn_segment_indices`, `action`, and `message`.
 - Reflection prompt notes may be appended to existing polish/enhance prompts when stagnation is observed, but the pipeline must still call the existing `polish_text` and `enhance_text` methods; do not add a separate planner/reducer LLM call for this agent.
+- Prompt Evolution Agent may generate or reuse a safe `prompt_patch` when repeated stagnation/stubborn segments are present. It must derive a compact failure signature from trace/result metadata and must not store full original/reduced paper text in `zhuque_prompt_memories`.
+- Prompt Evolution trace events use `type="prompt_evolution"` and may include `failure_signature`, `root_causes`, `prompt_patch`, `memory_id`, `source`, `safety_status`, and `blocked_reasons`.
+- Prompt patch safety validation must reject detector-hacking tactics: zero-width/invisible characters, deliberate typos, homoglyphs, random punctuation, intentional grammar errors, and changing data/citations/conclusions. Unsafe generated patches fall back to the built-in safe strong-rewrite patch.
 
 ### 4. Validation & Error Matrix
 
@@ -105,6 +109,7 @@ Questions to answer:
 - Risk rate remains above threshold after `ZHUQUE_MAX_REDUCE_ROUNDS` -> task `failed`; error includes current rate, threshold, per-run round count, and cumulative round count; trace final diagnosis should include stubborn segment indices when reflection identified them.
 - Platform beer balance below 10 during an actual reduce call -> fail before polish/enhance; no partial LLM output should be written for that segment.
 - Trace JSON invalid/missing on older sessions -> session detail API still returns `zhuque_agent_trace=null`; frontend handles it as absent.
+- Prompt memory must survive startup schema creation and Alembic upgrade; missing table on existing deployments should be created by `Base.metadata.create_all()` during startup before migrations add indexes/columns.
 
 ### 5. Good/Base/Bad Cases
 
@@ -112,6 +117,7 @@ Questions to answer:
 - Good: Workspace preflight sees ready Zhuque page and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
 - Good: A session with repeated minor drops records reflection events, upgrades strategy despite nominal rate decreases, and shows stubborn segments in final diagnosis if still above threshold.
+- Good: A session with repeated stagnation records a `prompt_evolution` trace event, appends a safe strong-rewrite prompt patch to existing polish/enhance prompts, and records a compact prompt memory.
 - Base: full text risk rate is below threshold; all segments keep original text, detect count is 1, and no beer transaction exists.
 - Bad: retrying a failed `ai_detect_reduce` session with 0 beers pre-holds `optimization_start` or redetects original text; both violate the contract.
 - Bad: `byok` start with no provider config calls Zhuque readiness first; this leaks setup order and can produce confusing Zhuque errors before the API config error.
@@ -124,7 +130,8 @@ Questions to answer:
 - Browser launcher: configured port/profile in launched Chrome args, missing Chrome error, status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
-- Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection events; detail response includes trace.
+- Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; detail response includes trace.
+- Prompt Evolution: memory table exists after Alembic/startup; signature builder, safety validator, memory selection, and pipeline prompt patch insertion have regression tests.
 
 ### 7. Wrong vs Correct
 

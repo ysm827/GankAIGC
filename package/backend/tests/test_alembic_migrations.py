@@ -48,6 +48,7 @@ def test_alembic_upgrade_creates_current_schema():
         "system_settings",
         "saved_specs",
         "announcements",
+        "zhuque_prompt_memories",
         "alembic_version",
     }.issubset(tables)
 

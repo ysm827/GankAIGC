@@ -279,6 +279,26 @@ class Announcement(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class ZhuquePromptMemory(Base):
+    """朱雀提示词进化记忆"""
+    __tablename__ = "zhuque_prompt_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    signature_hash = Column(String(64), nullable=False, index=True)
+    failure_signature = Column(Text, nullable=False)
+    prompt_patch = Column(Text, nullable=False)
+    source = Column(String(32), nullable=False, default="fallback", index=True)
+    before_rate = Column(Float, nullable=True)
+    after_rate = Column(Float, nullable=True)
+    rate_delta = Column(Float, nullable=True)
+    uses = Column(Integer, default=0)
+    successes = Column(Integer, default=0)
+    failures = Column(Integer, default=0)
+    enabled = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class UserProviderConfig(Base):
     __tablename__ = "user_provider_configs"
 

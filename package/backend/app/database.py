@@ -133,6 +133,10 @@ def _add_performance_indexes():
 
             # RegistrationInvite indexes
             ("idx_registration_invites_created_by_user_id", "registration_invites", "created_by_user_id"),
+
+            # Zhuque prompt memory indexes
+            ("idx_zhuque_prompt_memories_signature_hash", "zhuque_prompt_memories", "signature_hash"),
+            ("idx_zhuque_prompt_memories_enabled", "zhuque_prompt_memories", "enabled"),
         ]
         
         with engine.connect() as conn:

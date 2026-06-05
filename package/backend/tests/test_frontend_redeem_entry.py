@@ -556,6 +556,9 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "收敛反思" in session_detail
     assert "顽固段落" in session_detail
     assert "stubborn_segment_indices" in session_detail
+    assert "Agent 学习结果" in session_detail
+    assert "prompt_evolution" in session_detail
+    assert "prompt_patch" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

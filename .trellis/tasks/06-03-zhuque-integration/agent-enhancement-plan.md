@@ -444,6 +444,98 @@
     - 删除旧 hash：`package/static/assets/index-9tVwYd_1.js`
     - 构建命令：`cd package/frontend; npm.cmd run build`
 
+### Phase J: Prompt Evolution Agent
+
+- [x] J1. Prompt Evolution 记忆库
+  - 新增 `ZhuquePromptMemory` 模型与迁移。
+  - 字段覆盖：
+    - `signature_hash`
+    - `failure_signature`
+    - `prompt_patch`
+    - `source`
+    - `before_rate`
+    - `after_rate`
+    - `rate_delta`
+    - `uses`
+    - `successes`
+    - `failures`
+    - `enabled`
+  - 要求：只存提示词补丁和摘要，不存全文论文。
+  - 完成证据：
+    - 文件：`package/backend/app/models/models.py`
+    - 迁移：`package/backend/migrations/versions/0006_add_zhuque_prompt_memories.py`
+    - 启动迁移：`package/backend/app/database.py`
+    - 测试：`test_alembic_upgrade_creates_current_schema`, `test_startup_schema_includes_zhuque_columns`, `test_prompt_evolution_records_memory_without_storing_full_text`
+
+- [x] J2. Failure Signature Builder
+  - 从 `zhuque_agent_trace`、朱雀检测结果和顽固段落生成结构化失败签名。
+  - 需要识别：
+    - `dominant_label`: `ai` / `suspicious`
+    - `stagnation_count`
+    - `stubborn_segment_indices`
+    - `used_strategies`
+    - `final_rate`
+  - 完成证据：
+    - 文件：`package/backend/app/services/zhuque_prompt_evolution_service.py`
+    - 测试：`test_prompt_evolution_builds_failure_signature_and_safe_patch`
+
+- [x] J3. Prompt Critic + Synthesizer
+  - 新增 `zhuque_prompt_evolution_service.py`。
+  - Critic 根据失败签名总结失败原因。
+  - Synthesizer 生成“顽固段落强改写 prompt patch”。
+  - MVP 允许 LLM 不可用时用 deterministic fallback patch。
+  - 完成证据：
+    - 文件：`package/backend/app/services/zhuque_prompt_evolution_service.py`
+    - 测试：`test_prompt_evolution_builds_failure_signature_and_safe_patch`
+
+- [x] J4. Safety Validator
+  - 禁止 prompt patch 要求：
+    - 零宽字符
+    - 错别字扰动
+    - 同形字替换
+    - 随机标点
+    - 故意语病
+    - 篡改数据/引用/结论
+  - 不通过时使用安全 fallback patch。
+  - 完成证据：
+    - 文件：`package/backend/app/services/zhuque_prompt_evolution_service.py`
+    - 测试：`test_prompt_evolution_rejects_detector_hacking_patch`
+
+- [x] J5. 管线接入
+  - 连续停滞或最大轮次失败前，选择/生成 prompt patch。
+  - 只对顽固段落追加 patch。
+  - 仍复用 `polish_text` + `enhance_text`，不新增正文改写 API。
+  - 成功下降后写成功记忆；失败写失败记忆。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments`
+
+- [x] J6. Trace 与详情页展示
+  - Trace 新增：
+    - `type="prompt_evolution"`
+    - `failure_signature`
+    - `root_causes`
+    - `prompt_patch`
+    - `memory_id`
+    - `source`
+    - `safety_status`
+  - 详情页展示“Agent 学习结果”。
+  - 完成证据：
+    - 后端：`package/backend/app/services/optimization_service.py`
+    - 前端：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments`, `test_session_detail_shows_zhuque_agent_trace`
+
+- [x] J7. 验证与静态同步
+  - 后端新增测试覆盖记忆库、签名、patch 生成、安全校验、管线接入。
+  - 前端静态测试覆盖“Agent 学习结果”。
+  - 跑 `python -m pytest -q`。
+  - 跑 `npm.cmd run build` 并同步 `package/frontend/dist` → `package/static`。
+  - 完成证据：
+    - 后端专项：`37 passed in 18.90s`
+    - 后端全量：`316 passed in 119.12s`
+    - 前端构建：`npm.cmd run build` 成功
+    - 静态同步：`package/static/index.html` 指向 `assets/index-1tjl7A1A.js` 与 `assets/index-CPWUqMOm.css`
+
 ## 4. 可拆分 Agent 包
 
 > 当前 inline 模式不实际派发实现/检查子代理。若后续切到可用多 Agent 环境，可按以下方式拆。

@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.models.models import (
     OptimizationSession, OptimizationSegment,
-    SessionHistory, ChangeLog, CustomPrompt, User,
+    SessionHistory, ChangeLog, CustomPrompt, User, ZhuquePromptMemory,
 )
 from app.services.ai_service import (
     AIService, split_text_into_segments,
@@ -17,6 +17,7 @@ from app.services.credit_service import CreditService
 from app.services.error_messages import build_task_error_message
 from app.services.stream_manager import stream_manager
 from app.services.zhuque_service import zhuque_service
+from app.services.zhuque_prompt_evolution_service import ZhuquePromptEvolutionService
 from app.config import settings
 from app.utils.time import utcnow
 
@@ -83,6 +84,8 @@ class OptimizationService:
         self.enhance_service: Optional[AIService] = None
         self.emotion_service: Optional[AIService] = None
         self.compression_service: Optional[AIService] = None
+        self._active_zhuque_prompt_memory_id: Optional[int] = None
+        self._active_zhuque_prompt_before_rate: Optional[float] = None
     
     def _init_ai_services(self):
         """初始化AI服务
@@ -282,6 +285,7 @@ class OptimizationService:
             result,
             prefer_reduced=has_reduced_text,
         )
+        last_zhuque_result = result
         stagnation_count = self._load_last_zhuque_stagnation_count()
         stubborn_segment_counts: Dict[int, int] = {}
         active_stubborn_indices: List[int] = []
@@ -297,11 +301,18 @@ class OptimizationService:
                     stagnation_count=stagnation_count,
                     stubborn_segment_indices=active_stubborn_indices,
                 )
+                prompt_evolution_note = self._build_zhuque_prompt_evolution_note(
+                    zhuque_result=last_zhuque_result,
+                    stagnation_count=stagnation_count,
+                    stubborn_segment_indices=active_stubborn_indices,
+                    before_rate=full_text_rate,
+                )
                 await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
                     strategy,
                     reflection_note=reflection_note,
+                    prompt_evolution_note=prompt_evolution_note,
                 )
 
                 recheck = await self._detect_full_text_once(
@@ -313,6 +324,11 @@ class OptimizationService:
                     raise RuntimeError(recheck.get("message") or "朱雀复检返回失败")
                 old_rate = full_text_rate
                 full_text_rate = self._get_zhuque_risk_rate(recheck)
+                last_zhuque_result = recheck
+                self._record_zhuque_prompt_evolution_result(
+                    before_rate=old_rate,
+                    after_rate=full_text_rate,
+                )
 
                 for seg in segments:
                     seg.status = "completed"
@@ -421,17 +437,20 @@ class OptimizationService:
         strategy: Dict[str, str],
         *,
         reflection_note: str = "",
+        prompt_evolution_note: str = "",
     ) -> None:
         """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
         polish_prompt = self._with_zhuque_strategy(
             self._get_prompt("polish"),
             strategy,
             reflection_note=reflection_note,
+            prompt_evolution_note=prompt_evolution_note,
         )
         enhance_prompt = self._with_zhuque_strategy(
             self._get_prompt("enhance"),
             strategy,
             reflection_note=reflection_note,
+            prompt_evolution_note=prompt_evolution_note,
         )
         use_stream = settings.USE_STREAMING
 
@@ -803,17 +822,104 @@ class OptimizationService:
             )
         return "风险率仍高于阈值，建议人工处理命中段落后复检"
 
+    def _build_zhuque_prompt_evolution_note(
+        self,
+        *,
+        zhuque_result: dict,
+        stagnation_count: int,
+        stubborn_segment_indices: List[int],
+        before_rate: float,
+    ) -> str:
+        if stagnation_count <= 0 or not stubborn_segment_indices:
+            return ""
+
+        evolution = ZhuquePromptEvolutionService(db=self.db)
+        signature = evolution.build_failure_signature(
+            trace=self._load_zhuque_trace(),
+            zhuque_result=zhuque_result,
+            segment_indices=stubborn_segment_indices,
+        )
+        memory = evolution.select_memory(signature)
+        source = "memory" if memory else "fallback"
+        if memory:
+            prompt_patch = memory.prompt_patch
+            memory.uses = (memory.uses or 0) + 1
+            memory.updated_at = utcnow()
+            self.db.commit()
+        else:
+            critique = evolution.build_critique(signature)
+            prompt_patch = evolution.synthesize_prompt_patch(signature, critique)
+            prompt_patch, _ = evolution.ensure_safe_prompt_patch(prompt_patch)
+            memory = evolution.record_memory(
+                signature=signature,
+                prompt_patch=prompt_patch,
+                source=source,
+                before_rate=before_rate,
+                after_rate=None,
+                success=False,
+            )
+        self._active_zhuque_prompt_memory_id = memory.id if memory else None
+        self._active_zhuque_prompt_before_rate = before_rate
+
+        safety = evolution.validate_prompt_patch(prompt_patch)
+        if not safety.get("safe"):
+            prompt_patch, safety = evolution.ensure_safe_prompt_patch(prompt_patch)
+
+        self._append_zhuque_trace_event({
+            "type": "prompt_evolution",
+            "round": max((event.get("round") or 0) for event in self._load_zhuque_trace().get("events", []) if isinstance(event, dict)) + 1,
+            "failure_signature": signature,
+            "root_causes": evolution.build_critique(signature).get("root_causes", []),
+            "prompt_patch": prompt_patch,
+            "memory_id": memory.id if memory else None,
+            "source": source,
+            "safety_status": "safe" if safety.get("safe") else "blocked",
+            "blocked_reasons": safety.get("blocked_reasons", []),
+            "message": "Agent 已根据朱雀失败结果生成顽固段落强改写提示词",
+        })
+        return prompt_patch
+
+    def _record_zhuque_prompt_evolution_result(self, *, before_rate: float, after_rate: float) -> None:
+        if not self._active_zhuque_prompt_memory_id:
+            return
+        memory = self.db.query(ZhuquePromptMemory).filter(
+            ZhuquePromptMemory.id == self._active_zhuque_prompt_memory_id
+        ).first()
+        if not memory:
+            self._active_zhuque_prompt_memory_id = None
+            self._active_zhuque_prompt_before_rate = None
+            return
+        actual_before_rate = self._active_zhuque_prompt_before_rate
+        if actual_before_rate is None:
+            actual_before_rate = before_rate
+        rate_delta = round(float(actual_before_rate) - float(after_rate), 2)
+        memory.before_rate = actual_before_rate
+        memory.after_rate = after_rate
+        memory.rate_delta = rate_delta
+        if rate_delta >= ZHUQUE_MIN_MEANINGFUL_RATE_DROP:
+            memory.successes = (memory.successes or 0) + 1
+            if memory.failures:
+                memory.failures = max((memory.failures or 0) - 1, 0)
+        else:
+            memory.failures = (memory.failures or 0) + 1
+        memory.updated_at = utcnow()
+        self.db.commit()
+        self._active_zhuque_prompt_memory_id = None
+        self._active_zhuque_prompt_before_rate = None
+
     def _with_zhuque_strategy(
         self,
         prompt: str,
         strategy: Dict[str, str],
         *,
         reflection_note: str = "",
+        prompt_evolution_note: str = "",
     ) -> str:
         return (
             f"{prompt.rstrip()}\n"
             f"{strategy['instruction'].strip()}\n"
             f"{reflection_note.strip()}\n"
+            f"{prompt_evolution_note.strip()}\n"
             "只返回处理后的当前段落文本，不要解释使用了哪种策略。"
         )
 
