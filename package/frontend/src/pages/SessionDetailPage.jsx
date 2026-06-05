@@ -641,6 +641,22 @@ const SessionDetailPage = () => {
                             <pre className="mt-2 whitespace-pre-wrap font-sans leading-6">{event.prompt_patch}</pre>
                           </details>
                         )}
+                        {Array.isArray(event.length_adjustments) && event.length_adjustments.length > 0 && (
+                          <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-[13px] leading-6 text-blue-800">
+                            <p className="font-semibold">长度校正</p>
+                            {event.length_adjustments.map((item, adjustIndex) => (
+                              <p key={`length-adjustment-${adjustIndex}`}>
+                                段落 {item.segment_index}：
+                                原文 {item.original_length} 字，
+                                校正前 {item.before_length} 字，
+                                校正后 {item.after_length} 字
+                                {item.lower_bound !== undefined && item.upper_bound !== undefined
+                                  ? `（目标 ${item.lower_bound}-${item.upper_bound} 字）`
+                                  : ''}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         {event.message && (
                           <p className="mt-2 text-[13px] leading-6 text-gray-500">{event.message}</p>
                         )}
@@ -655,7 +671,7 @@ const SessionDetailPage = () => {
                             <p key={`${event.type}-${index}`}>
                               {event.type === 'zhuque_detect'
                                 ? `朱雀检测：${formatRate(event.rate)}`
-                                : `朱雀降重：第 ${event.round} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}`}
+                                : `朱雀降重：第 ${event.round} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}${event.length_adjustments?.length ? `，长度校正 ${event.length_adjustments.length} 段` : ''}`}
                             </p>
                           ))}
                         </div>

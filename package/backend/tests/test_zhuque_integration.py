@@ -6,6 +6,7 @@ import pytest
 
 from app.database import SessionLocal
 from app.models.models import CreditTransaction, OptimizationSegment, OptimizationSession, User, ZhuquePromptMemory
+from app.services.ai_service import count_text_length
 from app.services.optimization_service import OptimizationService
 from app.utils.auth import create_user_access_token, get_password_hash
 
@@ -160,6 +161,36 @@ class FakeAIService:
 
     async def generate(self, prompt):
         raise AssertionError("ai_detect_reduce must reuse polish_text + enhance_text, not a separate reduce prompt")
+
+
+class BloatedThenLengthRepairAIService(FakeAIService):
+    def __init__(self, repaired_text):
+        super().__init__()
+        self.repaired_text = repaired_text
+
+    async def polish_text(self, text, prompt, history=None, stream=False):
+        self.polish_calls.append(
+            {
+                "text": text,
+                "prompt": prompt,
+                "history": list(history or []),
+                "stream": stream,
+            }
+        )
+        return text
+
+    async def enhance_text(self, text, prompt, history=None, stream=False):
+        self.enhance_calls.append(
+            {
+                "text": text,
+                "prompt": prompt,
+                "history": list(history or []),
+                "stream": stream,
+            }
+        )
+        if "朱雀长度校正" in prompt:
+            return self.repaired_text
+        return f"{text}{'额外解释' * 80}"
 
 
 def _install_fake_ai_services(service, fake_ai):
@@ -894,6 +925,133 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         assert fake_zhuque.detected_texts[1] == segment.zhuque_reduced_text
         assert [call["text"] for call in fake_ai.polish_calls] == [segment.original_text]
         assert [call["text"] for call in fake_ai.enhance_calls] == [segment.polished_text]
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_repairs_bloated_output_to_within_ten_percent(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([80, 0])
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    original_text = (
+        "革命纪念馆展陈更新中，变化最先出现在展品位置和参观路线。"
+        "观众的叙事线索、互动方式以及交流节奏也会随着展示空间变化。"
+    ) * 4
+    repaired_text = original_text.replace("最先出现在展品位置和参观路线", "首先体现在展品位置、参观路线", 1)
+    fake_ai = BloatedThenLengthRepairAIService(repaired_text)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-length-guard",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text=original_text,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+        original_length = count_text_length(original_text)
+        reduced_length = count_text_length(segment.zhuque_reduced_text)
+
+        assert session.status == "completed"
+        assert reduced_length <= int(original_length * 1.1)
+        assert reduced_length >= int(original_length * 0.9)
+        assert segment.zhuque_reduced_text == repaired_text
+        assert segment.enhanced_text == repaired_text
+        assert len(fake_ai.enhance_calls) == 2
+        assert "朱雀长度校正" in fake_ai.enhance_calls[1]["prompt"]
+        assert fake_zhuque.detected_texts[1] == repaired_text
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_length_repair_uses_original_segment_length_on_retry(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([80, 0])
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    original_text = (
+        "革命纪念馆展陈更新中，数字展示会改变观众的参观路线。"
+        "后续研究仍需要结合现场反馈来判断展示效果。"
+    ) * 4
+    previous_bloated_text = f"{original_text}{'额外解释' * 90}"
+    repaired_text = original_text.replace("改变观众的参观路线", "影响观众参观路线", 1)
+    fake_ai = BloatedThenLengthRepairAIService(repaired_text)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-length-retry-original-baseline",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="enhance",
+            original_text=original_text,
+            polished_text=previous_bloated_text,
+            enhanced_text=previous_bloated_text,
+            zhuque_reduced_text=previous_bloated_text,
+            zhuque_reduce_attempt=1,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+        original_length = count_text_length(original_text)
+        reduced_length = count_text_length(segment.zhuque_reduced_text)
+
+        assert session.status == "completed"
+        assert fake_zhuque.detected_texts[0] == previous_bloated_text
+        assert fake_zhuque.detected_texts[1] == repaired_text
+        assert segment.zhuque_reduced_text == repaired_text
+        assert reduced_length <= int(original_length * 1.1)
+        assert reduced_length >= int(original_length * 0.9)
     finally:
         db.close()
 

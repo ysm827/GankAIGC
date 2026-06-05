@@ -66,6 +66,7 @@ ZHUQUE_HUMANIZE_STRATEGIES = [
 ]
 
 ZHUQUE_MIN_MEANINGFUL_RATE_DROP = 1.0
+ZHUQUE_LENGTH_TOLERANCE = 0.10
 
 
 class OptimizationService:
@@ -307,7 +308,7 @@ class OptimizationService:
                     stubborn_segment_indices=active_stubborn_indices,
                     before_rate=full_text_rate,
                 )
-                await self._process_zhuque_reduce_round(
+                length_adjustments = await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
                     strategy,
@@ -339,7 +340,7 @@ class OptimizationService:
                 self.session_obj.progress = min(progress, 100.0)
                 self.session_obj.current_position = len(segments) - 1
                 self.db.commit()
-                await stream_manager.broadcast(self.session_obj.session_id, {
+                reduce_payload = {
                     "type": "zhuque_reduce",
                     "round": round_number,
                     "segment_index": 0,
@@ -347,7 +348,10 @@ class OptimizationService:
                     "old_rate": old_rate,
                     "new_rate": full_text_rate,
                     "strategy": strategy["name"],
-                })
+                }
+                if length_adjustments:
+                    reduce_payload["length_adjustments"] = length_adjustments
+                await stream_manager.broadcast(self.session_obj.session_id, reduce_payload)
                 selected_segment_indices = [seg.segment_index for seg in segments_to_reduce]
                 reflection = self._reflect_zhuque_convergence(
                     round_number=round_number,
@@ -361,7 +365,7 @@ class OptimizationService:
                 )
                 stagnation_count = reflection["stagnation_count"]
                 active_stubborn_indices = reflection["stubborn_segment_indices"]
-                self._append_zhuque_trace_event({
+                reduce_event = {
                     "type": "reduce",
                     "round": round_number,
                     "strategy": strategy["name"],
@@ -376,7 +380,13 @@ class OptimizationService:
                     "stubborn_segment_indices": active_stubborn_indices,
                     "next_strategy": reflection.get("next_strategy"),
                     "message": reflection["reduce_message"],
-                })
+                }
+                if length_adjustments:
+                    reduce_event["length_adjustments"] = length_adjustments
+                    reduce_event["message"] = (
+                        f"{reduce_event['message']}；已对 {len(length_adjustments)} 个段落做长度校正"
+                    )
+                self._append_zhuque_trace_event(reduce_event)
                 if reflection["record_reflection"]:
                     self._append_zhuque_trace_event({
                         "type": "reflection",
@@ -438,7 +448,7 @@ class OptimizationService:
         *,
         reflection_note: str = "",
         prompt_evolution_note: str = "",
-    ) -> None:
+    ) -> List[Dict[str, object]]:
         """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
         polish_prompt = self._with_zhuque_strategy(
             self._get_prompt("polish"),
@@ -507,6 +517,7 @@ class OptimizationService:
 
         enhance_history: List[Dict[str, str]] = []
         enhance_chars = 0
+        length_adjustments: List[Dict[str, object]] = []
 
         self.session_obj.current_stage = "enhance"
         self.db.commit()
@@ -535,6 +546,16 @@ class OptimizationService:
                 return response
 
             enhanced = await self._run_with_retry(seg.segment_index, "enhance", execute_enhance_call)
+            enhanced, length_adjustment = await self._repair_zhuque_length_if_needed(
+                seg=seg,
+                round_number=round_number,
+                input_text=seg.zhuque_reduced_text or seg.original_text or "",
+                polished_text=seg.polished_text or "",
+                enhanced_text=enhanced,
+                strategy=strategy,
+            )
+            if length_adjustment:
+                length_adjustments.append(length_adjustment)
             seg.enhanced_text = enhanced
             seg.zhuque_reduced_text = enhanced
             seg.status = "completed"
@@ -547,6 +568,121 @@ class OptimizationService:
             if enhance_chars > settings.HISTORY_COMPRESSION_THRESHOLD:
                 enhance_history = await self._compress_history(enhance_history, "enhance")
                 enhance_chars = sum(count_chinese_characters(msg.get("content", "")) for msg in enhance_history)
+
+        return length_adjustments
+
+    async def _repair_zhuque_length_if_needed(
+        self,
+        *,
+        seg: OptimizationSegment,
+        round_number: int,
+        input_text: str,
+        polished_text: str,
+        enhanced_text: str,
+        strategy: Dict[str, str],
+    ) -> Tuple[str, Optional[Dict[str, object]]]:
+        """Keep Zhuque reduce output close to the original segment length."""
+        baseline_text = input_text or seg.original_text or ""
+        original_baseline_text = seg.original_text or baseline_text
+        original_length = count_text_length(original_baseline_text)
+        output_length = count_text_length(enhanced_text)
+        if self._is_zhuque_length_within_tolerance(output_length, original_length):
+            return enhanced_text, None
+
+        lower, upper = self._zhuque_length_bounds(original_length)
+        repair_prompt = self._build_zhuque_length_repair_prompt(
+            strategy=strategy,
+            original_length=original_length,
+            output_length=output_length,
+            lower_bound=lower,
+            upper_bound=upper,
+        )
+        use_stream = settings.USE_STREAMING
+
+        async def execute_length_repair_call():
+            response = await self.enhance_service.enhance_text(
+                enhanced_text,
+                repair_prompt,
+                [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"原段落：{original_baseline_text}\n\n"
+                            f"上一阶段润色结果：{polished_text}"
+                        ),
+                    }
+                ],
+                stream=use_stream,
+            )
+            if use_stream:
+                return await self._collect_stream_response(response, seg.segment_index, "zhuque_length_repair")
+            return response
+
+        repaired = await self._run_with_retry(seg.segment_index, "zhuque_length_repair", execute_length_repair_call)
+        repaired_length = count_text_length(repaired)
+        accepted = self._is_zhuque_length_within_tolerance(repaired_length, original_length)
+        final_text = repaired if accepted else self._select_zhuque_length_safe_fallback(
+            original_length=original_length,
+            polished_text=polished_text,
+            baseline_text=baseline_text,
+            original_baseline_text=original_baseline_text,
+        )
+        final_length = count_text_length(final_text)
+        return final_text, {
+            "segment_index": seg.segment_index,
+            "round": round_number,
+            "original_length": original_length,
+            "before_length": output_length,
+            "after_length": final_length,
+            "lower_bound": lower,
+            "upper_bound": upper,
+            "accepted_repair": accepted,
+        }
+
+    def _zhuque_length_bounds(self, original_length: int) -> Tuple[int, int]:
+        if original_length <= 0:
+            return 0, 0
+        lower = max(1, int(original_length * (1 - ZHUQUE_LENGTH_TOLERANCE)))
+        upper = max(lower, int(original_length * (1 + ZHUQUE_LENGTH_TOLERANCE)))
+        return lower, upper
+
+    def _is_zhuque_length_within_tolerance(self, output_length: int, original_length: int) -> bool:
+        lower, upper = self._zhuque_length_bounds(original_length)
+        return lower <= output_length <= upper
+
+    def _build_zhuque_length_repair_prompt(
+        self,
+        *,
+        strategy: Dict[str, str],
+        original_length: int,
+        output_length: int,
+        lower_bound: int,
+        upper_bound: int,
+    ) -> str:
+        return (
+            "## 朱雀长度校正\n"
+            f"- 当前段落原文字数为 {original_length}，上一版输出字数为 {output_length}，"
+            f"必须改到 {lower_bound}-{upper_bound} 字之间，目标误差不超过 10%。\n"
+            "- 在不改变事实、数据、引用、术语、研究对象和结论的前提下压缩或补足表达。\n"
+            "- 优先删除泛化评价、重复解释、空泛过渡句和模板化总结，不要新增论点。\n"
+            "- 保持当前朱雀降 AI 方向，但不要通过零宽字符、错别字、同形字、随机标点或故意语病规避检测。\n"
+            f"- 当前策略：{strategy['name']}。\n"
+            "只返回校正后的当前段落文本，不要解释。"
+        )
+
+    def _select_zhuque_length_safe_fallback(
+        self,
+        *,
+        original_length: int,
+        polished_text: str,
+        baseline_text: str,
+        original_baseline_text: str,
+    ) -> str:
+        """Choose a length-compliant fallback without blind truncation."""
+        for candidate in (polished_text, original_baseline_text, baseline_text):
+            if candidate and self._is_zhuque_length_within_tolerance(count_text_length(candidate), original_length):
+                return candidate
+        return original_baseline_text or baseline_text or polished_text
 
     async def _collect_stream_response(self, response, segment_index: int, stage: str) -> str:
         full_text = ""

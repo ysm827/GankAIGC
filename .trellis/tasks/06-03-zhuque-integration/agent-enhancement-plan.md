@@ -536,6 +536,66 @@
     - 前端构建：`npm.cmd run build` 成功
     - 静态同步：`package/static/index.html` 指向 `assets/index-1tjl7A1A.js` 与 `assets/index-CPWUqMOm.css`
 
+### Phase K: Length Control Agent
+
+- [x] K1. 根因审计
+  - 问题：朱雀多轮可把风险率降到 0，但模型输出可能比原文长很多。
+  - 根因：原提示词只有“字数一致”的软约束，后端未校验 `zhuque_reduced_text` 与本轮输入段落长度偏差。
+  - 设计结论：字数控制必须成为服务端硬合同，不能只依赖提示词。
+
+- [x] K2. 后端长度硬约束
+  - 新增 `ZHUQUE_LENGTH_TOLERANCE = 0.10`。
+  - 每个被改写段落按原段落 `original_text` 计算目标长度区间：`90% <= 输出长度 <= 110%`。
+  - 失败重试仍可从最新 `zhuque_reduced_text` 检测/继续改写，但长度基准保持原段落，避免把上一轮已膨胀文本继续当成目标长度。
+  - 若 `enhance_text` 输出超界，自动追加一次“朱雀长度校正”调用，仍复用 `enhance_text`，不新增正文改写 API。
+  - 若长度校正仍超界，优先回退到长度合规的润色结果、原段落或本轮输入，不盲目截断，避免丢失结论/引用。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_repairs_bloated_output_to_within_ten_percent`, `test_ai_detect_reduce_length_repair_uses_original_segment_length_on_retry`
+
+- [x] K3. Trace / SSE 元数据
+  - reduce 事件可记录 `length_adjustments`：
+    - `segment_index`
+    - `round`
+    - `original_length`
+    - `before_length`
+    - `after_length`
+    - `lower_bound`
+    - `upper_bound`
+    - `accepted_repair`
+  - 只记录长度元数据，不记录正文，避免 trace 膨胀。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+
+- [x] K4. 前端详情页展示
+  - Agent 决策轨迹中展示“长度校正”摘要。
+  - 实时 Zhuque reduce 状态中显示本轮校正段落数。
+  - 完成证据：
+    - 文件：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_session_detail_shows_zhuque_agent_trace`
+
+- [x] K5. Spec 更新
+  - 后端合同补充：朱雀降 AI 输出长度必须控制在 ±10%，超界自动长度校正。
+  - 前端合同补充：展示 `length_adjustments` 元数据。
+  - 完成证据：
+    - `.trellis/spec/backend/quality-guidelines.md`
+    - `.trellis/spec/frontend/component-guidelines.md`
+
+- [x] K6. 验证与静态同步
+  - 后端专项测试：
+    - `python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
+  - 后端全量测试：
+    - `python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
+  - 前端构建：
+    - `cd package/frontend; npm.cmd run build`
+  - 静态同步：
+    - `package/frontend/dist` → `package/static`
+  - 完成证据：
+    - 后端专项：`37 passed in 18.67s`
+    - 后端全量：`318 passed in 121.80s`
+    - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-CyX_3eCv.js`
+    - 静态同步：`package/static/index.html` 已指向 `assets/index-CyX_3eCv.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-CPWUqMOm.css`
+
 ## 4. 可拆分 Agent 包
 
 > 当前 inline 模式不实际派发实现/检查子代理。若后续切到可用多 Agent 环境，可按以下方式拆。

@@ -559,6 +559,8 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "Agent 学习结果" in session_detail
     assert "prompt_evolution" in session_detail
     assert "prompt_patch" in session_detail
+    assert "length_adjustments" in session_detail
+    assert "长度校正" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():
