@@ -1873,6 +1873,64 @@ def test_ai_detect_reduce_uses_paper_reconstruction_for_repeated_paper_stagnatio
         db.close()
 
 
+def test_ai_detect_reduce_rolls_back_round_when_recheck_rate_regresses(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([100, 35, 100, 35])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 2, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-regression-rollback",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 30,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="仍高于阈值"):
+            asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+
+        first_good_text = fake_zhuque.detected_texts[1]
+        assert segment.zhuque_reduced_text == first_good_text
+        assert fake_zhuque.detected_texts[-1] == first_good_text
+        assert segment.zhuque_detect_rate == 35
+
+        trace = json.loads(session.zhuque_agent_trace)
+        rollback_events = [event for event in trace["events"] if event.get("rollback_applied")]
+        assert rollback_events
+        assert rollback_events[0]["rolled_back_from_rate"] == 100
+        assert rollback_events[0]["rolled_back_to_rate"] == 35
+        assert "回滚保护" in rollback_events[0]["message"]
+    finally:
+        db.close()
+
+
 def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 

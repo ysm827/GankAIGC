@@ -822,3 +822,31 @@
   - 完成证据：
     - 前端构建：`cd package/frontend; npm.cmd run build` 成功，生成 `assets/index-r7PXR3PZ.js` 与 `assets/index-BncyE3zn.css`。
     - 静态同步：`package/frontend/dist` → `package/static`，`package/static/index.html` 已指向 `assets/index-r7PXR3PZ.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`。
+
+### Phase N: Regression Rollback Guard
+
+- [x] N1. 根因审计
+  - 现象：第 2 轮全文风险率 `100% -> 34.9%`，第 3 轮继续改同一批段落后又变 `34.9% -> 100%`。
+  - 根因：系统只根据朱雀命中段落继续改写，没有保护“已经下降的版本”；新一轮更差时直接覆盖 `zhuque_reduced_text`。
+  - 结论：朱雀降 AI 必须做单调保护；如果本轮复检更差，就恢复上一版低风险文本。
+
+- [x] N2. 后端回滚保护
+  - 每轮改写前快照命中段落的 `polished_text`、`enhanced_text`、`zhuque_reduced_text`、轮次和状态。
+  - 若复检风险率高于本轮前风险率，恢复快照并重新全文检测恢复后的文本。
+  - Trace/SSE 记录：`rollback_applied`, `rolled_back_from_rate`, `rolled_back_to_rate`, `restored_segment_indices`。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_rolls_back_round_when_recheck_rate_regresses`
+
+- [x] N3. 前端展示
+  - 详情页 Agent 决策轨迹展示“回滚保护”，显示风险率从更差版本恢复到上一版，以及恢复段落。
+  - 完成证据：
+    - 文件：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_session_detail_shows_zhuque_agent_trace`
+
+- [x] N4. 验证与静态同步
+  - 完成证据：
+    - 朱雀专项：`40 passed in 21.66s`
+    - 后端全量：`321 passed in 126.52s`
+    - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-H3r204-U.js`
+    - 静态同步：`package/static/index.html` 已指向 `assets/index-H3r204-U.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`

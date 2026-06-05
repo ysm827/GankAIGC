@@ -647,7 +647,21 @@ const SessionDetailPage = () => {
                           {event.paper_section && <p>论文章节：{event.paper_section}</p>}
                           {event.candidate_count !== undefined && <p>候选数量：{event.candidate_count}</p>}
                           {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
+                          {event.rollback_applied && (
+                            <p>回滚保护：{formatRate(event.rolled_back_from_rate)} → {formatRate(event.rolled_back_to_rate)}</p>
+                          )}
                         </div>
+                        {event.rollback_applied && (
+                          <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] leading-6 text-red-800">
+                            <p className="font-semibold">回滚保护</p>
+                            <p>
+                              本轮改写使风险率升高，已恢复上一版文本。
+                              {Array.isArray(event.restored_segment_indices) && event.restored_segment_indices.length > 0
+                                ? ` 恢复段落：${event.restored_segment_indices.join('、')}`
+                                : ''}
+                            </p>
+                          </div>
+                        )}
                         {Array.isArray(event.paper_ai_patterns) && event.paper_ai_patterns.length > 0 && (
                           <div className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-[13px] leading-6 text-emerald-800">
                             <p className="font-semibold">论文 AI 痕迹</p>

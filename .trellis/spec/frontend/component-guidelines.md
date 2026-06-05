@@ -98,6 +98,7 @@ Questions to answer:
 - When trace or live `zhuque_reduce` events contain `length_adjustments`, render a "长度校正" summary with segment index, original length, before/after lengths, and bounds. This is metadata only; UI must not expect full text in the trace payload.
 - When trace or live `zhuque_reduce` events contain `rewrite_mode`, render the mode. `rewrite_mode="breakthrough"` should be shown as "逃逸改写" so users can tell the agent has stopped using the default academic-polish base prompt after stagnation.
 - When trace or live `zhuque_reduce` events contain `rewrite_mode="paper_reconstruction"`, render it as "论文重构" and show compact paper metadata when present: `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, `candidate_selector`, and `fact_card_count`.
+- When trace or live `zhuque_reduce` events contain `rollback_applied=true`, render a "回滚保护" summary with `rolled_back_from_rate`, `rolled_back_to_rate`, and `restored_segment_indices` so users can see that a later bad rewrite did not overwrite a better previous version.
 - Session detail SSE must consume `zhuque_detect` and `zhuque_reduce` in addition to `content`; live state is supplemental and refresh must still recover from stored trace.
 
 ### 4. Validation & Error Matrix
@@ -120,6 +121,7 @@ Questions to answer:
 - Good: detail page shows length-correction metadata when Zhuque reduce output was repaired to stay within ±10% of the original segment length.
 - Good: detail page shows "逃逸改写" when a repeated-stagnation round uses `rewrite_mode="breakthrough"`.
 - Good: detail page shows "论文重构" with Chinese/English language, section, AI pattern, candidate count, and fact-card metadata when a stubborn paper paragraph uses `rewrite_mode="paper_reconstruction"`.
+- Good: detail page shows "回滚保护" when a round regresses, including the restored segment indices and risk-rate rollback.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
 - Bad: UI treats `labels_ratio[0]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, or marks browser connected just because launch was attempted.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
@@ -129,6 +131,7 @@ Questions to answer:
 - Static/frontend tests should assert mode option text, launcher/status endpoint strings, browser status polling state usage, report field rendering, and `zhuque_reduced_text` final-text priority.
 - Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Static/frontend tests should assert Paper Reconstruction trace strings: `paper_reconstruction`, "论文重构", `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, and `fact_card_count`.
+- Static/frontend tests should assert rollback protection strings: `rollback_applied` and "回滚保护".
 - Build must pass with `npm.cmd run build` on Windows PowerShell environments where `npm.ps1` may be blocked by execution policy.
 - After any production frontend change, sync `package/frontend/dist` into `package/static` before committing. Because `package/static` is ignored, new hashed assets must be staged with `git add -f package/static/...`; old hashed assets must be staged as deletions so `package/static/index.html` never points at missing files.
 

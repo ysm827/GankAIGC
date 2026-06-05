@@ -570,6 +570,8 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "paper_ai_patterns" in session_detail
     assert "candidate_count" in session_detail
     assert "fact_card_count" in session_detail
+    assert "rollback_applied" in session_detail
+    assert "回滚保护" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

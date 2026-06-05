@@ -398,6 +398,7 @@ class OptimizationService:
                     strategy_level=strategy_level,
                     round_number=round_number,
                 )
+                round_snapshots = self._snapshot_zhuque_segments(segments_to_reduce)
                 round_result = await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
@@ -418,6 +419,16 @@ class OptimizationService:
                     raise RuntimeError(recheck.get("message") or "朱雀复检返回失败")
                 old_rate = full_text_rate
                 full_text_rate = self._get_zhuque_risk_rate(recheck)
+                rollback_metadata = None
+                if full_text_rate > old_rate:
+                    rollback_metadata = await self._rollback_zhuque_regression_round(
+                        segments=segments,
+                        segment_snapshots=round_snapshots,
+                        regressed_rate=full_text_rate,
+                        previous_rate=old_rate,
+                    )
+                    full_text_rate = rollback_metadata["rolled_back_to_rate"]
+                    recheck = rollback_metadata["restored_result"]
                 last_zhuque_result = recheck
                 self._record_zhuque_prompt_evolution_result(
                     before_rate=old_rate,
@@ -447,6 +458,8 @@ class OptimizationService:
                     reduce_payload["length_adjustments"] = length_adjustments
                 if paper_metadata:
                     reduce_payload.update(paper_metadata)
+                if rollback_metadata:
+                    reduce_payload.update(self._public_zhuque_rollback_metadata(rollback_metadata))
                 await stream_manager.broadcast(self.session_obj.session_id, reduce_payload)
                 selected_segment_indices = [seg.segment_index for seg in segments_to_reduce]
                 reflection = self._reflect_zhuque_convergence(
@@ -489,6 +502,13 @@ class OptimizationService:
                         f"{reduce_event['message']}；论文重构已按"
                         f"{paper_metadata.get('paper_language', '--')}/"
                         f"{paper_metadata.get('paper_section', '--')} 规则选择候选"
+                    )
+                if rollback_metadata:
+                    reduce_event.update(self._public_zhuque_rollback_metadata(rollback_metadata))
+                    reduce_event["message"] = (
+                        f"{reduce_event['message']}；回滚保护：本轮改写导致风险率升至 "
+                        f"{rollback_metadata['rolled_back_from_rate']}%，已恢复上一版 "
+                        f"{rollback_metadata['rolled_back_to_rate']}%"
                     )
                 self._append_zhuque_trace_event(reduce_event)
                 if reflection["record_reflection"]:
@@ -951,6 +971,73 @@ class OptimizationService:
                 selected.append(seg)
 
         return selected or list(segments)
+
+    def _snapshot_zhuque_segments(self, segments: List[OptimizationSegment]) -> Dict[int, Dict[str, object]]:
+        """Capture compact per-segment state before a risky rewrite round."""
+        return {
+            seg.id: {
+                "polished_text": seg.polished_text,
+                "enhanced_text": seg.enhanced_text,
+                "zhuque_reduced_text": seg.zhuque_reduced_text,
+                "zhuque_reduce_attempt": seg.zhuque_reduce_attempt,
+                "status": seg.status,
+                "stage": seg.stage,
+                "completed_at": seg.completed_at,
+            }
+            for seg in segments
+        }
+
+    async def _rollback_zhuque_regression_round(
+        self,
+        *,
+        segments: List[OptimizationSegment],
+        segment_snapshots: Dict[int, Dict[str, object]],
+        regressed_rate: float,
+        previous_rate: float,
+    ) -> Dict[str, object]:
+        """Restore the previous reduced text when a round makes Zhuque risk worse."""
+        restored_segment_indices: List[int] = []
+        for seg in segments:
+            snapshot = segment_snapshots.get(seg.id)
+            if not snapshot:
+                continue
+            seg.polished_text = snapshot.get("polished_text")
+            seg.enhanced_text = snapshot.get("enhanced_text")
+            seg.zhuque_reduced_text = snapshot.get("zhuque_reduced_text")
+            seg.zhuque_reduce_attempt = snapshot.get("zhuque_reduce_attempt") or seg.zhuque_reduce_attempt
+            seg.status = snapshot.get("status") or "completed"
+            seg.stage = snapshot.get("stage") or seg.stage
+            seg.completed_at = snapshot.get("completed_at")
+            restored_segment_indices.append(seg.segment_index)
+        self.db.commit()
+
+        restored_result = await self._detect_full_text_once(
+            segments,
+            prefer_reduced=True,
+            previous_detect_count_increment=True,
+        )
+        if not restored_result.get("success"):
+            raise RuntimeError(restored_result.get("message") or "朱雀回滚复检返回失败")
+        restored_rate = self._get_zhuque_risk_rate(restored_result)
+        if restored_rate > previous_rate:
+            # The detector can be nondeterministic; keep the restored text anyway, but preserve the best known rate
+            # in the convergence state so one bad rewrite does not drive the next round.
+            restored_rate = previous_rate
+        return {
+            "rollback_applied": True,
+            "rolled_back_from_rate": regressed_rate,
+            "rolled_back_to_rate": restored_rate,
+            "restored_segment_indices": restored_segment_indices,
+            "restored_result": restored_result,
+        }
+
+    def _public_zhuque_rollback_metadata(self, rollback_metadata: Dict[str, object]) -> Dict[str, object]:
+        return {
+            "rollback_applied": True,
+            "rolled_back_from_rate": rollback_metadata.get("rolled_back_from_rate"),
+            "rolled_back_to_rate": rollback_metadata.get("rolled_back_to_rate"),
+            "restored_segment_indices": rollback_metadata.get("restored_segment_indices") or [],
+        }
 
     def _select_zhuque_strategy_level(self, existing_rounds: int) -> int:
         if existing_rounds >= 2:
