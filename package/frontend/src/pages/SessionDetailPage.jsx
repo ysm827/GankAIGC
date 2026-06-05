@@ -609,6 +609,15 @@ const SessionDetailPage = () => {
                               下一轮：{event.next_strategy}
                             </span>
                           )}
+                          {event.rewrite_mode && (
+                            <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${
+                              event.rewrite_mode === 'breakthrough'
+                                ? 'bg-red-50 text-ios-red'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {event.rewrite_mode === 'breakthrough' ? '逃逸改写' : `rewrite_mode：${event.rewrite_mode}`}
+                            </span>
+                          )}
                         </div>
                         <div className="mt-2 grid grid-cols-1 gap-2 text-[13px] text-gray-600 md:grid-cols-3">
                           {event.rate !== undefined && <p>风险率：{formatRate(event.rate)}</p>}

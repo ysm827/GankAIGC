@@ -1694,6 +1694,17 @@ def test_ai_detect_reduce_escalates_humanize_strategy_when_rate_does_not_drop(mo
         assert "策略：强结构重写" in fake_ai.polish_calls[2]["prompt"]
         assert "必须保留专业术语" in fake_ai.polish_calls[2]["prompt"]
         assert "不得改变原文意思" in fake_ai.enhance_calls[2]["prompt"]
+        assert "朱雀逃逸改写" in fake_ai.polish_calls[2]["prompt"]
+        assert "朱雀逃逸改写" in fake_ai.enhance_calls[2]["prompt"]
+        assert "原文事实锚点" in fake_ai.polish_calls[2]["prompt"]
+        assert "Nature / Science" not in fake_ai.polish_calls[2]["prompt"]
+        assert "风格拟态专家" not in fake_ai.enhance_calls[2]["prompt"]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        reduce_events = [event for event in trace["events"] if event["type"] == "reduce"]
+        assert reduce_events[0]["rewrite_mode"] == "standard"
+        assert reduce_events[1]["rewrite_mode"] == "standard"
+        assert reduce_events[2]["rewrite_mode"] == "breakthrough"
     finally:
         db.close()
 

@@ -561,6 +561,8 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "prompt_patch" in session_detail
     assert "length_adjustments" in session_detail
     assert "长度校正" in session_detail
+    assert "rewrite_mode" in session_detail
+    assert "逃逸改写" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

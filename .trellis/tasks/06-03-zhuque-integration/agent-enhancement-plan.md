@@ -596,6 +596,55 @@
     - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-CyX_3eCv.js`
     - 静态同步：`package/static/index.html` 已指向 `assets/index-CyX_3eCv.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-CPWUqMOm.css`
 
+### Phase L: Breakthrough Rewrite Agent
+
+- [x] L1. 根因审计
+  - 现象：长度校正已生效，但朱雀仍显示 `100% → 100%`，连续停滞 5 轮。
+  - 根因：多轮停滞后仍以默认“Nature / Science 学术编辑”和“风格拟态专家”提示词作为底座；这些默认提示词会强化规整、系统化、学术腔表达，正好命中朱雀失败原因中的“段落结构仍像模板化论文润色、连接词和总结句过于机械”。
+  - 设计结论：连续停滞到强结构重写阶段后，必须跳出默认 polish/enhance 底座，进入朱雀专用反模板逃逸改写模式。
+
+- [x] L2. 后端逃逸改写模式
+  - 新增 `rewrite_mode`：
+    - `standard`
+    - `breakthrough`
+  - 当 `stagnation_count >= 2` 且策略已到 `强结构重写` 时启用 `breakthrough`。
+  - `breakthrough` 仍调用现有 `polish_text` + `enhance_text`，但替换为朱雀专用反模板 base prompt。
+  - 禁用默认“学术增益/风格拟态”底座，不新增正文改写 API。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_escalates_humanize_strategy_when_rate_does_not_drop`
+
+- [x] L3. Trace / SSE 元数据
+  - reduce 事件新增 `rewrite_mode`。
+  - UI 可显示 `逃逸改写`，方便判断是否已经跳出默认 prompt。
+  - 完成证据：
+    - 后端：`package/backend/app/services/optimization_service.py`
+    - 前端：`package/frontend/src/pages/SessionDetailPage.jsx`
+    - 测试：`test_session_detail_shows_zhuque_agent_trace`
+
+- [x] L4. Spec 更新
+  - 后端合同补充 Breakthrough Rewrite mode。
+  - 前端合同补充 `rewrite_mode="breakthrough"` 展示为“逃逸改写”。
+  - 完成证据：
+    - `.trellis/spec/backend/quality-guidelines.md`
+    - `.trellis/spec/frontend/component-guidelines.md`
+
+- [x] L5. 验证与静态同步
+  - 后端专项：
+    - `python -m pytest tests/test_zhuque_integration.py::test_ai_detect_reduce_escalates_humanize_strategy_when_rate_does_not_drop tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
+  - 后端全量：
+    - `python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
+  - 前端构建：
+    - `cd package/frontend; npm.cmd run build`
+  - 静态同步：
+    - `package/frontend/dist` → `package/static`
+  - 完成证据：
+    - 后端专项：`2 passed in 1.42s`
+    - 朱雀专项：`37 passed in 19.92s`
+    - 后端全量：`318 passed in 126.38s`
+    - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-CaoLCs2A.js`
+    - 静态同步：`package/static/index.html` 已指向 `assets/index-CaoLCs2A.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-CPWUqMOm.css`
+
 ## 4. 可拆分 Agent 包
 
 > 当前 inline 模式不实际派发实现/检查子代理。若后续切到可用多 Agent 环境，可按以下方式拆。

@@ -67,6 +67,51 @@ ZHUQUE_HUMANIZE_STRATEGIES = [
 
 ZHUQUE_MIN_MEANINGFUL_RATE_DROP = 1.0
 ZHUQUE_LENGTH_TOLERANCE = 0.10
+ZHUQUE_REWRITE_MODE_STANDARD = "standard"
+ZHUQUE_REWRITE_MODE_BREAKTHROUGH = "breakthrough"
+
+ZHUQUE_BREAKTHROUGH_POLISH_PROMPT = """
+# 朱雀逃逸改写：反模板草稿重写
+
+你不是在做普通论文润色，也不是在把文本改得更“学术腔”。当前段落已经多轮朱雀复检仍保持高风险，默认的系统化润色、增益型表达、整齐连接词和总结式段落会继续失败。
+
+## 原文事实锚点
+- 只以输入段落为事实来源。
+- 保留研究对象、专有名词、专业术语、数字、引用、实验指标、时间地点、因果关系和关键结论。
+- 不新增原文没有的背景、意义、评价、政策判断或研究结论。
+
+## 改写动作
+1. 先在内部提取事实骨架，再重新安排信息顺序；输出时不要写提取过程。
+2. 把“背景-现状-意义-展望”式模板段落改成更接近作者草稿的自然叙述。
+3. 删除或弱化空泛词：重要、显著、深层、持续推进、不断提升、具有重要意义、进一步、有效、充分。
+4. 打散连续整齐的句式，混合使用短句和带限定条件的中句；不要连续使用同一种起笔。
+5. 优先写具体对象、动作、条件、限制和观察结果，而不是抽象评价。
+6. 字数控制在原段落 90%-110% 内。
+
+## 禁止
+- 禁止零宽字符、错别字、同形字、随机标点和故意语病。
+- 禁止改变事实、数据、引用、结论或专业术语。
+- 禁止输出解释、标题、项目符号或“以下是改写后”。
+"""
+
+ZHUQUE_BREAKTHROUGH_ENHANCE_PROMPT = """
+# 朱雀逃逸改写：最终反模板定稿
+
+当前任务不是继续增强学术表达，而是把上一版中仍显得机械、规整、像 AI 润色稿的地方改成更像作者本人修改后的论文段落。
+
+## 原文事实锚点
+- 只保留输入段落已有的信息，不新增论点。
+- 专业术语、专有名词、数字、引用、实验指标、对象关系和结论必须保持一致。
+
+## 定稿要求
+1. 去掉模板化连接词和总结句，不要使用“综上、因此可以看出、由此可见、具有重要意义”等套话。
+2. 避免把每句话都写成均匀、完整、对称的长句；允许自然停顿和不完全对称的表达。
+3. 用具体事实之间的自然衔接替代宏观评价和概念堆叠。
+4. 如果句子已经能说明问题，不要再补充解释性背景。
+5. 字数控制在原段落 90%-110% 内，语义完整。
+
+只返回最终段落文本。
+"""
 
 
 class OptimizationService:
@@ -308,10 +353,15 @@ class OptimizationService:
                     stubborn_segment_indices=active_stubborn_indices,
                     before_rate=full_text_rate,
                 )
+                rewrite_mode = self._select_zhuque_rewrite_mode(
+                    stagnation_count=stagnation_count,
+                    strategy_level=strategy_level,
+                )
                 length_adjustments = await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
                     strategy,
+                    rewrite_mode=rewrite_mode,
                     reflection_note=reflection_note,
                     prompt_evolution_note=prompt_evolution_note,
                 )
@@ -348,6 +398,7 @@ class OptimizationService:
                     "old_rate": old_rate,
                     "new_rate": full_text_rate,
                     "strategy": strategy["name"],
+                    "rewrite_mode": rewrite_mode,
                 }
                 if length_adjustments:
                     reduce_payload["length_adjustments"] = length_adjustments
@@ -379,6 +430,7 @@ class OptimizationService:
                     "stagnation_count": stagnation_count,
                     "stubborn_segment_indices": active_stubborn_indices,
                     "next_strategy": reflection.get("next_strategy"),
+                    "rewrite_mode": rewrite_mode,
                     "message": reflection["reduce_message"],
                 }
                 if length_adjustments:
@@ -446,19 +498,22 @@ class OptimizationService:
         round_number: int,
         strategy: Dict[str, str],
         *,
+        rewrite_mode: str = ZHUQUE_REWRITE_MODE_STANDARD,
         reflection_note: str = "",
         prompt_evolution_note: str = "",
     ) -> List[Dict[str, object]]:
         """Run the existing paper polish + enhance flow as one Zhuque reduce round."""
         polish_prompt = self._with_zhuque_strategy(
-            self._get_prompt("polish"),
+            self._get_zhuque_round_base_prompt("polish", rewrite_mode),
             strategy,
+            rewrite_mode=rewrite_mode,
             reflection_note=reflection_note,
             prompt_evolution_note=prompt_evolution_note,
         )
         enhance_prompt = self._with_zhuque_strategy(
-            self._get_prompt("enhance"),
+            self._get_zhuque_round_base_prompt("enhance", rewrite_mode),
             strategy,
+            rewrite_mode=rewrite_mode,
             reflection_note=reflection_note,
             prompt_evolution_note=prompt_evolution_note,
         )
@@ -839,6 +894,18 @@ class OptimizationService:
             return 1
         return 0
 
+    def _select_zhuque_rewrite_mode(self, *, stagnation_count: int, strategy_level: int) -> str:
+        if stagnation_count >= 2 and strategy_level >= 2:
+            return ZHUQUE_REWRITE_MODE_BREAKTHROUGH
+        return ZHUQUE_REWRITE_MODE_STANDARD
+
+    def _get_zhuque_round_base_prompt(self, stage: str, rewrite_mode: str) -> str:
+        if rewrite_mode == ZHUQUE_REWRITE_MODE_BREAKTHROUGH:
+            if stage == "polish":
+                return ZHUQUE_BREAKTHROUGH_POLISH_PROMPT
+            return ZHUQUE_BREAKTHROUGH_ENHANCE_PROMPT
+        return self._get_prompt(stage)
+
     def _reflect_zhuque_convergence(
         self,
         *,
@@ -1048,12 +1115,22 @@ class OptimizationService:
         prompt: str,
         strategy: Dict[str, str],
         *,
+        rewrite_mode: str = ZHUQUE_REWRITE_MODE_STANDARD,
         reflection_note: str = "",
         prompt_evolution_note: str = "",
     ) -> str:
+        rewrite_mode_note = ""
+        if rewrite_mode == ZHUQUE_REWRITE_MODE_BREAKTHROUGH:
+            rewrite_mode_note = (
+                "\n## 当前改写模式\n"
+                "- rewrite_mode: breakthrough。\n"
+                "- 已禁用默认学术增益/风格拟态提示词底座；本轮只执行朱雀逃逸改写约束。\n"
+                "- 不要把文本改得更整齐、更宏大或更像论文模板。"
+            )
         return (
             f"{prompt.rstrip()}\n"
             f"{strategy['instruction'].strip()}\n"
+            f"{rewrite_mode_note.strip()}\n"
             f"{reflection_note.strip()}\n"
             f"{prompt_evolution_note.strip()}\n"
             "只返回处理后的当前段落文本，不要解释使用了哪种策略。"
