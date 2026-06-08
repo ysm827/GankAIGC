@@ -900,3 +900,34 @@
   - 后端全量：`324 passed in 134.63s`。
   - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-BU_W-iHA.js` 与 `assets/index-Ct_2y8mk.css`。
   - 静态同步：`package/static/index.html` 已指向 `assets/index-BU_W-iHA.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-Ct_2y8mk.css`。
+
+### Phase Q: Plateau Auto-Recovery
+
+- [x] Q1. 根因审计
+  - 现象：25% 附近卡住后旧逻辑直接 `plateau_exit action="manual_review"`，用户仍要人工改写。
+  - 根因：缺少“自动候选搜索 + 朱雀复检择优 + 快照回滚保护”，卡点退出过早。
+
+- [x] Q2. 后端自动候选探索
+  - 新增 `ZHUQUE_PLATEAU_RECOVERY_CANDIDATES`：A 拆句节奏、B 问题-动作-结果重排、C 作者草稿式回写。
+  - 触发平台卡点时不再立即人工退出，而是调用 `_try_zhuque_plateau_recovery()`。
+  - 每个候选仍走现有 `polish_text` + `enhance_text`，并保留论文事实、术语、数字、引用、方法、结果和结论。
+
+- [x] Q3. 复检择优与回滚保护
+  - 每个候选生成后立即合并全文朱雀复检。
+  - 只接受 `candidate_rate < current_rate` 的候选；达到阈值则提前停止候选搜索。
+  - 候选失败时恢复进入 recovery 前快照，避免把更差候选写入 `zhuque_reduced_text`。
+
+- [x] Q4. Trace / 失败诊断
+  - 新增 `type="plateau_recovery"` trace，记录 `status`、候选数量、候选风险率和命中候选。
+  - 自动候选全部失败后才写入 `type="plateau_exit"`，`action="auto_recovery_exhausted"`。
+  - 错误诊断改为“自动探索候选仍未突破”，并说明已保留上一版最低风险文本。
+
+- [x] Q5. Spec 更新
+  - 后端合同更新：平台卡点必须先尝试 Plateau Auto-Recovery，候选耗尽后才失败退出。
+  - 测试矩阵新增 Plateau Auto-Recovery 覆盖要求。
+
+- [x] Q6. 验证
+  - 新增回归测试：`python -m pytest tests/test_zhuque_integration.py::test_ai_detect_reduce_plateau_recovery_accepts_best_auto_candidate tests/test_zhuque_integration.py::test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `2 passed in 1.84s`。
+  - 朱雀专项：`python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `44 passed in 23.13s`。
+  - 后端全量：`python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `325 passed in 126.58s`。
+  - 本阶段未修改前端源码，因此未触发前端 build/static 同步。

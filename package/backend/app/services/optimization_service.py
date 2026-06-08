@@ -72,6 +72,32 @@ ZHUQUE_REWRITE_MODE_STANDARD = "standard"
 ZHUQUE_REWRITE_MODE_BREAKTHROUGH = "breakthrough"
 ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION = "paper_reconstruction"
 ZHUQUE_PLATEAU_EXIT_STAGNATION_COUNT = 3
+ZHUQUE_PLATEAU_RECOVERY_CANDIDATES = [
+    {
+        "id": "A",
+        "name": "拆句与节奏打散",
+        "instruction": (
+            "把过长、过顺滑、连续同构的论文句子拆成短中句混合；"
+            "减少模板连接词和整齐并列结构，但保留术语、数据、引用和结论。"
+        ),
+    },
+    {
+        "id": "B",
+        "name": "问题-动作-结果重排",
+        "instruction": (
+            "按问题、动作、结果、限定条件重新组织信息顺序；"
+            "优先写具体对象和操作，删除空泛评价，不改变事实链条。"
+        ),
+    },
+    {
+        "id": "C",
+        "name": "作者草稿式回写",
+        "instruction": (
+            "先还原作者原始表达的自然语序，再只保留必要学术术语；"
+            "避免宏大总结、抽象名词堆叠和过度完美的学术腔。"
+        ),
+    },
+]
 
 
 class ZhuquePlateauExit(RuntimeError):
@@ -541,31 +567,46 @@ class OptimizationService:
                     strategy_level=reflection["next_strategy_level"],
                     rollback_metadata=rollback_metadata,
                 ):
-                    diagnosis = self._build_zhuque_plateau_diagnosis(
-                        rate=full_text_rate,
+                    recovery = await self._try_zhuque_plateau_recovery(
+                        all_segments=segments,
+                        segments_to_reduce=segments_to_reduce,
+                        round_number=round_number,
+                        current_rate=full_text_rate,
                         threshold=threshold,
                         stubborn_segment_indices=active_stubborn_indices,
                     )
-                    for seg in segments:
-                        seg.status = "failed"
-                    self.db.commit()
-                    self._append_zhuque_trace_event({
-                        "type": "plateau_exit",
-                        "round": round_number,
-                        "rate": full_text_rate,
-                        "threshold": threshold,
-                        "stagnation_count": stagnation_count,
-                        "stubborn_segment_indices": active_stubborn_indices,
-                        "action": "manual_review",
-                        "message": diagnosis,
-                    })
-                    self._finalize_zhuque_trace(
-                        "failed",
-                        full_text_rate,
-                        diagnosis,
-                        stubborn_segment_indices=active_stubborn_indices,
-                    )
-                    raise ZhuquePlateauExit(diagnosis)
+                    if recovery.get("accepted"):
+                        full_text_rate = float(recovery.get("rate") or full_text_rate)
+                        recheck = recovery.get("result") or recheck
+                        last_zhuque_result = recheck
+                        if full_text_rate <= threshold:
+                            break
+                    else:
+                        diagnosis = self._build_zhuque_plateau_recovery_failed_diagnosis(
+                            rate=full_text_rate,
+                            threshold=threshold,
+                            stubborn_segment_indices=active_stubborn_indices,
+                        )
+                        for seg in segments:
+                            seg.status = "failed"
+                        self.db.commit()
+                        self._append_zhuque_trace_event({
+                            "type": "plateau_exit",
+                            "round": round_number,
+                            "rate": full_text_rate,
+                            "threshold": threshold,
+                            "stagnation_count": stagnation_count,
+                            "stubborn_segment_indices": active_stubborn_indices,
+                            "action": "auto_recovery_exhausted",
+                            "message": diagnosis,
+                        })
+                        self._finalize_zhuque_trace(
+                            "failed",
+                            full_text_rate,
+                            diagnosis,
+                            stubborn_segment_indices=active_stubborn_indices,
+                        )
+                        raise ZhuquePlateauExit(diagnosis)
                 strategy_level = reflection["next_strategy_level"]
                 segments_to_reduce = self._select_zhuque_reduce_segments(
                     segments,
@@ -1043,6 +1084,30 @@ class OptimizationService:
             for seg in segments
         }
 
+    def _restore_zhuque_segments_from_snapshot(
+        self,
+        segments: List[OptimizationSegment],
+        snapshots: Dict[int, Dict[str, object]],
+    ) -> None:
+        """Restore a previously captured Zhuque segment snapshot without adding trace noise."""
+        for seg in segments:
+            snapshot = snapshots.get(seg.id)
+            if not snapshot:
+                continue
+            seg.polished_text = snapshot.get("polished_text")
+            seg.enhanced_text = snapshot.get("enhanced_text")
+            seg.zhuque_reduced_text = snapshot.get("zhuque_reduced_text")
+            seg.zhuque_reduce_attempt = snapshot.get("zhuque_reduce_attempt") or 0
+            seg.zhuque_detect_rate = snapshot.get("zhuque_detect_rate")
+            seg.zhuque_detect_result = snapshot.get("zhuque_detect_result")
+            snapshot_detect_count = snapshot.get("zhuque_detect_count")
+            if snapshot_detect_count is not None:
+                seg.zhuque_detect_count = snapshot_detect_count
+            seg.status = snapshot.get("status") or "completed"
+            seg.stage = snapshot.get("stage") or seg.stage
+            seg.completed_at = snapshot.get("completed_at")
+        self.db.commit()
+
     def _rollback_zhuque_regression_round(
         self,
         *,
@@ -1102,6 +1167,136 @@ class OptimizationService:
             "restored_segment_indices": restored_segment_indices,
             "restored_result": restored_result,
         }
+
+    async def _try_zhuque_plateau_recovery(
+        self,
+        *,
+        all_segments: List[OptimizationSegment],
+        segments_to_reduce: List[OptimizationSegment],
+        round_number: int,
+        current_rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> Dict[str, object]:
+        """Explore stronger automatic candidates before giving up on a Zhuque plateau."""
+        recovery_segment_snapshots = self._snapshot_zhuque_segments(all_segments)
+        candidate_rates: List[Dict[str, object]] = []
+        selected_candidate_id: Optional[str] = None
+        selected_rate: Optional[float] = None
+        selected_result: Optional[dict] = None
+        selected_snapshots: Optional[Dict[int, Dict[str, object]]] = None
+        length_adjustments: List[Dict[str, object]] = []
+        strategy = ZHUQUE_HUMANIZE_STRATEGIES[-1]
+
+        for candidate in ZHUQUE_PLATEAU_RECOVERY_CANDIDATES:
+            candidate_id = str(candidate["id"])
+            self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+            note = self._build_zhuque_plateau_candidate_note(
+                candidate=candidate,
+                current_rate=current_rate,
+                threshold=threshold,
+                stubborn_segment_indices=stubborn_segment_indices,
+            )
+            candidate_result = await self._process_zhuque_reduce_round(
+                segments_to_reduce,
+                round_number,
+                strategy,
+                rewrite_mode=ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION,
+                reflection_note=note,
+                prompt_evolution_note="",
+            )
+            length_adjustments.extend(candidate_result.get("length_adjustments") or [])
+            recheck = await self._detect_full_text_once(
+                all_segments,
+                prefer_reduced=True,
+                previous_detect_count_increment=True,
+            )
+            if not recheck.get("success"):
+                raise RuntimeError(recheck.get("message") or "朱雀卡点候选复检返回失败")
+            candidate_rate = self._get_zhuque_risk_rate(recheck)
+            candidate_rates.append({
+                "id": candidate_id,
+                "rate": candidate_rate,
+            })
+            if candidate_rate < current_rate and (
+                selected_rate is None or candidate_rate < selected_rate
+            ):
+                selected_candidate_id = candidate_id
+                selected_rate = candidate_rate
+                selected_result = recheck
+                selected_snapshots = self._snapshot_zhuque_segments(all_segments)
+            if candidate_rate <= threshold:
+                break
+
+        if selected_candidate_id and selected_rate is not None and selected_result is not None:
+            if selected_snapshots:
+                self._restore_zhuque_segments_from_snapshot(all_segments, selected_snapshots)
+            for seg in all_segments:
+                seg.status = "completed"
+            self.db.commit()
+            event = {
+                "type": "plateau_recovery",
+                "round": round_number,
+                "status": "accepted",
+                "old_rate": current_rate,
+                "new_rate": selected_rate,
+                "threshold": threshold,
+                "candidate_count": len(candidate_rates),
+                "selected_candidate_id": selected_candidate_id,
+                "candidate_rates": candidate_rates,
+                "stubborn_segment_indices": stubborn_segment_indices,
+                "message": "卡点自动探索已找到更低风险候选",
+            }
+            if length_adjustments:
+                event["length_adjustments"] = length_adjustments
+            self._append_zhuque_trace_event(event)
+            return {
+                "accepted": True,
+                "rate": selected_rate,
+                "result": selected_result,
+                "selected_candidate_id": selected_candidate_id,
+                "candidate_rates": candidate_rates,
+            }
+
+        self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+        self._append_zhuque_trace_event({
+            "type": "plateau_recovery",
+            "round": round_number,
+            "status": "failed",
+            "old_rate": current_rate,
+            "new_rate": current_rate,
+            "threshold": threshold,
+            "candidate_count": len(candidate_rates),
+            "candidate_rates": candidate_rates,
+            "stubborn_segment_indices": stubborn_segment_indices,
+            "message": "卡点自动探索候选仍未取得更低风险率",
+        })
+        return {
+            "accepted": False,
+            "rate": current_rate,
+            "candidate_rates": candidate_rates,
+        }
+
+    def _build_zhuque_plateau_candidate_note(
+        self,
+        *,
+        candidate: Dict[str, str],
+        current_rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        candidate_id = candidate["id"]
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        return (
+            "\n## 朱雀卡点自动探索\n"
+            f"- 卡点候选{candidate_id}：{candidate['name']}。\n"
+            f"- 当前风险率 {current_rate}% 仍高于阈值 {threshold}%，顽固段落：{segments_text}。\n"
+            f"- 候选策略：{candidate['instruction']}\n"
+            "- 这是自动候选搜索，不要输出解释；只返回该段最终改写文本。\n"
+            "- 必须保留论文事实、专业术语、数字、引用、方法、结果和结论。\n"
+            "- 禁止零宽字符、错别字、同形字、随机标点、故意语病或改变事实来规避检测。\n"
+            "- 字数必须控制在原段落 90%-110% 内。"
+        )
 
     def _public_zhuque_rollback_metadata(self, rollback_metadata: Dict[str, object]) -> Dict[str, object]:
         return {
@@ -1461,6 +1656,21 @@ class OptimizationService:
             "且连续多轮强改写未获得更低风险率。系统已保留上一版最低风险文本，"
             f"建议人工微调顽固段落（{segments_text}）的表达节奏、连接词和信息组织，"
             "或将阈值调整到接近当前检测下限后再复检。"
+        )
+
+    def _build_zhuque_plateau_recovery_failed_diagnosis(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        return (
+            f"自动探索候选仍未突破：当前风险率 {rate}% 仍高于阈值 {threshold}%。"
+            "系统已尝试多种卡点候选并复检择优，未找到更低风险版本，"
+            f"已保留上一版最低风险文本。顽固段落：{segments_text}；"
+            "建议后续人工微调这些段落，或将阈值调整到接近当前检测下限后再复检。"
         )
 
     def _build_zhuque_prompt_evolution_note(
