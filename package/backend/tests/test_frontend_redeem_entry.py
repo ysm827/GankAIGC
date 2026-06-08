@@ -572,6 +572,10 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "fact_card_count" in session_detail
     assert "rollback_applied" in session_detail
     assert "回滚保护" in session_detail
+    assert "max-h-[560px]" in session_detail
+    assert "custom-scrollbar" in session_detail
+    assert "plateau_exit" in session_detail
+    assert "卡点退出" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

@@ -71,6 +71,11 @@ ZHUQUE_LENGTH_TOLERANCE = 0.10
 ZHUQUE_REWRITE_MODE_STANDARD = "standard"
 ZHUQUE_REWRITE_MODE_BREAKTHROUGH = "breakthrough"
 ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION = "paper_reconstruction"
+ZHUQUE_PLATEAU_EXIT_STAGNATION_COUNT = 3
+
+
+class ZhuquePlateauExit(RuntimeError):
+    """Raised when Zhuque reduce has reached a repeated strict-rollback plateau."""
 
 ZHUQUE_BREAKTHROUGH_POLISH_PROMPT = """
 # 朱雀逃逸改写：反模板草稿重写
@@ -529,6 +534,38 @@ class OptimizationService:
                         "action": reflection["action"],
                         "message": reflection["reflection_message"],
                     })
+                if self._should_exit_zhuque_plateau(
+                    rate=full_text_rate,
+                    threshold=threshold,
+                    stagnation_count=stagnation_count,
+                    strategy_level=reflection["next_strategy_level"],
+                    rollback_metadata=rollback_metadata,
+                ):
+                    diagnosis = self._build_zhuque_plateau_diagnosis(
+                        rate=full_text_rate,
+                        threshold=threshold,
+                        stubborn_segment_indices=active_stubborn_indices,
+                    )
+                    for seg in segments:
+                        seg.status = "failed"
+                    self.db.commit()
+                    self._append_zhuque_trace_event({
+                        "type": "plateau_exit",
+                        "round": round_number,
+                        "rate": full_text_rate,
+                        "threshold": threshold,
+                        "stagnation_count": stagnation_count,
+                        "stubborn_segment_indices": active_stubborn_indices,
+                        "action": "manual_review",
+                        "message": diagnosis,
+                    })
+                    self._finalize_zhuque_trace(
+                        "failed",
+                        full_text_rate,
+                        diagnosis,
+                        stubborn_segment_indices=active_stubborn_indices,
+                    )
+                    raise ZhuquePlateauExit(diagnosis)
                 strategy_level = reflection["next_strategy_level"]
                 segments_to_reduce = self._select_zhuque_reduce_segments(
                     segments,
@@ -536,6 +573,8 @@ class OptimizationService:
                     prefer_reduced=True,
                 )
             except Exception as e:
+                if isinstance(e, ZhuquePlateauExit):
+                    raise
                 reduce_failures.append(str(e))
                 logger.warning("Full text reduce round %s failed: %s", round_number, e)
                 raise RuntimeError(
@@ -1390,6 +1429,39 @@ class OptimizationService:
                 "建议人工改写这些段落后复检，或切换朱雀账号/适当调整阈值后重试。"
             )
         return "风险率仍高于阈值，建议人工处理命中段落后复检"
+
+    def _should_exit_zhuque_plateau(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        stagnation_count: int,
+        strategy_level: int,
+        rollback_metadata: Optional[Dict[str, object]],
+    ) -> bool:
+        """Stop wasting Zhuque/beer quota after repeated strongest-strategy strict rollbacks."""
+        if rate <= threshold:
+            return False
+        if not rollback_metadata:
+            return False
+        if stagnation_count < ZHUQUE_PLATEAU_EXIT_STAGNATION_COUNT:
+            return False
+        return strategy_level >= len(ZHUQUE_HUMANIZE_STRATEGIES) - 1
+
+    def _build_zhuque_plateau_diagnosis(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        return (
+            f"朱雀降 AI 已进入平台卡点：当前风险率 {rate}% 仍高于阈值 {threshold}%，"
+            "且连续多轮强改写未获得更低风险率。系统已保留上一版最低风险文本，"
+            f"建议人工微调顽固段落（{segments_text}）的表达节奏、连接词和信息组织，"
+            "或将阈值调整到接近当前检测下限后再复检。"
+        )
 
     def _build_zhuque_prompt_evolution_note(
         self,

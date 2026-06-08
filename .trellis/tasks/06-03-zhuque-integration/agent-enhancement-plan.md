@@ -877,3 +877,26 @@
     - 后端全量：`323 passed in 125.74s`。
     - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-CO3GgXFt.js`。
     - 静态同步：`package/static/index.html` 已指向 `assets/index-CO3GgXFt.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`。
+
+### Phase P: Trace Scroll Container and Plateau Exit
+
+- [x] P1. 根因审计
+  - UI：Agent 决策轨迹全量展开，长任务会把详情页撑得过长。
+  - 后端：25% 附近在多轮强改写后仍 `25.0% -> 25.0%`，严格回滚能保住文本，但继续循环只会消耗朱雀次数和啤酒。
+
+- [x] P2. 前端滚动栏
+  - Agent 决策轨迹列表改为固定最大高度滚动容器，长历史不再挤占结果文本区域。
+  - 新增 `plateau_exit` 展示为“卡点退出”。
+  - 完成证据：`package/frontend/src/pages/SessionDetailPage.jsx`，`test_session_detail_shows_zhuque_agent_trace`。
+
+- [x] P3. 后端平台卡点退出
+  - 当任务已到最强策略、连续停滞达到阈值，且本轮严格回滚后仍高于阈值，写入 `type="plateau_exit"` trace 并失败退出。
+  - 失败时保留上一版最低风险文本，诊断提示用户人工微调顽固段落或调整阈值。
+  - 完成证据：`test_ai_detect_reduce_exits_plateau_after_repeated_strict_rollbacks`。
+
+- [x] P4. 验证与静态同步
+  - 新增回归测试：`2 passed in 1.02s`。
+  - 朱雀专项：`43 passed in 22.93s`。
+  - 后端全量：`324 passed in 134.63s`。
+  - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-BU_W-iHA.js` 与 `assets/index-Ct_2y8mk.css`。
+  - 静态同步：`package/static/index.html` 已指向 `assets/index-BU_W-iHA.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-Ct_2y8mk.css`。

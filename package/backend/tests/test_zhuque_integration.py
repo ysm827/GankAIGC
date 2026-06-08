@@ -2094,6 +2094,96 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
         db.close()
 
 
+def test_ai_detect_reduce_exits_plateau_after_repeated_strict_rollbacks(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([25, 25])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 5, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-plateau-exit",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps(
+                {
+                    "version": 1,
+                    "threshold": 20,
+                    "events": [
+                        {
+                            "type": "reflection",
+                            "round": 9,
+                            "stagnation_count": 2,
+                            "stubborn_segment_indices": [0, 1],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(session)
+        db.flush()
+        for index in range(2):
+            text = f"深度学习模型在医学影像分割任务中保持Dice系数稳定。段落{index}" * 30
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    polished_text=f"上一版润色:{index}",
+                    enhanced_text=f"上一版增强:{index}",
+                    zhuque_reduced_text=f"上一版低风险文本:{index}",
+                    zhuque_reduce_attempt=10,
+                    zhuque_detect_rate=25,
+                    zhuque_detect_count=10,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="朱雀降 AI 已进入平台卡点"):
+            asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert session.status == "failed"
+        assert len(fake_zhuque.detected_texts) == 2
+        assert [seg.zhuque_reduced_text for seg in segments] == [
+            "上一版低风险文本:0",
+            "上一版低风险文本:1",
+        ]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        plateau_events = [event for event in trace["events"] if event.get("type") == "plateau_exit"]
+        assert plateau_events
+        assert plateau_events[0]["rate"] == 25
+        assert plateau_events[0]["stagnation_count"] >= 3
+        assert plateau_events[0]["action"] == "manual_review"
+        assert "卡点" in trace["final"]["diagnosis"]
+    finally:
+        db.close()
+
+
 def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 

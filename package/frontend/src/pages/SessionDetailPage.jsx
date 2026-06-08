@@ -581,7 +581,7 @@ const SessionDetailPage = () => {
                     )}
                   </div>
 
-                  <div className="p-5 space-y-4">
+                  <div className="p-5 space-y-4 max-h-[560px] overflow-y-auto custom-scrollbar">
                     {(zhuqueAgentTrace?.events || []).map((event, index) => (
                       <div key={`${event.type}-${event.round}-${index}`} className="rounded-xl border border-gray-100 px-4 py-3">
                         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -590,9 +590,11 @@ const SessionDetailPage = () => {
                               ? '全文检测'
                               : event.type === 'reflection'
                                 ? `第 ${event.round} 轮收敛反思`
-                                : event.type === 'prompt_evolution'
-                                  ? `第 ${event.round} 轮 Agent 学习结果`
-                                  : `第 ${event.round} 轮降 AI`}
+                                : event.type === 'plateau_exit'
+                                  ? `第 ${event.round} 轮卡点退出`
+                                  : event.type === 'prompt_evolution'
+                                    ? `第 ${event.round} 轮 Agent 学习结果`
+                                    : `第 ${event.round} 轮降 AI`}
                           </p>
                           {event.strategy && (
                             <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-ios-blue">
@@ -660,6 +662,12 @@ const SessionDetailPage = () => {
                                 ? ` 恢复段落：${event.restored_segment_indices.join('、')}`
                                 : ''}
                             </p>
+                          </div>
+                        )}
+                        {event.type === 'plateau_exit' && (
+                          <div className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-[13px] leading-6 text-orange-800">
+                            <p className="font-semibold">卡点退出</p>
+                            <p>已保留上一版最低风险文本，建议人工微调顽固段落或调整阈值后复检。</p>
                           </div>
                         )}
                         {Array.isArray(event.paper_ai_patterns) && event.paper_ai_patterns.length > 0 && (
