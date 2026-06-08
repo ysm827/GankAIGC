@@ -98,7 +98,7 @@ Questions to answer:
 - When trace or live `zhuque_reduce` events contain `length_adjustments`, render a "长度校正" summary with segment index, original length, before/after lengths, and bounds. This is metadata only; UI must not expect full text in the trace payload.
 - When trace or live `zhuque_reduce` events contain `rewrite_mode`, render the mode. `rewrite_mode="breakthrough"` should be shown as "逃逸改写" so users can tell the agent has stopped using the default academic-polish base prompt after stagnation.
 - When trace or live `zhuque_reduce` events contain `rewrite_mode="paper_reconstruction"`, render it as "论文重构" and show compact paper metadata when present: `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, `candidate_selector`, and `fact_card_count`.
-- When trace or live `zhuque_reduce` events contain `rollback_applied=true`, render a "回滚保护" summary with `rolled_back_from_rate`, `rolled_back_to_rate`, and `restored_segment_indices` so users can see that a later bad rewrite did not overwrite a better previous version.
+- When trace or live `zhuque_reduce` events contain `rollback_applied=true`, render a "回滚保护" summary with `rollback_reason`, `rolled_back_from_rate`, `rolled_back_to_rate`, and `restored_segment_indices` so users can see that an equal-or-worse rewrite did not overwrite a better previous version.
 - Session detail SSE must consume `zhuque_detect` and `zhuque_reduce` in addition to `content`; live state is supplemental and refresh must still recover from stored trace.
 
 ### 4. Validation & Error Matrix

@@ -832,7 +832,7 @@
 
 - [x] N2. 后端回滚保护
   - 每轮改写前快照命中段落的 `polished_text`、`enhanced_text`、`zhuque_reduced_text`、轮次和状态。
-  - 若复检风险率高于本轮前风险率，恢复快照并重新全文检测恢复后的文本。
+  - 若复检风险率高于本轮前风险率，恢复快照；后续 Phase O 已升级为持平或升高均回滚，且回滚不再额外消耗朱雀复检。
   - Trace/SSE 记录：`rollback_applied`, `rolled_back_from_rate`, `rolled_back_to_rate`, `restored_segment_indices`。
   - 完成证据：
     - 文件：`package/backend/app/services/optimization_service.py`
@@ -850,3 +850,30 @@
     - 后端全量：`321 passed in 126.52s`
     - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-H3r204-U.js`
     - 静态同步：`package/static/index.html` 已指向 `assets/index-H3r204-U.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`
+
+### Phase O: Strict Monotonic Accept Guard
+
+- [x] O1. 根因审计
+  - 现象：回滚保护已能处理 `49.0% -> 45.1%` 这种变差，但 `45.1% -> 45.1%` 持平仍会保存新文本，导致已降下来的文本被无意义覆盖。
+  - 结论：朱雀降 AI 应采用严格单调接受策略：只有风险率更低才接受新文本；持平或升高都恢复上一版。
+
+- [x] O2. 后端严格接受策略
+  - 行为：`new_rate < old_rate` 才接受；`new_rate >= old_rate` 恢复轮前快照。
+  - 回滚时恢复上一版文本与上一版检测元数据，不再额外消耗一次朱雀复检，避免检测波动和次数浪费。
+  - Trace/SSE 记录 `rollback_reason="not_improved"`。
+  - 完成证据：
+    - 文件：`package/backend/app/services/optimization_service.py`
+    - 测试：`test_ai_detect_reduce_rejects_equal_rate_rewrite_without_extra_recheck`
+
+- [x] O3. 前端文案同步
+  - “本轮改写使风险率升高”改为“本轮改写未取得更低风险率”，覆盖持平和升高两种情况。
+  - 完成证据：
+    - 文件：`package/frontend/src/pages/SessionDetailPage.jsx`
+
+- [x] O4. 验证与静态同步
+  - 完成证据：
+    - 回归测试先失败：`test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_segments` 曾暴露未改写段落检测次数 `3 != 2`。
+    - 朱雀专项：`42 passed in 22.07s`。
+    - 后端全量：`323 passed in 125.74s`。
+    - 前端构建：`npm.cmd run build` 成功，生成 `assets/index-CO3GgXFt.js`。
+    - 静态同步：`package/static/index.html` 已指向 `assets/index-CO3GgXFt.js`、`assets/vendor-jtLEzjcQ.js` 与 `assets/index-BncyE3zn.css`。

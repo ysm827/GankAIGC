@@ -655,7 +655,7 @@ const SessionDetailPage = () => {
                           <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] leading-6 text-red-800">
                             <p className="font-semibold">回滚保护</p>
                             <p>
-                              本轮改写使风险率升高，已恢复上一版文本。
+                              本轮改写未取得更低风险率，已恢复上一版文本。
                               {Array.isArray(event.restored_segment_indices) && event.restored_segment_indices.length > 0
                                 ? ` 恢复段落：${event.restored_segment_indices.join('、')}`
                                 : ''}

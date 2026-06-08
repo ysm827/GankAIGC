@@ -1523,11 +1523,11 @@ def test_ai_detect_reduce_fails_when_rate_stays_above_threshold_after_max_rounds
         assert session.status == "failed"
         assert "100" in session.error_message
         assert segment.zhuque_detect_rate == 100
-        assert segment.zhuque_detect_count == 2
+        assert segment.zhuque_detect_count == 1
         assert segment.zhuque_reduce_attempt == 1
-        assert segment.polished_text == f"润色后:{segment.original_text}"
-        assert segment.enhanced_text == f"增强后:{segment.polished_text}"
-        assert segment.zhuque_reduced_text == segment.enhanced_text
+        assert segment.polished_text is None
+        assert segment.enhanced_text is None
+        assert segment.zhuque_reduced_text is None
     finally:
         db.close()
 
@@ -1918,7 +1918,8 @@ def test_ai_detect_reduce_rolls_back_round_when_recheck_rate_regresses(monkeypat
 
         first_good_text = fake_zhuque.detected_texts[1]
         assert segment.zhuque_reduced_text == first_good_text
-        assert fake_zhuque.detected_texts[-1] == first_good_text
+        assert len(fake_zhuque.detected_texts) == 3
+        assert fake_zhuque.detected_texts[-1] != first_good_text
         assert segment.zhuque_detect_rate == 35
 
         trace = json.loads(session.zhuque_agent_trace)
@@ -1927,6 +1928,168 @@ def test_ai_detect_reduce_rolls_back_round_when_recheck_rate_regresses(monkeypat
         assert rollback_events[0]["rolled_back_from_rate"] == 100
         assert rollback_events[0]["rolled_back_to_rate"] == 35
         assert "回滚保护" in rollback_events[0]["message"]
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_rejects_equal_rate_rewrite_without_extra_recheck(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([100, 45.1, 45.1])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 2, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-equal-rate-rollback",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 30,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="仍高于阈值"):
+            asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+
+        first_good_text = fake_zhuque.detected_texts[1]
+        assert segment.zhuque_reduced_text == first_good_text
+        assert len(fake_zhuque.detected_texts) == 3
+        assert segment.zhuque_detect_rate == 45.1
+
+        trace = json.loads(session.zhuque_agent_trace)
+        rollback_events = [event for event in trace["events"] if event.get("rollback_applied")]
+        assert rollback_events
+        assert rollback_events[0]["rollback_reason"] == "not_improved"
+        assert rollback_events[0]["rolled_back_from_rate"] == 45.1
+        assert rollback_events[0]["rolled_back_to_rate"] == 45.1
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_segments(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 2, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    segment_texts = ["短段甲" * 60, "短段乙" * 60]
+    segment_starts = _joined_segment_starts(segment_texts)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 80,
+                "labels_ratio": {"0": 0.2, "1": 0.8, "2": 0.0},
+                "segment_labels": [
+                    {
+                        "text": segment_texts[1],
+                        "label": 1,
+                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                    }
+                ],
+            },
+            {
+                "success": True,
+                "rate": 45,
+                "labels_ratio": {"0": 0.55, "1": 0.45, "2": 0.0},
+                "segment_labels": [
+                    {
+                        "text": segment_texts[1],
+                        "label": 1,
+                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                    }
+                ],
+            },
+            {
+                "success": True,
+                "rate": 45,
+                "labels_ratio": {"0": 0.55, "1": 0.45, "2": 0.0},
+                "segment_labels": [
+                    {
+                        "text": segment_texts[1],
+                        "label": 1,
+                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                    }
+                ],
+            },
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-rollback-full-metadata",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="仍高于阈值"):
+            asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert [seg.zhuque_detect_rate for seg in segments] == [45, 45]
+        assert [seg.zhuque_detect_count for seg in segments] == [2, 2]
+        assert [json.loads(seg.zhuque_detect_result)["rate"] for seg in segments] == [45, 45]
+        assert segments[0].zhuque_reduced_text is None
+        assert segments[1].zhuque_reduced_text == fake_zhuque.detected_texts[1].split("\n\n")[1]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        rollback_events = [event for event in trace["events"] if event.get("rollback_applied")]
+        assert rollback_events[0]["restored_segment_indices"] == [1]
     finally:
         db.close()
 

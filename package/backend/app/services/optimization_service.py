@@ -399,6 +399,7 @@ class OptimizationService:
                     round_number=round_number,
                 )
                 round_snapshots = self._snapshot_zhuque_segments(segments_to_reduce)
+                round_detect_snapshots = self._snapshot_zhuque_detect_metadata(segments)
                 round_result = await self._process_zhuque_reduce_round(
                     segments_to_reduce,
                     round_number,
@@ -420,15 +421,17 @@ class OptimizationService:
                 old_rate = full_text_rate
                 full_text_rate = self._get_zhuque_risk_rate(recheck)
                 rollback_metadata = None
-                if full_text_rate > old_rate:
-                    rollback_metadata = await self._rollback_zhuque_regression_round(
-                        segments=segments,
+                if full_text_rate >= old_rate:
+                    rollback_metadata = self._rollback_zhuque_regression_round(
+                        segments=segments_to_reduce,
+                        all_segments=segments,
                         segment_snapshots=round_snapshots,
+                        detect_metadata_snapshots=round_detect_snapshots,
                         regressed_rate=full_text_rate,
                         previous_rate=old_rate,
                     )
                     full_text_rate = rollback_metadata["rolled_back_to_rate"]
-                    recheck = rollback_metadata["restored_result"]
+                    recheck = rollback_metadata.get("restored_result") or recheck
                 last_zhuque_result = recheck
                 self._record_zhuque_prompt_evolution_result(
                     before_rate=old_rate,
@@ -506,8 +509,8 @@ class OptimizationService:
                 if rollback_metadata:
                     reduce_event.update(self._public_zhuque_rollback_metadata(rollback_metadata))
                     reduce_event["message"] = (
-                        f"{reduce_event['message']}；回滚保护：本轮改写导致风险率升至 "
-                        f"{rollback_metadata['rolled_back_from_rate']}%，已恢复上一版 "
+                        f"{reduce_event['message']}；回滚保护：本轮改写未取得更低风险率（"
+                        f"{rollback_metadata['rolled_back_from_rate']}%），已恢复上一版 "
                         f"{rollback_metadata['rolled_back_to_rate']}%"
                     )
                 self._append_zhuque_trace_event(reduce_event)
@@ -980,6 +983,9 @@ class OptimizationService:
                 "enhanced_text": seg.enhanced_text,
                 "zhuque_reduced_text": seg.zhuque_reduced_text,
                 "zhuque_reduce_attempt": seg.zhuque_reduce_attempt,
+                "zhuque_detect_rate": seg.zhuque_detect_rate,
+                "zhuque_detect_result": seg.zhuque_detect_result,
+                "zhuque_detect_count": seg.zhuque_detect_count,
                 "status": seg.status,
                 "stage": seg.stage,
                 "completed_at": seg.completed_at,
@@ -987,15 +993,28 @@ class OptimizationService:
             for seg in segments
         }
 
-    async def _rollback_zhuque_regression_round(
+    def _snapshot_zhuque_detect_metadata(self, segments: List[OptimizationSegment]) -> Dict[int, Dict[str, object]]:
+        """Capture the last accepted full-text Zhuque detection metadata for every segment."""
+        return {
+            seg.id: {
+                "zhuque_detect_rate": seg.zhuque_detect_rate,
+                "zhuque_detect_result": seg.zhuque_detect_result,
+                "zhuque_detect_count": seg.zhuque_detect_count,
+            }
+            for seg in segments
+        }
+
+    def _rollback_zhuque_regression_round(
         self,
         *,
         segments: List[OptimizationSegment],
+        all_segments: Optional[List[OptimizationSegment]] = None,
         segment_snapshots: Dict[int, Dict[str, object]],
+        detect_metadata_snapshots: Optional[Dict[int, Dict[str, object]]] = None,
         regressed_rate: float,
         previous_rate: float,
     ) -> Dict[str, object]:
-        """Restore the previous reduced text when a round makes Zhuque risk worse."""
+        """Restore previous reduced text/metadata when a round does not lower Zhuque risk."""
         restored_segment_indices: List[int] = []
         for seg in segments:
             snapshot = segment_snapshots.get(seg.id)
@@ -1005,28 +1024,42 @@ class OptimizationService:
             seg.enhanced_text = snapshot.get("enhanced_text")
             seg.zhuque_reduced_text = snapshot.get("zhuque_reduced_text")
             seg.zhuque_reduce_attempt = snapshot.get("zhuque_reduce_attempt") or seg.zhuque_reduce_attempt
+            seg.zhuque_detect_rate = snapshot.get("zhuque_detect_rate")
+            seg.zhuque_detect_result = snapshot.get("zhuque_detect_result")
+            snapshot_detect_count = snapshot.get("zhuque_detect_count")
+            if snapshot_detect_count is not None:
+                seg.zhuque_detect_count = snapshot_detect_count
             seg.status = snapshot.get("status") or "completed"
             seg.stage = snapshot.get("stage") or seg.stage
             seg.completed_at = snapshot.get("completed_at")
             restored_segment_indices.append(seg.segment_index)
-        self.db.commit()
 
-        restored_result = await self._detect_full_text_once(
-            segments,
-            prefer_reduced=True,
-            previous_detect_count_increment=True,
-        )
-        if not restored_result.get("success"):
-            raise RuntimeError(restored_result.get("message") or "朱雀回滚复检返回失败")
-        restored_rate = self._get_zhuque_risk_rate(restored_result)
-        if restored_rate > previous_rate:
-            # The detector can be nondeterministic; keep the restored text anyway, but preserve the best known rate
-            # in the convergence state so one bad rewrite does not drive the next round.
-            restored_rate = previous_rate
+        metadata_snapshots = detect_metadata_snapshots or segment_snapshots
+        for seg in all_segments or segments:
+            snapshot = metadata_snapshots.get(seg.id)
+            if not snapshot:
+                continue
+            seg.zhuque_detect_rate = snapshot.get("zhuque_detect_rate")
+            seg.zhuque_detect_result = snapshot.get("zhuque_detect_result")
+            snapshot_detect_count = snapshot.get("zhuque_detect_count")
+            if snapshot_detect_count is not None:
+                seg.zhuque_detect_count = snapshot_detect_count
+        self.db.commit()
+        restored_result = None
+        for snapshot in metadata_snapshots.values():
+            raw_result = snapshot.get("zhuque_detect_result")
+            if raw_result:
+                try:
+                    restored_result = json.loads(raw_result)
+                except (TypeError, json.JSONDecodeError):
+                    restored_result = None
+                break
+        restored_rate = previous_rate
         return {
             "rollback_applied": True,
             "rolled_back_from_rate": regressed_rate,
             "rolled_back_to_rate": restored_rate,
+            "rollback_reason": "not_improved",
             "restored_segment_indices": restored_segment_indices,
             "restored_result": restored_result,
         }
@@ -1036,6 +1069,7 @@ class OptimizationService:
             "rollback_applied": True,
             "rolled_back_from_rate": rollback_metadata.get("rolled_back_from_rate"),
             "rolled_back_to_rate": rollback_metadata.get("rolled_back_to_rate"),
+            "rollback_reason": rollback_metadata.get("rollback_reason"),
             "restored_segment_indices": rollback_metadata.get("restored_segment_indices") or [],
         }
 
