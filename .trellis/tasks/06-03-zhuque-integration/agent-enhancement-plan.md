@@ -1047,3 +1047,24 @@
 - [x] T6. Verification
   - Theme/static test: `python -m pytest tests/test_frontend_redeem_entry.py::test_frontend_uses_apple_glass_theme_tokens -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `1 passed`.
   - Frontend static test suite: `python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `49 passed`.
+
+### Phase U: Apple Glass Visual Contrast Pass
+
+- [x] U1. Screenshot feedback audit
+  - User feedback: the first Apple glass pass looked too similar to the previous iOS white-card UI.
+  - Root cause: the original UI already used soft white cards, so conservative opacity/blur changes were not visually obvious in screenshots.
+
+- [x] U2. Stronger liquid-glass material
+  - Increased ambient background glow strength and orb visibility.
+  - Added glass edge/refraction tokens: `--glass-edge`, `--glass-refraction`, and stronger shadow/blur/saturation values.
+  - Added layered panel highlights and inner edge strokes through `.gank-liquid-panel::before/::after` and `.gank-liquid-section::before`.
+
+- [x] U3. Selectable card glass states
+  - Added `.gank-glass-choice`, `.gank-glass-choice-active`, and `.gank-glass-choice-warm` for mode/billing choices.
+  - Updated `WorkspacePage.jsx` mode and billing cards to use these classes, making selected and unselected states visibly glassy instead of plain pale white.
+
+- [x] U4. Static sync and verification
+  - Frontend build: `cd package/frontend; npm.cmd run build` succeeded.
+  - Synced `package/frontend/dist` into `package/static`.
+  - Current `package/static/index.html` points to `assets/index-D7z_QsXp.js`, `assets/vendor-jtLEzjcQ.js`, and `assets/index-Cbt3MOIQ.css`.
+  - Frontend static tests: `python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `49 passed`.

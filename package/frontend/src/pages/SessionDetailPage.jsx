@@ -415,7 +415,7 @@ const SessionDetailPage = () => {
       </nav>
 
       {/* 主内容 */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="relative z-[1] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
         {/* iOS Segmented Control */}
         <div className="flex justify-center mb-6">

@@ -149,10 +149,13 @@ def test_frontend_uses_apple_glass_theme_tokens():
         assert "--glass-bg:" in css
         assert "--glass-bg-strong:" in css
         assert "--glass-blur:" in css
+        assert "--glass-edge:" in css
+        assert "--glass-refraction:" in css
         assert "--glass-radius-xl:" in css
         assert "--app-accent:" in css
         assert "gank-ambient-orb" in css
         assert "gank-liquid-panel" in css
+        assert "gank-glass-choice-active" in css
         assert "prefers-reduced-transparency" in css
         assert "@supports not ((backdrop-filter" in css
         assert "color-scheme:" in css and "light" in css
@@ -160,6 +163,8 @@ def test_frontend_uses_apple_glass_theme_tokens():
     assert "gank-liquid-panel" in workspace
     assert "gank-segmented-control" in workspace
     assert "gank-glass-status-grid" in workspace
+    assert "gank-glass-choice-active" in workspace
+    assert "gank-glass-choice-warm" in workspace
     assert "gank-ambient-orb orb-one" in workspace
 
     assert "gank-liquid-panel" in session_detail

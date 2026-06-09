@@ -666,7 +666,7 @@ const WorkspacePage = () => {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7">
+      <div className="relative z-[1] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7">
         {announcements.length > 0 && (
           <div className="mb-6 space-y-3">
             {announcements.slice(0, 3).map((announcement) => (
@@ -732,8 +732,8 @@ const WorkspacePage = () => {
                       key={mode.id}
                       className={`flex items-center p-3.5 rounded-xl cursor-pointer transition-all border ${
                         processingMode === mode.id
-                          ? 'bg-white/90 border-sky-300 text-sky-700 shadow-sm ring-1 ring-sky-300/25'
-                          : 'bg-white/45 border-white/60 hover:bg-white/70'
+                          ? 'gank-glass-choice-active text-sky-700'
+                          : 'gank-glass-choice hover:bg-white/55'
                       }`}
                     >
                       <input
@@ -765,8 +765,8 @@ const WorkspacePage = () => {
                   <label
                     className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
                       billingMode === 'platform'
-                        ? 'bg-white/90 border-amber-300 ring-1 ring-amber-300/25 shadow-sm'
-                        : 'bg-white/45 border-white/60 hover:bg-white/70'
+                        ? 'gank-glass-choice-warm'
+                        : 'gank-glass-choice hover:bg-white/55'
                     }`}
                   >
                     <input
@@ -800,8 +800,8 @@ const WorkspacePage = () => {
                   <label
                     className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
                       billingMode === 'byok'
-                        ? 'bg-white/90 border-sky-300 ring-1 ring-sky-300/25 shadow-sm'
-                        : 'bg-white/45 border-white/60 hover:bg-white/70'
+                        ? 'gank-glass-choice-active'
+                        : 'gank-glass-choice hover:bg-white/55'
                     }`}
                   >
                     <input

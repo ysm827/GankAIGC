@@ -83,6 +83,7 @@ Questions to answer:
 ### 3. Contracts
 
 - Production pages must reuse the shared glass classes instead of repeating ad-hoc `bg-white/70 backdrop-blur-* shadow-*` combinations.
+- The Apple glass theme must be visually recognizable, not just a plain white card: use layered highlights, edge strokes, ambient tint, and choice-state classes such as `.gank-glass-choice-active` / `.gank-glass-choice-warm` for high-frequency controls.
 - Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` or an equally high-opacity background. Do not make paper body text heavily transparent.
 - Ambient page background should be CSS-native (`.gank-ambient-orb` and gradients) unless the task explicitly requires generated imagery.
 - The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black` content unreadable unless the pages are audited end-to-end.
@@ -101,12 +102,13 @@ Questions to answer:
 
 ### 5. Good/Base/Bad Cases
 
-- Good: Workspace and session detail use `.gank-liquid-panel` for main shells, `.gank-segmented-control` for mode tabs, `.gank-glass-status-grid` for compact status metrics, and `.gank-text-panel` for paper text.
+- Good: Workspace and session detail use `.gank-liquid-panel` for main shells, `.gank-segmented-control` for mode tabs, `.gank-glass-status-grid` for compact status metrics, `.gank-glass-choice-*` for selectable cards, and `.gank-text-panel` for paper text.
 - Good: New CSS bundle in `package/static/index.html` references current hashed `assets/index-*.css` and contains the glass tokens.
 - Base: A small legacy card can remain if global `.gank-card` fallback styles keep it readable.
 - Bad: Editing only `frontend/dist` or only `package/static` without source changes.
 - Bad: Adding generated background images for simple glow/blur effects that CSS can produce deterministically.
 - Bad: Relying on automatic dark mode while components still hard-code `text-black`, `bg-white`, or `text-gray-*` classes.
+- Bad: Shipping only subtle opacity changes that look indistinguishable from the previous iOS white-card theme in screenshots.
 
 ### 6. Tests Required
 
