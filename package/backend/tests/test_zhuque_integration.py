@@ -238,6 +238,25 @@ class PlateauRecoveryAIService(FakeAIService):
         return text
 
 
+class DeepReconstructionAIService(PlateauRecoveryAIService):
+    async def polish_text(self, text, prompt, history=None, stream=False):
+        self.polish_calls.append(
+            {
+                "text": text,
+                "prompt": prompt,
+                "history": list(history or []),
+                "stream": stream,
+            }
+        )
+        if "深度重构路线:evidence_first" in prompt:
+            return f"深度重构证据优先:{text}"
+        if "深度重构路线:method_first" in prompt:
+            return f"深度重构方法优先:{text}"
+        if "深度重构路线:constraint_first" in prompt:
+            return f"深度重构限定优先:{text}"
+        return await super().polish_text(text, prompt, history=history, stream=stream)
+
+
 def _install_fake_ai_services(service, fake_ai):
     service.polish_service = fake_ai
     service.enhance_service = fake_ai
@@ -2314,7 +2333,7 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
     import app.services.optimization_service as optimization_service_module
 
     user_id = _create_user(credit_balance=200, zhuque_free_uses_remaining=20)
-    fake_zhuque = FakeZhuqueService([25, 25, 25, 25, 25, 25, 25, 25, 25])
+    fake_zhuque = FakeZhuqueService([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30])
     fake_ai = PlateauRecoveryAIService()
     monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
     monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
@@ -2363,7 +2382,7 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
                     enhanced_text=f"上一版增强:{index}",
                     zhuque_reduced_text=f"上一版低风险文本:{index}",
                     zhuque_reduce_attempt=10,
-                    zhuque_detect_rate=25,
+                    zhuque_detect_rate=30,
                     zhuque_detect_count=10,
                     status="pending",
                 )
@@ -2383,7 +2402,7 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
         )
 
         assert session.status == "failed"
-        assert len(fake_zhuque.detected_texts) == 9
+        assert len(fake_zhuque.detected_texts) == 12
         assert [seg.zhuque_reduced_text for seg in segments] == [
             "上一版低风险文本:0",
             "上一版低风险文本:1",
@@ -2393,14 +2412,196 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
         recovery_events = [event for event in trace["events"] if event.get("type") == "plateau_recovery"]
         assert recovery_events
         assert recovery_events[-1]["status"] == "failed"
-        assert recovery_events[-1]["candidate_count"] == 7
+        assert recovery_events[-1]["candidate_count"] == 10
         assert any(
             item.get("phase") == "segment_sweep"
             for item in recovery_events[-1]["candidate_rates"]
         )
+        deep_events = [event for event in trace["events"] if event.get("type") == "plateau_deep_reconstruction"]
+        assert deep_events
+        assert deep_events[-1]["status"] == "failed"
         plateau_events = [event for event in trace["events"] if event.get("type") == "plateau_exit"]
         assert plateau_events
         assert plateau_events[0]["action"] == "auto_recovery_exhausted"
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_deep_reconstruction_runs_after_plateau_candidates_fail(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=300, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([25, 25, 25, 25, 25, 25, 25, 25, 25, 18])
+    fake_ai = DeepReconstructionAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 5, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-deep-reconstruction-success",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps(
+                {
+                    "version": 1,
+                    "threshold": 20,
+                    "events": [
+                        {
+                            "type": "reflection",
+                            "round": 9,
+                            "stagnation_count": 2,
+                            "stubborn_segment_indices": [0, 1],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(session)
+        db.flush()
+        for index in range(2):
+            text = f"上一版低风险文本{index}" * 14
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    polished_text=f"上一版润色:{index}",
+                    enhanced_text=f"上一版增强:{index}",
+                    zhuque_reduced_text=text,
+                    zhuque_reduce_attempt=10,
+                    zhuque_detect_rate=25,
+                    zhuque_detect_count=10,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert session.status == "completed"
+        assert len(fake_zhuque.detected_texts) == 10
+        assert [seg.zhuque_reduced_text for seg in segments] == [
+            f"深度重构证据优先:{'上一版低风险文本0' * 14}",
+            f"深度重构证据优先:{'上一版低风险文本1' * 14}",
+        ]
+        assert any("深度重构路线:evidence_first" in call["prompt"] for call in fake_ai.polish_calls)
+
+        trace = json.loads(session.zhuque_agent_trace)
+        deep_events = [event for event in trace["events"] if event.get("type") == "plateau_deep_reconstruction"]
+        assert deep_events
+        assert deep_events[-1]["status"] == "accepted"
+        assert deep_events[-1]["selected_route"] == "evidence_first"
+        assert deep_events[-1]["candidate_count"] == 1
+        assert deep_events[-1]["fact_card_count"] >= 1
+        assert trace["final"]["status"] == "completed"
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_marks_detector_floor_when_all_safe_candidates_flatline(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=300, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([24.52] * 12)
+    fake_ai = DeepReconstructionAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 5, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-detector-floor",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps(
+                {
+                    "version": 1,
+                    "threshold": 20,
+                    "events": [
+                        {
+                            "type": "reflection",
+                            "round": 9,
+                            "stagnation_count": 2,
+                            "stubborn_segment_indices": [0, 1],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(session)
+        db.flush()
+        for index in range(2):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text="深度学习模型在医学影像分割任务中保持Dice系数稳定。" * 12,
+                    polished_text=f"上一版润色:{index}",
+                    enhanced_text=f"上一版增强:{index}",
+                    zhuque_reduced_text=f"上一版低风险文本:{index}",
+                    zhuque_reduce_attempt=10,
+                    zhuque_detect_rate=24.52,
+                    zhuque_detect_count=10,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="检测地板"):
+            asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert session.status == "failed"
+        assert [seg.zhuque_reduced_text for seg in segments] == [
+            "上一版低风险文本:0",
+            "上一版低风险文本:1",
+        ]
+
+        trace = json.loads(session.zhuque_agent_trace)
+        floor_events = [event for event in trace["events"] if event.get("type") == "detector_floor"]
+        assert floor_events
+        assert floor_events[-1]["rate"] == 24.52
+        assert floor_events[-1]["recommended_threshold"] == 26.0
+        assert floor_events[-1]["rate_spread"] == 0.0
+        assert "检测地板" in trace["final"]["diagnosis"]
     finally:
         db.close()
 

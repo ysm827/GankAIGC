@@ -1,6 +1,7 @@
 ﻿import json
 import asyncio
 import logging
+import math
 import re
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
@@ -117,6 +118,35 @@ ZHUQUE_PLATEAU_SEGMENT_SWEEP_CANDIDATES = [
     },
 ]
 ZHUQUE_PLATEAU_SEGMENT_SWEEP_MAX_SEGMENTS = 3
+ZHUQUE_DEEP_RECONSTRUCTION_ROUTES = [
+    {
+        "id": "evidence_first",
+        "name": "证据优先重构",
+        "instruction": (
+            "先列出原段落中可验证的观察、数据、结果和引用，再按证据之间的自然顺序重写；"
+            "弱化宏观意义句，不沿用原句骨架。"
+        ),
+    },
+    {
+        "id": "method_first",
+        "name": "方法优先重构",
+        "instruction": (
+            "从研究对象、方法动作、实验条件或模型流程切入，再补充结果；"
+            "减少背景铺垫和总结式评价。"
+        ),
+    },
+    {
+        "id": "constraint_first",
+        "name": "限定条件优先重构",
+        "instruction": (
+            "先写适用范围、前提条件、实验限制或问题边界，再连接方法和结果；"
+            "避免完美对称的贡献陈述。"
+        ),
+    },
+]
+ZHUQUE_DETECTOR_FLOOR_RATE_MARGIN = 5.0
+ZHUQUE_DETECTOR_FLOOR_MAX_SPREAD = 0.5
+ZHUQUE_DETECTOR_FLOOR_MIN_CANDIDATES = 9
 
 
 class ZhuquePlateauExit(RuntimeError):
@@ -601,11 +631,22 @@ class OptimizationService:
                         if full_text_rate <= threshold:
                             break
                     else:
-                        diagnosis = self._build_zhuque_plateau_recovery_failed_diagnosis(
-                            rate=full_text_rate,
-                            threshold=threshold,
-                            stubborn_segment_indices=active_stubborn_indices,
-                        )
+                        detector_floor_event = recovery.get("detector_floor")
+                        if detector_floor_event:
+                            diagnosis = detector_floor_event.get("message") or self._build_zhuque_detector_floor_diagnosis(
+                                rate=full_text_rate,
+                                threshold=threshold,
+                                recommended_threshold=detector_floor_event.get("recommended_threshold"),
+                                stubborn_segment_indices=active_stubborn_indices,
+                            )
+                            plateau_action = "detector_floor"
+                        else:
+                            diagnosis = self._build_zhuque_plateau_recovery_failed_diagnosis(
+                                rate=full_text_rate,
+                                threshold=threshold,
+                                stubborn_segment_indices=active_stubborn_indices,
+                            )
+                            plateau_action = "auto_recovery_exhausted"
                         for seg in segments:
                             seg.status = "failed"
                         self.db.commit()
@@ -616,7 +657,7 @@ class OptimizationService:
                             "threshold": threshold,
                             "stagnation_count": stagnation_count,
                             "stubborn_segment_indices": active_stubborn_indices,
-                            "action": "auto_recovery_exhausted",
+                            "action": plateau_action,
                             "message": diagnosis,
                         })
                         self._finalize_zhuque_trace(
@@ -1345,7 +1386,183 @@ class OptimizationService:
             "candidate_count": len(candidate_rates),
             "candidate_rates": candidate_rates,
             "stubborn_segment_indices": stubborn_segment_indices,
-            "message": "卡点自动探索候选仍未取得更低风险率",
+            "message": "卡点自动探索候选仍未取得更低风险率，继续尝试深度重构",
+        })
+
+        deep_reconstruction = await self._try_zhuque_deep_reconstruction(
+            all_segments=all_segments,
+            segments_to_reduce=segments_to_reduce,
+            round_number=round_number,
+            current_rate=current_rate,
+            threshold=threshold,
+            stubborn_segment_indices=stubborn_segment_indices,
+            recovery_segment_snapshots=recovery_segment_snapshots,
+            strategy=strategy,
+        )
+        deep_candidate_rates = deep_reconstruction.get("candidate_rates") or []
+        all_candidate_rates = [*candidate_rates, *deep_candidate_rates]
+        if deep_reconstruction.get("accepted"):
+            return {
+                "accepted": True,
+                "rate": deep_reconstruction.get("rate"),
+                "result": deep_reconstruction.get("result"),
+                "selected_candidate_id": deep_reconstruction.get("selected_route"),
+                "candidate_rates": all_candidate_rates,
+            }
+
+        self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+        detector_floor_event = self._build_zhuque_detector_floor_event(
+            rate=current_rate,
+            threshold=threshold,
+            candidate_rates=all_candidate_rates,
+            stubborn_segment_indices=stubborn_segment_indices,
+        )
+        if detector_floor_event:
+            self._append_zhuque_trace_event(detector_floor_event)
+        self._append_zhuque_trace_event({
+            "type": "plateau_recovery",
+            "round": round_number,
+            "status": "failed",
+            "old_rate": current_rate,
+            "new_rate": current_rate,
+            "threshold": threshold,
+            "candidate_count": len(all_candidate_rates),
+            "candidate_rates": all_candidate_rates,
+            "stubborn_segment_indices": stubborn_segment_indices,
+            "message": "卡点自动探索与深度重构候选仍未取得更低风险率",
+        })
+        return {
+            "accepted": False,
+            "rate": current_rate,
+            "candidate_rates": all_candidate_rates,
+            "detector_floor": detector_floor_event,
+        }
+
+    async def _try_zhuque_deep_reconstruction(
+        self,
+        *,
+        all_segments: List[OptimizationSegment],
+        segments_to_reduce: List[OptimizationSegment],
+        round_number: int,
+        current_rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+        recovery_segment_snapshots: Dict[int, Dict[str, object]],
+        strategy: Dict[str, str],
+    ) -> Dict[str, object]:
+        """Rebuild stubborn paper paragraphs from fact cards when prompt candidates plateau."""
+        candidate_rates: List[Dict[str, object]] = []
+        local_scores: List[Dict[str, object]] = []
+        selected_route: Optional[str] = None
+        selected_rate: Optional[float] = None
+        selected_result: Optional[dict] = None
+        selected_snapshots: Optional[Dict[int, Dict[str, object]]] = None
+        selected_fact_card_count = 0
+        length_adjustments: List[Dict[str, object]] = []
+
+        for route in ZHUQUE_DEEP_RECONSTRUCTION_ROUTES:
+            route_id = str(route["id"])
+            self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+            note = self._build_zhuque_deep_reconstruction_note(
+                route=route,
+                current_rate=current_rate,
+                threshold=threshold,
+                stubborn_segment_indices=stubborn_segment_indices,
+            )
+            route_result = await self._process_zhuque_reduce_round(
+                segments_to_reduce,
+                round_number,
+                strategy,
+                rewrite_mode=ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION,
+                reflection_note=note,
+                prompt_evolution_note="",
+            )
+            length_adjustments.extend(route_result.get("length_adjustments") or [])
+            paper_metadata = route_result.get("paper_metadata") or {}
+            local_score = {
+                "route": route_id,
+                "candidate_count": paper_metadata.get("candidate_count", 0),
+                "selected_candidate_ids": paper_metadata.get("selected_candidate_ids", []),
+                "fact_card_count": paper_metadata.get("fact_card_count", 0),
+                "paper_ai_patterns": paper_metadata.get("paper_ai_patterns", []),
+            }
+            local_scores.append(local_score)
+            recheck = await self._detect_full_text_once(
+                all_segments,
+                prefer_reduced=True,
+                previous_detect_count_increment=True,
+            )
+            if not recheck.get("success"):
+                raise RuntimeError(recheck.get("message") or "朱雀深度重构复检返回失败")
+            candidate_rate = self._get_zhuque_risk_rate(recheck)
+            candidate_rates.append({
+                "id": route_id,
+                "phase": "deep_reconstruction",
+                "route": route_id,
+                "rate": candidate_rate,
+            })
+            if candidate_rate < current_rate and (
+                selected_rate is None or candidate_rate < selected_rate
+            ):
+                selected_route = route_id
+                selected_rate = candidate_rate
+                selected_result = recheck
+                selected_snapshots = self._snapshot_zhuque_segments(all_segments)
+                try:
+                    selected_fact_card_count = int(paper_metadata.get("fact_card_count") or 0)
+                except (TypeError, ValueError):
+                    selected_fact_card_count = 0
+            if candidate_rate <= threshold:
+                break
+
+        if selected_route and selected_rate is not None and selected_result is not None:
+            if selected_snapshots:
+                self._restore_zhuque_segments_from_snapshot(all_segments, selected_snapshots)
+            for seg in all_segments:
+                seg.status = "completed"
+            self.db.commit()
+            event = {
+                "type": "plateau_deep_reconstruction",
+                "round": round_number,
+                "status": "accepted",
+                "old_rate": current_rate,
+                "new_rate": selected_rate,
+                "threshold": threshold,
+                "candidate_count": len(candidate_rates),
+                "routes": [item.get("route") for item in candidate_rates],
+                "selected_route": selected_route,
+                "fact_card_count": selected_fact_card_count,
+                "local_scores": local_scores,
+                "candidate_rates": candidate_rates,
+                "stubborn_segment_indices": stubborn_segment_indices,
+                "message": "深度重构已从论文事实卡片生成更低风险版本",
+            }
+            if length_adjustments:
+                event["length_adjustments"] = length_adjustments
+            self._append_zhuque_trace_event(event)
+            return {
+                "accepted": True,
+                "rate": selected_rate,
+                "result": selected_result,
+                "selected_route": selected_route,
+                "candidate_rates": candidate_rates,
+            }
+
+        self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+        self._append_zhuque_trace_event({
+            "type": "plateau_deep_reconstruction",
+            "round": round_number,
+            "status": "failed",
+            "old_rate": current_rate,
+            "new_rate": current_rate,
+            "threshold": threshold,
+            "candidate_count": len(candidate_rates),
+            "routes": [item.get("route") for item in candidate_rates],
+            "fact_card_count": sum(int(item.get("fact_card_count") or 0) for item in local_scores),
+            "local_scores": local_scores,
+            "candidate_rates": candidate_rates,
+            "stubborn_segment_indices": stubborn_segment_indices,
+            "message": "深度重构候选仍未取得更低朱雀风险率",
         })
         return {
             "accepted": False,
@@ -1402,6 +1619,73 @@ class OptimizationService:
             "- 禁止零宽字符、错别字、同形字、随机标点、故意语病或改变事实来规避检测。\n"
             "- 字数必须控制在原段落 90%-110% 内。"
         )
+
+    def _build_zhuque_deep_reconstruction_note(
+        self,
+        *,
+        route: Dict[str, str],
+        current_rate: float,
+        threshold: float,
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        route_id = route["id"]
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        return (
+            "\n## 朱雀深度重构 v2\n"
+            f"- 深度重构路线:{route_id}。\n"
+            f"- 当前风险率 {current_rate}% 仍高于阈值 {threshold}%，顽固段落：{segments_text}。\n"
+            f"- 路线说明：{route['instruction']}\n"
+            "- 先抽取论文事实卡片：研究对象、方法动作、数据指标、引用、限定条件、结果和结论。\n"
+            "- 不围绕原句做同义词替换；请从事实卡片重新组织段落，改变信息进入顺序和句间连接方式。\n"
+            "- 仍保持论文语体，不能口语化、不能改变研究事实、术语、数字、引用、方法和结论。\n"
+            "- 禁止零宽字符、错别字、同形字、随机标点、故意语病或任何破坏文本质量的规避策略。\n"
+            "- 字数必须控制在原段落 90%-110% 内。"
+        )
+
+    def _build_zhuque_detector_floor_event(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        candidate_rates: List[Dict[str, object]],
+        stubborn_segment_indices: List[int],
+    ) -> Optional[Dict[str, object]]:
+        numeric_rates: List[float] = []
+        for item in candidate_rates:
+            try:
+                numeric_rates.append(float(item.get("rate")))
+            except (TypeError, ValueError):
+                continue
+        if len(numeric_rates) < ZHUQUE_DETECTOR_FLOOR_MIN_CANDIDATES:
+            return None
+        if rate <= threshold:
+            return None
+        if rate - threshold > ZHUQUE_DETECTOR_FLOOR_RATE_MARGIN:
+            return None
+        rate_spread = round(max(numeric_rates) - min(numeric_rates), 2)
+        if rate_spread > ZHUQUE_DETECTOR_FLOOR_MAX_SPREAD:
+            return None
+        recommended_threshold = float(math.ceil(rate + 1))
+        return {
+            "type": "detector_floor",
+            "rate": rate,
+            "threshold": threshold,
+            "recommended_threshold": recommended_threshold,
+            "candidate_count": len(numeric_rates),
+            "rate_spread": rate_spread,
+            "candidate_phases": sorted({
+                str(item.get("phase"))
+                for item in candidate_rates
+                if item.get("phase")
+            }),
+            "stubborn_segment_indices": stubborn_segment_indices,
+            "message": self._build_zhuque_detector_floor_diagnosis(
+                rate=rate,
+                threshold=threshold,
+                recommended_threshold=recommended_threshold,
+                stubborn_segment_indices=stubborn_segment_indices,
+            ),
+        }
 
     def _public_zhuque_rollback_metadata(self, rollback_metadata: Dict[str, object]) -> Dict[str, object]:
         return {
@@ -1776,6 +2060,24 @@ class OptimizationService:
             "系统已尝试多种卡点候选并复检择优，未找到更低风险版本，"
             f"已保留上一版最低风险文本。顽固段落：{segments_text}；"
             "建议后续人工微调这些段落，或将阈值调整到接近当前检测下限后再复检。"
+        )
+
+    def _build_zhuque_detector_floor_diagnosis(
+        self,
+        *,
+        rate: float,
+        threshold: float,
+        recommended_threshold: Optional[float],
+        stubborn_segment_indices: List[int],
+    ) -> str:
+        segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        threshold_text = f"{recommended_threshold}%" if recommended_threshold is not None else "当前风险率上方约 1%"
+        return (
+            f"已达到当前朱雀检测地板：多轮安全重构后风险率稳定在 {rate}%，"
+            f"仍高于阈值 {threshold}%，但候选复检结果几乎不波动。"
+            "系统已停止继续烧朱雀次数和啤酒，并保留上一版最低风险文本。"
+            f"如需自动流程通过，建议把阈值临时调整到 {threshold_text} 附近后复检；"
+            f"若必须低于 {threshold}%，需要人工针对顽固段落（{segments_text}）重写事实组织方式。"
         )
 
     def _build_zhuque_prompt_evolution_note(

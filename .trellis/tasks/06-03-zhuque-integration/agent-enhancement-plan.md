@@ -966,3 +966,56 @@
   - 朱雀专项：`python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `45 passed in 24.52s`。
   - 后端全量：`python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `326 passed in 126.51s`。
   - 本阶段未修改前端源码，因此未触发前端 build/static 同步。
+
+### Phase S: Deep Reconstruction v2 and Detector Floor Calibration
+
+- [x] S1. 根因审计
+  - 现象：bulk A/B/C + bounded segment-sweep 候选后仍卡在 `24.52%`，继续同类 prompt 会反复烧朱雀次数和啤酒。
+  - 根因：当前问题不再是候选数量不足，而是检测器对论文风格存在稳定地板；普通改写、逐段扫描和旧 paper reconstruction 都围绕原句局部改，难以突破。
+  - 结论：卡点候选失败后应尝试“从事实卡片重建段落”的 Deep Reconstruction v2；如果多路线仍完全 flatline，则显式标记 detector floor 并停止自动烧次数。
+
+- [x] S2. Deep Reconstruction v2
+  - 新增路线：
+    - `evidence_first`：先证据/观察/结果，再组织论述。
+    - `method_first`：先方法/对象/流程，再补结果。
+    - `constraint_first`：先限定条件/边界，再连接方法与结论。
+  - 仍复用现有 `polish_text` + `enhance_text`，不新增独立 body rewrite API。
+  - 仍保留术语、数字、引用、方法、结果、结论和 ±10% 长度合同。
+
+- [x] S3. 本地 AI 痕迹评分与 compact trace
+  - Deep Reconstruction 继续使用现有 paper reconstruction 本地候选评分。
+  - Trace 新增 `type="plateau_deep_reconstruction"`，记录：
+    - `status`
+    - `routes`
+    - `selected_route`
+    - `candidate_count`
+    - `local_scores`
+    - `fact_card_count`
+    - `candidate_rates`
+  - 不存候选全文，避免 trace 过大。
+
+- [x] S4. Detector Floor Calibration
+  - 当 bulk、segment-sweep、deep reconstruction 的安全候选风险率几乎不波动，且当前风险率只略高于阈值时，写入 `type="detector_floor"`。
+  - 记录 `recommended_threshold = ceil(current_rate + 1)`；例如 `24.52%` 推荐 `26%`。
+  - 任务仍保持 `failed`（保守），但最终诊断改为“已达到当前朱雀检测地板”，并提示保留上一版最低风险文本。
+
+- [x] S5. Plateau exit 行为更新
+  - 如果 detector floor 成立，`plateau_exit.action="detector_floor"`。
+  - 如果不满足 detector floor 条件，仍按 `auto_recovery_exhausted` 失败退出。
+  - 旧的 bulk / segment-sweep 成功路径不变；只接受低于当前风险率的候选。
+
+- [x] S6. 验证
+  - 红灯测试：
+    - `test_ai_detect_reduce_deep_reconstruction_runs_after_plateau_candidates_fail`
+    - `test_ai_detect_reduce_marks_detector_floor_when_all_safe_candidates_flatline`
+  - 关键回归：
+    ```powershell
+    python -m pytest tests/test_zhuque_integration.py::test_ai_detect_reduce_plateau_recovery_accepts_best_auto_candidate tests/test_zhuque_integration.py::test_ai_detect_reduce_plateau_recovery_sweeps_stubborn_segments_after_bulk_candidates_fail tests/test_zhuque_integration.py::test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail tests/test_zhuque_integration.py::test_ai_detect_reduce_deep_reconstruction_runs_after_plateau_candidates_fail tests/test_zhuque_integration.py::test_ai_detect_reduce_marks_detector_floor_when_all_safe_candidates_flatline -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest
+    ```
+    结果：`5 passed in 5.70s`。
+  - 朱雀专项：
+    ```powershell
+    python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest
+    ```
+    结果：`47 passed in 26.91s`。
+  - 本阶段未修改前端源码，因此未触发前端 build/static 同步。
