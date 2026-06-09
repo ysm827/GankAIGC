@@ -220,6 +220,10 @@ class PlateauRecoveryAIService(FakeAIService):
             return f"自动探索C:{text}"
         if "卡点候选A" in prompt:
             return f"自动探索A:{text}"
+        if "逐段候选S2" in prompt:
+            return f"局部探索S2:{text}"
+        if "逐段候选S1" in prompt:
+            return f"局部探索S1:{text}"
         return f"常规:{text}"
 
     async def enhance_text(self, text, prompt, history=None, stream=False):
@@ -2215,11 +2219,102 @@ def test_ai_detect_reduce_plateau_recovery_accepts_best_auto_candidate(monkeypat
         db.close()
 
 
+def test_ai_detect_reduce_plateau_recovery_sweeps_stubborn_segments_after_bulk_candidates_fail(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=200, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([25, 25, 25, 25, 25, 18])
+    fake_ai = PlateauRecoveryAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 5, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-plateau-recovery-segment-sweep",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            zhuque_agent_trace=json.dumps(
+                {
+                    "version": 1,
+                    "threshold": 20,
+                    "events": [
+                        {
+                            "type": "reflection",
+                            "round": 9,
+                            "stagnation_count": 2,
+                            "stubborn_segment_indices": [0, 1],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(session)
+        db.flush()
+        for index in range(2):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text="局部探索上一版低风险文本",
+                    polished_text=f"上一版润色:{index}",
+                    enhanced_text=f"上一版增强:{index}",
+                    zhuque_reduced_text=f"上一版低风险文本:{index}",
+                    zhuque_reduce_attempt=10,
+                    zhuque_detect_rate=25,
+                    zhuque_detect_count=10,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert session.status == "completed"
+        assert len(fake_zhuque.detected_texts) == 6
+        assert [seg.zhuque_reduced_text for seg in segments] == [
+            "局部探索S1:上一版低风险文本:0",
+            "上一版低风险文本:1",
+        ]
+        assert any("卡点候选C" in call["prompt"] for call in fake_ai.polish_calls)
+        assert any("逐段候选S1" in call["prompt"] for call in fake_ai.polish_calls)
+
+        trace = json.loads(session.zhuque_agent_trace)
+        recovery_events = [event for event in trace["events"] if event.get("type") == "plateau_recovery"]
+        assert recovery_events
+        assert recovery_events[-1]["status"] == "accepted"
+        assert recovery_events[-1]["candidate_count"] == 4
+        assert recovery_events[-1]["selected_candidate_id"] == "S1:0"
+        assert recovery_events[-1]["selected_candidate_phase"] == "segment_sweep"
+        assert trace["final"]["status"] == "completed"
+    finally:
+        db.close()
+
+
 def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 
-    user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
-    fake_zhuque = FakeZhuqueService([25, 25, 25, 25, 25])
+    user_id = _create_user(credit_balance=200, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([25, 25, 25, 25, 25, 25, 25, 25, 25])
     fake_ai = PlateauRecoveryAIService()
     monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
     monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
@@ -2288,7 +2383,7 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
         )
 
         assert session.status == "failed"
-        assert len(fake_zhuque.detected_texts) == 5
+        assert len(fake_zhuque.detected_texts) == 9
         assert [seg.zhuque_reduced_text for seg in segments] == [
             "上一版低风险文本:0",
             "上一版低风险文本:1",
@@ -2298,7 +2393,11 @@ def test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail(monkeypa
         recovery_events = [event for event in trace["events"] if event.get("type") == "plateau_recovery"]
         assert recovery_events
         assert recovery_events[-1]["status"] == "failed"
-        assert recovery_events[-1]["candidate_count"] == 3
+        assert recovery_events[-1]["candidate_count"] == 7
+        assert any(
+            item.get("phase") == "segment_sweep"
+            for item in recovery_events[-1]["candidate_rates"]
+        )
         plateau_events = [event for event in trace["events"] if event.get("type") == "plateau_exit"]
         assert plateau_events
         assert plateau_events[0]["action"] == "auto_recovery_exhausted"

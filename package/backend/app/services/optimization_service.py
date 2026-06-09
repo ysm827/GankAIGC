@@ -98,6 +98,25 @@ ZHUQUE_PLATEAU_RECOVERY_CANDIDATES = [
         ),
     },
 ]
+ZHUQUE_PLATEAU_SEGMENT_SWEEP_CANDIDATES = [
+    {
+        "id": "S1",
+        "name": "单段事实顺序重排",
+        "instruction": (
+            "只改当前顽固段落，把事实按更自然的观察顺序重新排列；"
+            "减少对称句式和总结腔，其他段落保持上一版不动。"
+        ),
+    },
+    {
+        "id": "S2",
+        "name": "单段连接词剥离",
+        "instruction": (
+            "只改当前顽固段落，优先删除模板连接词、空泛评价和重复解释；"
+            "保留必要术语、数据、方法和结论，其他段落保持上一版不动。"
+        ),
+    },
+]
+ZHUQUE_PLATEAU_SEGMENT_SWEEP_MAX_SEGMENTS = 3
 
 
 class ZhuquePlateauExit(RuntimeError):
@@ -1193,6 +1212,7 @@ class OptimizationService:
             self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
             note = self._build_zhuque_plateau_candidate_note(
                 candidate=candidate,
+                phase="bulk",
                 current_rate=current_rate,
                 threshold=threshold,
                 stubborn_segment_indices=stubborn_segment_indices,
@@ -1216,6 +1236,7 @@ class OptimizationService:
             candidate_rate = self._get_zhuque_risk_rate(recheck)
             candidate_rates.append({
                 "id": candidate_id,
+                "phase": "bulk",
                 "rate": candidate_rate,
             })
             if candidate_rate < current_rate and (
@@ -1227,6 +1248,57 @@ class OptimizationService:
                 selected_snapshots = self._snapshot_zhuque_segments(all_segments)
             if candidate_rate <= threshold:
                 break
+
+        if selected_rate is None or selected_rate > threshold:
+            sweep_segments = self._select_zhuque_plateau_sweep_segments(
+                segments_to_reduce=segments_to_reduce,
+                stubborn_segment_indices=stubborn_segment_indices,
+            )
+            for seg in sweep_segments:
+                for candidate in ZHUQUE_PLATEAU_SEGMENT_SWEEP_CANDIDATES:
+                    candidate_id = f"{candidate['id']}:{seg.segment_index}"
+                    self._restore_zhuque_segments_from_snapshot(all_segments, recovery_segment_snapshots)
+                    note = self._build_zhuque_plateau_candidate_note(
+                        candidate=candidate,
+                        phase="segment_sweep",
+                        current_rate=current_rate,
+                        threshold=threshold,
+                        stubborn_segment_indices=[seg.segment_index],
+                    )
+                    candidate_result = await self._process_zhuque_reduce_round(
+                        [seg],
+                        round_number,
+                        strategy,
+                        rewrite_mode=ZHUQUE_REWRITE_MODE_PAPER_RECONSTRUCTION,
+                        reflection_note=note,
+                        prompt_evolution_note="",
+                    )
+                    length_adjustments.extend(candidate_result.get("length_adjustments") or [])
+                    recheck = await self._detect_full_text_once(
+                        all_segments,
+                        prefer_reduced=True,
+                        previous_detect_count_increment=True,
+                    )
+                    if not recheck.get("success"):
+                        raise RuntimeError(recheck.get("message") or "朱雀卡点逐段候选复检返回失败")
+                    candidate_rate = self._get_zhuque_risk_rate(recheck)
+                    candidate_rates.append({
+                        "id": candidate_id,
+                        "phase": "segment_sweep",
+                        "segment_index": seg.segment_index,
+                        "rate": candidate_rate,
+                    })
+                    if candidate_rate < current_rate and (
+                        selected_rate is None or candidate_rate < selected_rate
+                    ):
+                        selected_candidate_id = candidate_id
+                        selected_rate = candidate_rate
+                        selected_result = recheck
+                        selected_snapshots = self._snapshot_zhuque_segments(all_segments)
+                    if candidate_rate <= threshold:
+                        break
+                if selected_rate is not None and selected_rate <= threshold:
+                    break
 
         if selected_candidate_id and selected_rate is not None and selected_result is not None:
             if selected_snapshots:
@@ -1243,6 +1315,10 @@ class OptimizationService:
                 "threshold": threshold,
                 "candidate_count": len(candidate_rates),
                 "selected_candidate_id": selected_candidate_id,
+                "selected_candidate_phase": self._get_zhuque_plateau_candidate_phase(
+                    selected_candidate_id,
+                    candidate_rates,
+                ),
                 "candidate_rates": candidate_rates,
                 "stubborn_segment_indices": stubborn_segment_indices,
                 "message": "卡点自动探索已找到更低风险候选",
@@ -1277,19 +1353,48 @@ class OptimizationService:
             "candidate_rates": candidate_rates,
         }
 
+    def _select_zhuque_plateau_sweep_segments(
+        self,
+        *,
+        segments_to_reduce: List[OptimizationSegment],
+        stubborn_segment_indices: List[int],
+    ) -> List[OptimizationSegment]:
+        by_index = {seg.segment_index: seg for seg in segments_to_reduce}
+        ordered: List[OptimizationSegment] = []
+        for segment_index in stubborn_segment_indices:
+            seg = by_index.get(segment_index)
+            if seg and seg not in ordered:
+                ordered.append(seg)
+        for seg in segments_to_reduce:
+            if seg not in ordered:
+                ordered.append(seg)
+        return ordered[:ZHUQUE_PLATEAU_SEGMENT_SWEEP_MAX_SEGMENTS]
+
+    def _get_zhuque_plateau_candidate_phase(
+        self,
+        selected_candidate_id: str,
+        candidate_rates: List[Dict[str, object]],
+    ) -> Optional[str]:
+        for item in candidate_rates:
+            if item.get("id") == selected_candidate_id:
+                return item.get("phase")
+        return None
+
     def _build_zhuque_plateau_candidate_note(
         self,
         *,
         candidate: Dict[str, str],
+        phase: str,
         current_rate: float,
         threshold: float,
         stubborn_segment_indices: List[int],
     ) -> str:
         candidate_id = candidate["id"]
         segments_text = "、".join(str(index) for index in stubborn_segment_indices) or "本轮命中段落"
+        phase_text = "逐段候选" if phase == "segment_sweep" else "卡点候选"
         return (
             "\n## 朱雀卡点自动探索\n"
-            f"- 卡点候选{candidate_id}：{candidate['name']}。\n"
+            f"- {phase_text}{candidate_id}：{candidate['name']}。\n"
             f"- 当前风险率 {current_rate}% 仍高于阈值 {threshold}%，顽固段落：{segments_text}。\n"
             f"- 候选策略：{candidate['instruction']}\n"
             "- 这是自动候选搜索，不要输出解释；只返回该段最终改写文本。\n"

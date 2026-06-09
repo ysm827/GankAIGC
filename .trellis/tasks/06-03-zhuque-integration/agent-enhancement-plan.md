@@ -931,3 +931,38 @@
   - 朱雀专项：`python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `44 passed in 23.13s`。
   - 后端全量：`python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `325 passed in 126.58s`。
   - 本阶段未修改前端源码，因此未触发前端 build/static 同步。
+
+### Phase R: Plateau Segment Sweep Auto-Recovery
+
+- [x] R1. 根因审计
+  - 现象：截图中 `24.52%` 卡点时，系统已尝试 3 个卡点候选但仍未突破，随后退出。
+  - 根因：Phase Q 只做“顽固段落一起改写”的 bulk A/B/C 候选；如果两个段落一起替换不降，系统没有继续尝试单个顽固段落局部替换。
+
+- [x] R2. 后端逐段候选扫描
+  - 新增 `ZHUQUE_PLATEAU_SEGMENT_SWEEP_CANDIDATES`：
+    - `S1`：单段事实顺序重排。
+    - `S2`：单段连接词剥离。
+  - 当 bulk A/B/C 没有达到阈值时，按顽固段落索引优先进入逐段扫描。
+  - 为控制朱雀/啤酒消耗，逐段扫描只取前 `ZHUQUE_PLATEAU_SEGMENT_SWEEP_MAX_SEGMENTS = 3` 个顽固段落。
+
+- [x] R3. 逐段复检择优与回滚
+  - 每次只改一个顽固段落，其余段落恢复进入 recovery 前的最低风险版本。
+  - 每个单段候选后仍合并全文朱雀复检。
+  - 只接受 `candidate_rate < current_rate`；达到阈值后提前停止。
+  - 若全部失败，恢复 recovery 前快照，不污染 `zhuque_reduced_text`。
+
+- [x] R4. Trace 元数据
+  - `plateau_recovery.candidate_rates[]` 新增 `phase`：
+    - `bulk`
+    - `segment_sweep`
+  - 接受逐段候选时记录 `selected_candidate_id="S1:<segment_index>"` 与 `selected_candidate_phase="segment_sweep"`。
+
+- [x] R5. Spec 更新
+  - 后端合同更新：Plateau Auto-Recovery 必须先 bulk，再 bounded segment-sweep，候选耗尽后才 `auto_recovery_exhausted`。
+
+- [x] R6. 验证
+  - 新增红灯测试：bulk A/B/C 全失败后，逐段 S1 候选降到阈值以下；旧实现失败于 A/B/C 后直接退出。
+  - 关键回归：`python -m pytest tests/test_zhuque_integration.py::test_ai_detect_reduce_plateau_recovery_sweeps_stubborn_segments_after_bulk_candidates_fail tests/test_zhuque_integration.py::test_ai_detect_reduce_exits_plateau_only_after_auto_candidates_fail -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `2 passed in 2.05s`。
+  - 朱雀专项：`python -m pytest tests/test_zhuque_integration.py tests/test_zhuque_prompt_evolution.py tests/test_frontend_redeem_entry.py::test_session_detail_shows_zhuque_agent_trace -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `45 passed in 24.52s`。
+  - 后端全量：`python -m pytest -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `326 passed in 126.51s`。
+  - 本阶段未修改前端源码，因此未触发前端 build/static 同步。
