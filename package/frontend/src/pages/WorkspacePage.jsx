@@ -33,6 +33,8 @@ const PROCESSING_MODE_DESCRIPTIONS = {
   emotion_polish: '专为感情文章设计，生成更自然、更具人性化的表达。',
 };
 
+const ZHUQUE_PROCESS_STEPS = ['朱雀检测', '论文重构', '全文复检'];
+
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
 
 const calculateEstimatedCredits = (value, mode) => {
@@ -692,6 +694,82 @@ const WorkspacePage = () => {
           </div>
         )}
 
+        <section className="gank-tabbit-hero mb-7 px-5 py-10 text-center sm:px-8 lg:px-10">
+          <div className="mx-auto max-w-3xl">
+            <p className="gank-eyebrow mb-4">AI PAPER RECONSTRUCTION</p>
+            <h1 className="text-[46px] font-semibold leading-none tracking-[-0.045em] text-[#080806] sm:text-[64px]">
+              GankAIGC
+            </h1>
+            <p className="mx-auto mt-5 max-w-2xl text-[17px] leading-7 text-slate-600">
+              论文降 AI、朱雀复检和自动重构放在一个安静的工作台里，尽量保留事实、引用和原文字数。
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {ZHUQUE_PROCESS_STEPS.map((step, index) => (
+                <span key={step} className="gank-process-chip px-3.5 py-2 text-[13px] font-semibold">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#080806] text-[11px] text-white">
+                    {index + 1}
+                  </span>
+                  {step}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="gank-product-preview mx-auto mt-10 max-w-4xl p-3 sm:p-4">
+            <div className="flex items-center gap-2 border-b border-orange-100/80 px-2 pb-3">
+              <span className="h-3 w-3 rounded-full bg-red-300" />
+              <span className="h-3 w-3 rounded-full bg-amber-300" />
+              <span className="h-3 w-3 rounded-full bg-emerald-300" />
+              <div className="ml-3 flex-1 rounded-full bg-white/80 px-4 py-2 text-left text-xs font-semibold text-slate-500">
+                paper.workspace/gankaigc
+              </div>
+            </div>
+            <div className="grid gap-4 p-3 text-left md:grid-cols-[1.15fr_0.85fr]">
+              <div className="gank-preview-window p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.22em] text-orange-500">Draft</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-950">论文段落重构</p>
+                  </div>
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">
+                    ±10% 长度控制
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  <div className="gank-preview-line w-11/12" />
+                  <div className="gank-preview-line w-10/12 opacity-80" />
+                  <div className="gank-preview-line w-8/12 opacity-60" />
+                  <div className="mt-5 rounded-2xl border border-orange-100 bg-white/80 p-4">
+                    <p className="text-sm font-semibold text-slate-950">Agent 过程</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      检测全文风险，定位顽固段落，必要时进入论文重构并保留更低风险版本。
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid content-between gap-4">
+                <div className="gank-preview-window p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-orange-500">Zhuque</p>
+                  <div className="mt-3 flex items-end gap-2">
+                    <span className="text-4xl font-semibold tracking-tight text-slate-950">20%</span>
+                    <span className="pb-1 text-sm font-medium text-slate-500">目标阈值</span>
+                  </div>
+                </div>
+                <div className="gank-preview-window p-4">
+                  <p className="text-sm font-semibold text-slate-950">保护规则</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {['术语', '数字', '引用', '结论'].map((item) => (
+                      <span key={item} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* 左侧 - 输入区域 */}
           <div className="lg:col-span-2 space-y-6">
@@ -701,7 +779,7 @@ const WorkspacePage = () => {
               <div className="p-4 flex items-start gap-3 bg-white/35">
                 <Info className="w-5 h-5 text-ios-blue flex-shrink-0 mt-0.5" />
                 <div className="text-[15px] text-black">
-                  <p className="font-semibold mb-1 text-ios-blue">当前模式说明</p>
+                  <p className="font-semibold mb-1 text-orange-600">当前模式说明</p>
                   <p className="text-gray-700 leading-relaxed">
                     {PROCESSING_MODE_DESCRIPTIONS[processingMode]}
                   </p>
@@ -732,7 +810,7 @@ const WorkspacePage = () => {
                       key={mode.id}
                       className={`flex items-center p-3.5 rounded-xl cursor-pointer transition-all border ${
                         processingMode === mode.id
-                          ? 'gank-glass-choice-active text-sky-700'
+                          ? 'gank-glass-choice-active text-orange-700'
                           : 'gank-glass-choice hover:bg-white/55'
                       }`}
                     >
@@ -745,7 +823,7 @@ const WorkspacePage = () => {
                         className="mr-3 w-5 h-5 text-ios-blue focus:ring-ios-blue border-gray-300"
                       />
                       <div>
-                        <div className={`font-semibold text-[15px] ${processingMode === mode.id ? 'text-ios-blue' : 'text-black'}`}>
+                        <div className={`font-semibold text-[15px] ${processingMode === mode.id ? 'text-orange-700' : 'text-black'}`}>
                           {mode.title}
                         </div>
                         <div className="text-[13px] text-ios-gray mt-0.5">
@@ -825,7 +903,7 @@ const WorkspacePage = () => {
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <ExternalLink className="h-4 w-4 text-ios-blue" />
+                        <ExternalLink className="h-4 w-4 text-orange-500" />
                         <p className="text-[15px] font-semibold text-black">朱雀检测浏览器</p>
                       </div>
                       <p className="mt-1 text-[13px] leading-5 text-gray-600">
@@ -888,10 +966,10 @@ const WorkspacePage = () => {
                       type="button"
                       onClick={handleLaunchZhuqueBrowser}
                       disabled={isLaunchingZhuque}
-                      className={`shrink-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[14px] font-semibold text-white transition-all disabled:bg-gray-300 disabled:cursor-not-allowed ${
+                      className={`gank-pill-button shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[14px] font-semibold transition-all disabled:bg-gray-300 disabled:cursor-not-allowed ${
                         zhuqueBrowserStatus?.connected
-                          ? 'bg-ios-green hover:bg-green-600'
-                          : 'bg-ios-blue hover:bg-blue-600'
+                          ? 'bg-ios-green'
+                          : ''
                       }`}
                     >
                       {isLaunchingZhuque ? (
@@ -944,7 +1022,7 @@ const WorkspacePage = () => {
                 <button
                   onClick={handleStartOptimization}
                   disabled={!text.trim() || activeSession || isSubmitting}
-                  className="gank-primary-button flex items-center gap-2 rounded-xl py-3 px-8 text-[17px] font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+                  className="gank-pill-button flex items-center gap-2 py-3 px-8 text-[17px] font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
                 >
                   {isSubmitting ? (
                     <>
@@ -1030,14 +1108,14 @@ const WorkspacePage = () => {
               <div className="p-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm z-10">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-ios-blue" />
+                    <FileText className="w-5 h-5 text-orange-500" />
                     <h2 className="text-[20px] font-bold text-black tracking-tight">
                       论文项目
                     </h2>
                   </div>
                   <button
                     onClick={() => setShowProjectForm((value) => !value)}
-                    className="px-3 py-1.5 text-xs font-semibold text-ios-blue bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                    className="rounded-full bg-[#080806] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:brightness-110"
                   >
                     {showProjectForm ? '取消' : '新建论文'}
                   </button>
@@ -1073,8 +1151,8 @@ const WorkspacePage = () => {
                     onClick={() => setActiveProjectId(0)}
                     className={`w-full text-left p-3 rounded-xl transition-all border ${
                       activeProjectId === 0
-                        ? 'bg-gray-100 border-gray-300'
-                        : 'bg-white border-gray-100 hover:bg-gray-50'
+                        ? 'gank-glass-choice-warm'
+                        : 'gank-glass-choice hover:bg-white/55'
                     }`}
                   >
                     <div className="text-sm font-semibold text-black">未归档历史</div>
@@ -1086,8 +1164,8 @@ const WorkspacePage = () => {
                       key={project.id}
                       className={`group rounded-xl border transition-all ${
                         activeProjectId === project.id
-                          ? 'bg-blue-50 border-ios-blue'
-                          : 'bg-white border-gray-100 hover:bg-gray-50'
+                          ? 'gank-glass-choice-warm'
+                          : 'gank-glass-choice hover:bg-white/55'
                       }`}
                     >
                       {editingProjectId === project.id ? (

@@ -468,16 +468,17 @@ const SessionDetailPage = () => {
           {activeTab === 'result' && (
             <>
               {zhuqueReport && (
-                <div className="gank-liquid-panel overflow-hidden">
-                  <div className="p-4 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
+                <div className="gank-liquid-panel gank-report-shell overflow-hidden">
+                  <div className="p-5 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-ios-blue flex items-center justify-center">
+                      <div className="w-11 h-11 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shadow-inner">
                         <BarChart3 className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="text-[16px] font-semibold text-black">朱雀 AI 报告</h3>
+                        <p className="gank-eyebrow mb-1">DETECTION REPORT</p>
+                        <h3 className="text-[22px] font-semibold tracking-[-0.03em] text-black">检测报告预览</h3>
                         <p className="text-[12px] text-ios-gray mt-0.5">
-                          全文合并检测，阈值 {zhuqueThreshold}%，检测不消耗啤酒
+                          朱雀 AI 报告，全文合并检测，阈值 {zhuqueThreshold}%，检测不消耗啤酒
                         </p>
                       </div>
                     </div>
@@ -568,7 +569,7 @@ const SessionDetailPage = () => {
                 <div className="gank-liquid-panel overflow-hidden">
                   <div className="p-4 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
                         <Activity className="w-5 h-5" />
                       </div>
                       <div>
@@ -585,7 +586,7 @@ const SessionDetailPage = () => {
                     )}
                   </div>
 
-                  <div className="p-5 space-y-4 max-h-[560px] overflow-y-auto custom-scrollbar">
+                  <div className="gank-agent-scroll p-5 space-y-4 max-h-[560px] overflow-y-auto custom-scrollbar">
                     {(zhuqueAgentTrace?.events || []).map((event, index) => (
                       <div key={`${event.type}-${event.round}-${index}`} className="gank-liquid-section px-4 py-3">
                         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -735,7 +736,7 @@ const SessionDetailPage = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/70 border-b border-slate-200/70 flex justify-between items-center">
+                  <div className="p-3 bg-white/80 border-b border-orange-100/80 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <h3 className="text-[15px] font-semibold text-black ml-2">
                         {shouldShowResultSwitch()
@@ -770,7 +771,7 @@ const SessionDetailPage = () => {
                     </div>
 
                     <button
-                      className="text-ios-blue text-[13px] px-3 py-1 hover:bg-blue-50 rounded-md transition-colors"
+                      className="rounded-full bg-[#080806] px-3 py-1 text-[13px] font-semibold text-white transition hover:brightness-110"
                       onClick={() => {
                         navigator.clipboard.writeText(getDisplayText());
                         toast.success('已复制到剪贴板');
@@ -787,7 +788,7 @@ const SessionDetailPage = () => {
                 </div>
               
                 <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/70 border-b border-slate-200/70">
+                  <div className="p-3 bg-white/80 border-b border-orange-100/80">
                     <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
                       原始文本
                     </h3>

@@ -59,10 +59,10 @@ code {
   --glass-border-subtle: rgba(148, 163, 184, 0.22);
   --glass-highlight: rgba(255, 255, 255, 0.72);
   --glass-refraction: rgba(255, 255, 255, 0.46);
-  --glass-tint: rgba(14, 165, 233, 0.16);
-  --glass-tint-strong: rgba(20, 184, 166, 0.18);
-  --glass-shadow: 0 34px 110px rgba(15, 23, 42, 0.18), 0 12px 36px rgba(15, 23, 42, 0.10), inset 0 1px 0 var(--glass-edge);
-  --glass-shadow-soft: 0 20px 54px rgba(15, 23, 42, 0.11), 0 5px 16px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --glass-tint: rgba(255, 106, 26, 0.14);
+  --glass-tint-strong: rgba(255, 149, 0, 0.18);
+  --glass-shadow: 0 34px 110px rgba(68, 39, 16, 0.14), 0 12px 36px rgba(68, 39, 16, 0.08), inset 0 1px 0 var(--glass-edge);
+  --glass-shadow-soft: 0 20px 54px rgba(68, 39, 16, 0.09), 0 5px 16px rgba(68, 39, 16, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.82);
   --glass-blur: 34px;
   --glass-blur-strong: 46px;
   --glass-saturate: 1.85;
@@ -70,13 +70,18 @@ code {
   --glass-radius-md: 20px;
   --glass-radius-lg: 24px;
   --glass-radius-xl: 30px;
-  --app-accent: 14 165 233;
-  --app-accent-strong: #0ea5e9;
-  --app-accent-ink: #075985;
-  --app-bg: #eef4fb;
+  --app-accent: 255 106 26;
+  --app-accent-strong: #ff6a1a;
+  --app-accent-ink: #9a3412;
+  --app-bg: #fffaf5;
   --app-text: #0f172a;
   --app-muted: #64748b;
   --app-surface-text: #111827;
+  --gank-accent: #ff6a1a;
+  --gank-accent-rgb: 255 106 26;
+  --gank-cream: #fff7ef;
+  --gank-cream-strong: #fff1e6;
+  --gank-ink-strong: #080806;
   --gank-ink: #101828;
   --gank-muted: #667085;
   --gank-line: rgba(148, 163, 184, 0.26);
@@ -96,10 +101,10 @@ code {
   min-height: 100dvh;
   color: var(--app-text);
   background:
-    radial-gradient(circle at 8% 8%, rgba(56, 189, 248, 0.58), transparent 31rem),
-    radial-gradient(circle at 90% 16%, rgba(45, 212, 191, 0.44), transparent 34rem),
-    radial-gradient(circle at 58% 90%, rgba(147, 197, 253, 0.42), transparent 38rem),
-    linear-gradient(135deg, #edf8ff 0%, #f9fcff 42%, #e8fbf6 100%);
+    radial-gradient(circle at 50% 12rem, rgba(255, 106, 26, 0.10), transparent 34rem),
+    radial-gradient(circle at 14% 44%, rgba(255, 207, 126, 0.34), transparent 30rem),
+    radial-gradient(circle at 88% 22%, rgba(255, 226, 214, 0.50), transparent 33rem),
+    linear-gradient(180deg, #ffffff 0%, #ffffff 34%, #fff7ef 100%);
   position: relative;
   isolation: isolate;
   overflow-x: clip;
@@ -113,10 +118,10 @@ code {
   pointer-events: none;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(14, 165, 233, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(14, 165, 233, 0.055) 1px, transparent 1px);
-  background-size: 34px 34px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 90%);
+    linear-gradient(rgba(255, 106, 26, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 106, 26, 0.035) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.44), transparent 72%);
 }
 
 .gank-app-page::after,
@@ -127,9 +132,9 @@ code {
   pointer-events: none;
   z-index: -1;
   background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.32), transparent 34%),
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 18rem);
-  opacity: 0.75;
+    linear-gradient(120deg, rgba(255, 255, 255, 0.55), transparent 34%),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.86), transparent 22rem);
+  opacity: 0.88;
 }
 
 .gank-ambient-orb {
@@ -147,7 +152,7 @@ code {
   height: 24rem;
   top: 6rem;
   left: max(-2rem, calc(50% - 48rem));
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.38), transparent 66%);
+  background: radial-gradient(circle, rgba(255, 149, 0, 0.26), transparent 66%);
 }
 
 .gank-ambient-orb.orb-two {
@@ -155,7 +160,7 @@ code {
   height: 30rem;
   right: max(-4rem, calc(50% - 52rem));
   bottom: 4rem;
-  background: radial-gradient(circle, rgba(20, 184, 166, 0.34), transparent 68%);
+  background: radial-gradient(circle, rgba(255, 106, 26, 0.22), transparent 68%);
 }
 
 .gank-ambient-orb.orb-three {
@@ -163,15 +168,15 @@ code {
   height: 22rem;
   top: 36%;
   right: 12%;
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.30), transparent 72%);
+  background: radial-gradient(circle, rgba(148, 163, 184, 0.22), transparent 72%);
 }
 
 .gank-glass-toolbar {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.40));
+  background: rgba(255, 255, 255, 0.32);
   border-bottom: 1px solid var(--glass-border);
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  box-shadow: 0 18px 46px rgba(68, 39, 16, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
 }
 
 .gank-topbar-pill {
@@ -239,7 +244,7 @@ code {
   border: 1px solid rgba(255, 255, 255, 0.42);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.26),
-    inset 0 -24px 48px rgba(14, 165, 233, 0.045);
+    inset 0 -24px 48px rgba(255, 106, 26, 0.040);
 }
 
 .gank-liquid-panel > * {
@@ -337,12 +342,12 @@ code {
 }
 
 .gank-glass-choice-active {
-  border-color: rgba(14, 165, 233, 0.58);
+  border-color: rgba(255, 106, 26, 0.58);
   background:
-    radial-gradient(circle at 0% 0%, rgba(14, 165, 233, 0.24), transparent 38%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(240, 249, 255, 0.34)),
+    radial-gradient(circle at 0% 0%, rgba(255, 106, 26, 0.22), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 247, 237, 0.42)),
     rgba(255, 255, 255, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(14, 165, 233, 0.12), 0 18px 42px rgba(14, 165, 233, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(255, 106, 26, 0.12), 0 18px 42px rgba(255, 106, 26, 0.13);
 }
 
 .gank-glass-choice-warm {
@@ -356,8 +361,8 @@ code {
 
 .gank-primary-button {
   color: white;
-  background: linear-gradient(135deg, #0284c7, #0ea5e9 52%, #14b8a6);
-  box-shadow: 0 16px 32px rgba(14, 165, 233, 0.24);
+  background: linear-gradient(135deg, #080806, #1f1b16);
+  box-shadow: 0 18px 36px rgba(8, 8, 6, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .gank-primary-button:hover {
@@ -365,12 +370,131 @@ code {
 }
 
 .gank-secondary-button {
-  color: #1e293b;
+  color: var(--gank-ink-strong);
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--glass-border);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.055);
   backdrop-filter: blur(16px) saturate(1.25);
   -webkit-backdrop-filter: blur(16px) saturate(1.25);
+}
+
+.gank-pill-button {
+  border-radius: 999px;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), transparent),
+    #080806;
+  box-shadow: 0 16px 34px rgba(8, 8, 6, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.gank-pill-button:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 20px 42px rgba(8, 8, 6, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.gank-pill-button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.gank-eyebrow {
+  color: var(--gank-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.gank-tabbit-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 38px;
+  background:
+    radial-gradient(circle at 50% 100%, rgba(255, 106, 26, 0.18), transparent 42%),
+    radial-gradient(circle at 12% 18%, rgba(255, 214, 160, 0.32), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 247, 239, 0.78));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 42px 120px rgba(68, 39, 16, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.gank-tabbit-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 7% -34% 7%;
+  height: 54%;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 106, 26, 0.18), transparent 70%);
+  filter: blur(22px);
+}
+
+.gank-product-preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: 30px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 250, 245, 0.76)),
+    rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow:
+    0 44px 90px rgba(68, 39, 16, 0.14),
+    0 16px 38px rgba(68, 39, 16, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(26px) saturate(1.4);
+  -webkit-backdrop-filter: blur(26px) saturate(1.4);
+}
+
+.gank-product-preview::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.76), transparent 28%),
+    radial-gradient(circle at 82% 12%, rgba(255, 106, 26, 0.16), transparent 30%);
+}
+
+.gank-product-preview > * {
+  position: relative;
+  z-index: 1;
+}
+
+.gank-preview-window {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(231, 222, 213, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 18px 44px rgba(68, 39, 16, 0.08);
+}
+
+.gank-preview-line {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 106, 26, 0.32), rgba(255, 203, 145, 0.46));
+}
+
+.gank-process-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 106, 26, 0.18);
+  background: rgba(255, 255, 255, 0.74);
+  color: #9a3412;
+  box-shadow: 0 10px 26px rgba(68, 39, 16, 0.055);
+}
+
+.gank-report-shell {
+  border-color: rgba(255, 255, 255, 0.84);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 106, 26, 0.15), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 247, 239, 0.66));
+}
+
+.gank-agent-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .gank-input {

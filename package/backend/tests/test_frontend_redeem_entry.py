@@ -153,13 +153,25 @@ def test_frontend_uses_apple_glass_theme_tokens():
         assert "--glass-refraction:" in css
         assert "--glass-radius-xl:" in css
         assert "--app-accent:" in css
+        assert "--gank-accent:" in css
+        assert "--gank-cream:" in css
         assert "gank-ambient-orb" in css
         assert "gank-liquid-panel" in css
+        assert "gank-tabbit-hero" in css
+        assert "gank-product-preview" in css
+        assert "gank-pill-button" in css
         assert "gank-glass-choice-active" in css
         assert "prefers-reduced-transparency" in css
         assert "@supports not ((backdrop-filter" in css
         assert "color-scheme:" in css and "light" in css
 
+    assert "AI PAPER RECONSTRUCTION" in workspace
+    assert "gank-tabbit-hero" in workspace
+    assert "gank-product-preview" in workspace
+    assert "gank-pill-button" in workspace
+    assert "朱雀检测" in workspace
+    assert "论文重构" in workspace
+    assert "全文复检" in workspace
     assert "gank-liquid-panel" in workspace
     assert "gank-segmented-control" in workspace
     assert "gank-glass-status-grid" in workspace
@@ -168,6 +180,9 @@ def test_frontend_uses_apple_glass_theme_tokens():
     assert "gank-ambient-orb orb-one" in workspace
 
     assert "gank-liquid-panel" in session_detail
+    assert "gank-report-shell" in session_detail
+    assert "检测报告预览" in session_detail
+    assert "gank-agent-scroll" in session_detail
     assert "gank-text-panel" in session_detail
     assert "gank-segmented-control" in session_detail
     assert "gank-ambient-orb orb-two" in session_detail

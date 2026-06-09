@@ -72,7 +72,9 @@ Questions to answer:
 
 - Shared CSS tokens/classes in `src/index.css`:
   - `--glass-bg`, `--glass-bg-strong`, `--glass-bg-solid`, `--glass-border`, `--glass-shadow`, `--glass-blur`, `--glass-radius-xl`, `--app-accent`.
+  - `--gank-accent`, `--gank-cream`, `--gank-ink-strong` for the Tabbit-inspired warm Apple glass direction.
   - `.gank-app-page`, `.gank-ambient-orb`, `.gank-liquid-panel`, `.gank-liquid-section`, `.gank-text-panel`, `.gank-segmented-control`, `.gank-glass-status-grid`, `.gank-primary-button`, `.gank-secondary-button`, `.gank-input`.
+  - `.gank-tabbit-hero`, `.gank-product-preview`, `.gank-pill-button`, `.gank-process-chip`, `.gank-report-shell`, `.gank-agent-scroll`.
 - Primary pages using the contract:
   - `src/pages/WorkspacePage.jsx`.
   - `src/pages/SessionDetailPage.jsx`.
@@ -84,6 +86,10 @@ Questions to answer:
 
 - Production pages must reuse the shared glass classes instead of repeating ad-hoc `bg-white/70 backdrop-blur-* shadow-*` combinations.
 - The Apple glass theme must be visually recognizable, not just a plain white card: use layered highlights, edge strokes, ambient tint, and choice-state classes such as `.gank-glass-choice-active` / `.gank-glass-choice-warm` for high-frequency controls.
+- When adapting a reference site such as Tabbit, migrate the design language rather than copying assets: warm white/cream stage, orange accent, black pill CTA, fixed blurred toolbar, large product-preview shell, and rounded report cards.
+- A reference-site visual refresh must change the page skeleton where needed. Updating only color tokens or blur values is insufficient if screenshots still look like the previous white-card workspace.
+- The workspace hero should use `.gank-tabbit-hero` and a CSS-built `.gank-product-preview` instead of copied screenshots. The hero must preserve app IA and include paper-specific process chips such as Zhuque detection, paper reconstruction, and full-text recheck when relevant.
+- The session detail report should use `.gank-report-shell`; long agent histories should use `.gank-agent-scroll` plus `custom-scrollbar` so the result/original text panels remain reachable.
 - Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` or an equally high-opacity background. Do not make paper body text heavily transparent.
 - Ambient page background should be CSS-native (`.gank-ambient-orb` and gradients) unless the task explicitly requires generated imagery.
 - The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black` content unreadable unless the pages are audited end-to-end.
@@ -103,12 +109,15 @@ Questions to answer:
 ### 5. Good/Base/Bad Cases
 
 - Good: Workspace and session detail use `.gank-liquid-panel` for main shells, `.gank-segmented-control` for mode tabs, `.gank-glass-status-grid` for compact status metrics, `.gank-glass-choice-*` for selectable cards, and `.gank-text-panel` for paper text.
+- Good: Reference-inspired workspace adds a clear hero/product-preview section with `AI PAPER RECONSTRUCTION`, warm orange process chips, and black pill CTAs while keeping the existing task form, project list, billing copy, and Zhuque readiness flow.
+- Good: Session detail shows a distinct "检测报告预览" shell and keeps Agent trace rows inside `.gank-agent-scroll`.
 - Good: New CSS bundle in `package/static/index.html` references current hashed `assets/index-*.css` and contains the glass tokens.
 - Base: A small legacy card can remain if global `.gank-card` fallback styles keep it readable.
 - Bad: Editing only `frontend/dist` or only `package/static` without source changes.
 - Bad: Adding generated background images for simple glow/blur effects that CSS can produce deterministically.
 - Bad: Relying on automatic dark mode while components still hard-code `text-black`, `bg-white`, or `text-gray-*` classes.
 - Bad: Shipping only subtle opacity changes that look indistinguishable from the previous iOS white-card theme in screenshots.
+- Bad: Copying a reference site's logo, screenshots, claims, fake model names, or marketing copy into GankAIGC.
 
 ### 6. Tests Required
 
