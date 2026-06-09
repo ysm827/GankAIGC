@@ -623,6 +623,10 @@ const WorkspacePage = () => {
 
   return (
     <div className="gank-app-page">
+      <div className="gank-ambient-orb orb-one" />
+      <div className="gank-ambient-orb orb-two" />
+      <div className="gank-ambient-orb orb-three" />
+
       {/* 顶部导航栏 */}
       <nav className="gank-glass-toolbar sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -668,7 +672,7 @@ const WorkspacePage = () => {
             {announcements.slice(0, 3).map((announcement) => (
               <div
                 key={announcement.id}
-                className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-ios backdrop-blur-sm"
+                className="gank-liquid-section px-4 py-3"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
                   <span className={`inline-flex w-fit shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
@@ -693,8 +697,8 @@ const WorkspacePage = () => {
           <div className="lg:col-span-2 space-y-6">
             
             {/* 说明卡片 */}
-            <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-              <div className="p-4 flex items-start gap-3 bg-blue-50/50">
+            <div className="gank-liquid-section overflow-hidden">
+              <div className="p-4 flex items-start gap-3 bg-white/35">
                 <Info className="w-5 h-5 text-ios-blue flex-shrink-0 mt-0.5" />
                 <div className="text-[15px] text-black">
                   <p className="font-semibold mb-1 text-ios-blue">当前模式说明</p>
@@ -705,7 +709,7 @@ const WorkspacePage = () => {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-ios p-5">
+            <div className="gank-liquid-panel p-5">
               <div className="h-[40px] flex items-center mb-2">
                 <div>
                   <h2 className="text-[20px] font-bold text-black tracking-tight pl-1">
@@ -722,14 +726,14 @@ const WorkspacePage = () => {
                 <label className="block text-[13px] font-medium text-ios-gray mb-2 ml-1 uppercase tracking-wide">
                   选择模式
                 </label>
-                <div className="space-y-3">
+                <div className="gank-segmented-control space-y-2 rounded-2xl p-2">
                   {PROCESSING_MODE_OPTIONS.map((mode) => (
                     <label
                       key={mode.id}
                       className={`flex items-center p-3.5 rounded-xl cursor-pointer transition-all border ${
                         processingMode === mode.id
-                          ? 'bg-blue-50 border-ios-blue ring-1 ring-ios-blue/20'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
+                          ? 'bg-white/90 border-sky-300 text-sky-700 shadow-sm ring-1 ring-sky-300/25'
+                          : 'bg-white/45 border-white/60 hover:bg-white/70'
                       }`}
                     >
                       <input
@@ -761,8 +765,8 @@ const WorkspacePage = () => {
                   <label
                     className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
                       billingMode === 'platform'
-                        ? 'bg-amber-50 border-amber-500 ring-1 ring-amber-500/20'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                        ? 'bg-white/90 border-amber-300 ring-1 ring-amber-300/25 shadow-sm'
+                        : 'bg-white/45 border-white/60 hover:bg-white/70'
                     }`}
                   >
                     <input
@@ -796,8 +800,8 @@ const WorkspacePage = () => {
                   <label
                     className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
                       billingMode === 'byok'
-                        ? 'bg-blue-50 border-ios-blue ring-1 ring-ios-blue/20'
-                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                        ? 'bg-white/90 border-sky-300 ring-1 ring-sky-300/25 shadow-sm'
+                        : 'bg-white/45 border-white/60 hover:bg-white/70'
                     }`}
                   >
                     <input
@@ -817,7 +821,7 @@ const WorkspacePage = () => {
               </div>
 
               {processingMode === 'ai_detect_reduce' && (
-                <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
+                <div className="gank-liquid-section mb-5 p-4">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -848,7 +852,7 @@ const WorkspacePage = () => {
                         </p>
                       )}
                       {zhuqueReadiness && (
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-gray-600">
+                        <div className="gank-glass-status-grid mt-3 grid grid-cols-2 gap-2 text-[12px] text-gray-600">
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
                             <span className="font-semibold text-gray-800">页面状态：</span>
                             {zhuqueReadiness.page_found ? '朱雀页面已打开' : '未找到朱雀页面'}
@@ -920,7 +924,7 @@ const WorkspacePage = () => {
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
                   placeholder="例如：摘要降 AI、二稿润色、投稿前终版"
-                  className="w-full px-4 py-3 bg-gray-50 rounded-xl focus:bg-white focus:ring-2 focus:ring-ios-blue/20 transition-all text-[15px] text-black placeholder-gray-400 border-none outline-none"
+                  className="gank-input rounded-xl px-4 py-3 text-[15px] placeholder-gray-400"
                 />
               </div>
 
@@ -929,7 +933,7 @@ const WorkspacePage = () => {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder="在此粘贴您的内容..."
-                  className="w-full h-64 px-4 py-3 bg-gray-50 rounded-xl focus:bg-white focus:ring-2 focus:ring-ios-blue/20 transition-all text-[16px] leading-relaxed text-black placeholder-gray-400 border-none outline-none resize-none"
+                  className="gank-input h-64 rounded-xl px-4 py-3 text-[16px] leading-relaxed placeholder-gray-400 resize-none"
                 />
                 <div className="absolute bottom-3 right-3 text-[12px] text-ios-gray bg-white/80 px-2 py-1 rounded-md backdrop-blur-sm">
                   有效 {billableCharacterCount} 字符
@@ -940,7 +944,7 @@ const WorkspacePage = () => {
                 <button
                   onClick={handleStartOptimization}
                   disabled={!text.trim() || activeSession || isSubmitting}
-                  className="flex items-center gap-2 bg-ios-blue hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-8 rounded-xl transition-all active:scale-[0.98] shadow-sm text-[17px]"
+                  className="gank-primary-button flex items-center gap-2 rounded-xl py-3 px-8 text-[17px] font-semibold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
                 >
                   {isSubmitting ? (
                     <>
@@ -959,7 +963,7 @@ const WorkspacePage = () => {
 
             {/* 活跃会话进度 */}
             {activeSession && currentActiveSessionData && (
-              <div className="bg-white rounded-2xl shadow-ios p-5 border border-blue-100">
+              <div className="gank-liquid-section p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-[17px] font-bold text-black flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-ios-blue animate-pulse" />
@@ -1022,7 +1026,7 @@ const WorkspacePage = () => {
 
           {/* 右侧 - 历史会话 */}
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-140px)] sticky top-24">
+            <div className="gank-liquid-panel overflow-hidden flex flex-col h-[calc(100vh-140px)] sticky top-24">
               <div className="p-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm z-10">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <div className="flex items-center gap-2">
@@ -1201,7 +1205,7 @@ const WorkspacePage = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="retry-dialog-title"
-            className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-white/60 bg-white/85 shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl"
+            className="gank-liquid-panel relative w-full max-w-md overflow-hidden"
           >
             <div className="absolute -top-20 -right-16 h-40 w-40 rounded-full bg-blue-200/50 blur-3xl" />
             <div className="absolute -bottom-24 -left-16 h-44 w-44 rounded-full bg-amber-200/50 blur-3xl" />
@@ -1243,7 +1247,7 @@ const WorkspacePage = () => {
                   type="button"
                   onClick={() => setRetryDialogSession(null)}
                   disabled={isRetrying}
-                  className="rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="gank-secondary-button rounded-xl px-5 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   取消
                 </button>
@@ -1251,7 +1255,7 @@ const WorkspacePage = () => {
                   type="button"
                   onClick={confirmRetrySegment}
                   disabled={isRetrying}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-ios-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition hover:bg-blue-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                  className="gank-primary-button inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                 >
                   {isRetrying && (
                     <span className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />

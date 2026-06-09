@@ -1019,3 +1019,31 @@
     ```
     结果：`47 passed in 26.91s`。
   - 本阶段未修改前端源码，因此未触发前端 build/static 同步。
+
+### Phase T: Apple Glass Frontend Theme
+
+- [x] T1. Design read and constraints
+  - Read GankAIGC as an academic paper workspace, not an AI-gradient marketing page.
+  - Use a restrained Apple/iPadOS-inspired glass style while preserving paper-text readability.
+
+- [x] T2. Global glass tokens and ambient background
+  - Added shared `--glass-*` and `--app-*` tokens plus ambient orbs, liquid panels, text panels, segmented controls, status grids, buttons, and inputs.
+  - Added solid-background fallbacks for unsupported `backdrop-filter` and `prefers-reduced-transparency`.
+
+- [x] T3. WorkspacePage glass workspace
+  - Added ambient orbs to the workspace page.
+  - Converted the new-task shell, Zhuque browser panel, mode selector, status grid, inputs, primary action, and project/history container to shared glass classes.
+
+- [x] T4. SessionDetailPage glass report
+  - Added ambient orbs to the session detail page.
+  - Converted tabs, Zhuque report, Agent trace, export modal, and compare panel to the glass theme.
+  - Converted original/final long-reading panels to `gank-text-panel` so paper text remains high-contrast.
+
+- [x] T5. Build and static sync
+  - Frontend build: `cd package/frontend; npm.cmd run build` succeeded.
+  - Synced `package/frontend/dist` into `package/static`.
+  - Current `package/static/index.html` points to `assets/index-C_CU6pvp.js`, `assets/vendor-jtLEzjcQ.js`, and `assets/index-hZdBQ9rU.css`.
+
+- [x] T6. Verification
+  - Theme/static test: `python -m pytest tests/test_frontend_redeem_entry.py::test_frontend_uses_apple_glass_theme_tokens -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `1 passed`.
+  - Frontend static test suite: `python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest` -> `49 passed`.

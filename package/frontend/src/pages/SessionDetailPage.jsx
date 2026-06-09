@@ -338,6 +338,10 @@ const SessionDetailPage = () => {
 
   return (
     <div className="gank-app-page">
+      <div className="gank-ambient-orb orb-one" />
+      <div className="gank-ambient-orb orb-two" />
+      <div className="gank-ambient-orb orb-three" />
+
       {/* 顶部导航 */}
       <nav className="gank-glass-toolbar sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -374,7 +378,7 @@ const SessionDetailPage = () => {
                   
                   <button
                     onClick={() => setShowExportModal(true)}
-                    className="flex items-center gap-1.5 bg-ios-blue hover:bg-blue-600 text-white font-semibold py-1.5 px-4 rounded-full transition-all active:scale-[0.98] text-[15px]"
+                    className="gank-primary-button flex items-center gap-1.5 rounded-full py-1.5 px-4 text-[15px] font-semibold transition-all active:scale-[0.98]"
                   >
                     <Download className="w-4 h-4" />
                     导出
@@ -415,7 +419,7 @@ const SessionDetailPage = () => {
         
         {/* iOS Segmented Control */}
         <div className="flex justify-center mb-6">
-          <div className="bg-gray-200/80 p-1 rounded-xl inline-flex w-full max-w-md">
+          <div className="gank-segmented-control p-1 rounded-2xl inline-flex w-full max-w-md">
             <button
               onClick={() => setActiveTab('result')}
               className={`flex-1 py-1.5 px-4 rounded-[9px] text-[13px] font-medium transition-all duration-200 ${
@@ -448,7 +452,7 @@ const SessionDetailPage = () => {
         {/* 内容区域 */}
         <div className="space-y-6">
           {session.status === 'failed' && (
-            <div className="rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-red-800 shadow-ios">
+            <div className="gank-liquid-section px-5 py-4 text-red-800">
               <div className="flex items-start gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
                 <div>
@@ -464,8 +468,8 @@ const SessionDetailPage = () => {
           {activeTab === 'result' && (
             <>
               {zhuqueReport && (
-                <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                <div className="gank-liquid-panel overflow-hidden">
+                  <div className="p-4 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-blue-50 text-ios-blue flex items-center justify-center">
                         <BarChart3 className="w-5 h-5" />
@@ -486,7 +490,7 @@ const SessionDetailPage = () => {
                   </div>
 
                   <div className="p-5 space-y-5">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="gank-glass-status-grid grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                         <p className="text-[12px] text-ios-gray mb-1">最终风险率</p>
                         <p className="text-[24px] font-bold text-black tracking-tight">
@@ -517,7 +521,7 @@ const SessionDetailPage = () => {
                     </div>
 
                     {(zhuqueLabelsRatio || zhuqueReport.result?.message || zhuqueReport.result?.text_length) && (
-                      <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3 text-[13px] text-gray-700 leading-6">
+                      <div className="gank-liquid-section px-4 py-3 text-[13px] text-gray-700 leading-6">
                         {zhuqueLabelsRatio && <p>分类占比：{zhuqueLabelsRatio}</p>}
                         {zhuqueReport.result?.text_length != null && <p>检测字数：{zhuqueReport.result.text_length}</p>}
                         {zhuqueReport.result?.message && <p>朱雀提示：{zhuqueReport.result.message}</p>}
@@ -529,7 +533,7 @@ const SessionDetailPage = () => {
                         <Activity className="w-4 h-4 text-ios-blue" />
                         <h4 className="text-[14px] font-semibold text-black">处理过程</h4>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div className="gank-glass-status-grid grid grid-cols-1 md:grid-cols-4 gap-3">
                         <div className="rounded-xl border border-gray-100 px-4 py-3">
                           <p className="text-[13px] font-semibold text-black">1. 全文检测</p>
                           <p className="text-[12px] text-ios-gray mt-1">
@@ -561,8 +565,8 @@ const SessionDetailPage = () => {
               )}
 
               {session?.processing_mode === 'ai_detect_reduce' && (zhuqueAgentTrace || zhuqueLiveEvents.length > 0) && (
-                <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-                  <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
+                <div className="gank-liquid-panel overflow-hidden">
+                  <div className="p-4 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
                         <Activity className="w-5 h-5" />
@@ -583,7 +587,7 @@ const SessionDetailPage = () => {
 
                   <div className="p-5 space-y-4 max-h-[560px] overflow-y-auto custom-scrollbar">
                     {(zhuqueAgentTrace?.events || []).map((event, index) => (
-                      <div key={`${event.type}-${event.round}-${index}`} className="rounded-xl border border-gray-100 px-4 py-3">
+                      <div key={`${event.type}-${event.round}-${index}`} className="gank-liquid-section px-4 py-3">
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <p className="text-[14px] font-semibold text-black">
                             {event.type === 'detect'
@@ -712,7 +716,7 @@ const SessionDetailPage = () => {
                     ))}
 
                     {zhuqueLiveEvents.length > 0 && (
-                      <div className="rounded-xl border border-purple-100 bg-purple-50/50 px-4 py-3">
+                      <div className="gank-liquid-section px-4 py-3">
                         <p className="text-[14px] font-semibold text-black mb-2">实时 Agent 状态</p>
                         <div className="space-y-1 text-[13px] text-gray-700">
                           {zhuqueLiveEvents.map((event, index) => (
@@ -730,8 +734,8 @@ const SessionDetailPage = () => {
               )}
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-white/70 border-b border-slate-200/70 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <h3 className="text-[15px] font-semibold text-black ml-2">
                         {shouldShowResultSwitch()
@@ -740,7 +744,7 @@ const SessionDetailPage = () => {
                       </h3>
 
                       {shouldShowResultSwitch() && (
-                        <div className="bg-gray-200/80 p-0.5 rounded-lg inline-flex">
+                        <div className="gank-segmented-control p-0.5 rounded-lg inline-flex">
                           <button
                             onClick={() => setResultViewMode('polished')}
                             className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
@@ -775,20 +779,20 @@ const SessionDetailPage = () => {
                       复制全文
                     </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-5 bg-white custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-5 bg-white/90 custom-scrollbar">
                     <pre className="whitespace-pre-wrap font-sans text-[16px] text-black leading-relaxed">
                       {getDisplayText()}
                     </pre>
                   </div>
                 </div>
               
-                <div className="bg-white rounded-2xl shadow-ios overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-gray-50 border-b border-gray-100">
+                <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-white/70 border-b border-slate-200/70">
                     <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
                       原始文本
                     </h3>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-5 bg-white/72 custom-scrollbar">
                     <pre className="whitespace-pre-wrap font-sans text-[15px] text-gray-500 leading-relaxed">
                       {getOriginalText()}
                     </pre>
@@ -799,7 +803,7 @@ const SessionDetailPage = () => {
           )}
 
           {activeTab === 'compare' && (
-            <div className="bg-white rounded-2xl shadow-ios p-6 min-h-[calc(100vh-180px)]">
+            <div className="gank-liquid-panel p-6 min-h-[calc(100vh-180px)]">
               <h3 className="text-[20px] font-bold text-black mb-6 tracking-tight">
                 变更对照记录
               </h3>
@@ -859,7 +863,7 @@ const SessionDetailPage = () => {
       {/* 导出确认模态框 - iOS Alert Style */}
       {showExportModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
-          <div className="bg-white rounded-[14px] shadow-2xl max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="gank-liquid-panel max-w-sm w-full overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 text-center">
               <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="w-6 h-6 text-ios-orange" />
@@ -871,7 +875,7 @@ const SessionDetailPage = () => {
                 请确认您已审核所有内容，并对最终论文负责。
               </p>
 
-              <div className="bg-gray-50 rounded-lg p-3 text-left mb-4">
+              <div className="gank-liquid-section rounded-lg p-3 text-left mb-4">
                 <ul className="space-y-1.5 text-[12px] text-gray-600">
                   <li className="flex items-start gap-2">
                     <span className="text-ios-green font-bold">✓</span> 符合学术规范
@@ -892,7 +896,7 @@ const SessionDetailPage = () => {
                 <select
                   value={exportFormat}
                   onChange={(e) => setExportFormat(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-100 rounded-lg text-[15px] border-none focus:ring-0"
+                  className="gank-input rounded-lg px-3 py-2 text-[15px]"
                 >
                   <option value="docx">Word文档 (.docx)</option>
                   <option value="md">Markdown文件 (.md)</option>
@@ -903,13 +907,13 @@ const SessionDetailPage = () => {
             <div className="flex border-t border-gray-200 divide-x divide-gray-200">
               <button
                 onClick={() => setShowExportModal(false)}
-                className="flex-1 py-3.5 text-[17px] font-normal text-ios-blue hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                className="flex-1 py-3.5 text-[17px] font-normal text-ios-blue hover:bg-white/50 active:bg-white/70 transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={() => handleExport(true)}
-                className="flex-1 py-3.5 text-[17px] font-semibold text-ios-blue hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                className="flex-1 py-3.5 text-[17px] font-semibold text-ios-blue hover:bg-white/50 active:bg-white/70 transition-colors"
               >
                 确认导出
               </button>

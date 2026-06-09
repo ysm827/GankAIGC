@@ -136,6 +136,38 @@ def test_workspace_queue_status_uses_processing_task_label():
     assert "Users className" not in workspace
 
 
+def test_frontend_uses_apple_glass_theme_tokens():
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
+    static_index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    css_bundle_match = re.search(r'href="/assets/(index-[^"]+\.css)"', static_index)
+    assert css_bundle_match
+    static_css_bundle = (STATIC_DIR / "assets" / css_bundle_match.group(1)).read_text(encoding="utf-8")
+
+    for css in (index_css, static_css_bundle):
+        assert "--glass-bg:" in css
+        assert "--glass-bg-strong:" in css
+        assert "--glass-blur:" in css
+        assert "--glass-radius-xl:" in css
+        assert "--app-accent:" in css
+        assert "gank-ambient-orb" in css
+        assert "gank-liquid-panel" in css
+        assert "prefers-reduced-transparency" in css
+        assert "@supports not ((backdrop-filter" in css
+        assert "color-scheme:" in css and "light" in css
+
+    assert "gank-liquid-panel" in workspace
+    assert "gank-segmented-control" in workspace
+    assert "gank-glass-status-grid" in workspace
+    assert "gank-ambient-orb orb-one" in workspace
+
+    assert "gank-liquid-panel" in session_detail
+    assert "gank-text-panel" in session_detail
+    assert "gank-segmented-control" in session_detail
+    assert "gank-ambient-orb orb-two" in session_detail
+
+
 def test_workspace_retry_uses_internal_dialog_and_current_billing_mode():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")

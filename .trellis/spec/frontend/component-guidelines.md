@@ -60,6 +60,82 @@ Questions to answer:
 
 ---
 
+
+## Scenario: Apple Glass Workspace Theme
+
+### 1. Scope / Trigger
+
+- Trigger: any production UI theme or layout change in `package/frontend/src/pages/WorkspacePage.jsx`, `SessionDetailPage.jsx`, or shared app shell styling in `package/frontend/src/index.css`.
+- The current visual direction is an Apple-inspired paper workspace: translucent, calm, academic, and readable. It is a web approximation using CSS `backdrop-filter`; it is not an official Apple design-system dependency.
+
+### 2. Signatures
+
+- Shared CSS tokens/classes in `src/index.css`:
+  - `--glass-bg`, `--glass-bg-strong`, `--glass-bg-solid`, `--glass-border`, `--glass-shadow`, `--glass-blur`, `--glass-radius-xl`, `--app-accent`.
+  - `.gank-app-page`, `.gank-ambient-orb`, `.gank-liquid-panel`, `.gank-liquid-section`, `.gank-text-panel`, `.gank-segmented-control`, `.gank-glass-status-grid`, `.gank-primary-button`, `.gank-secondary-button`, `.gank-input`.
+- Primary pages using the contract:
+  - `src/pages/WorkspacePage.jsx`.
+  - `src/pages/SessionDetailPage.jsx`.
+- Production static bundle location:
+  - Build output: `package/frontend/dist`.
+  - Served bundle: `package/static`.
+
+### 3. Contracts
+
+- Production pages must reuse the shared glass classes instead of repeating ad-hoc `bg-white/70 backdrop-blur-* shadow-*` combinations.
+- Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` or an equally high-opacity background. Do not make paper body text heavily transparent.
+- Ambient page background should be CSS-native (`.gank-ambient-orb` and gradients) unless the task explicitly requires generated imagery.
+- The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black` content unreadable unless the pages are audited end-to-end.
+- All glass surfaces must have solid fallbacks through both:
+  - `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))`.
+  - `@media (prefers-reduced-transparency: reduce)`.
+- After any production frontend change, run `npm.cmd run build`, sync `package/frontend/dist` into `package/static`, force-stage new ignored static assets, and stage old hashed assets as deletions.
+
+### 4. Validation & Error Matrix
+
+- Missing glass tokens/classes in source -> `test_frontend_uses_apple_glass_theme_tokens` fails.
+- Static bundle not synced after build -> the same test fails because it reads the CSS bundle referenced by `package/static/index.html`.
+- Browser lacks `backdrop-filter` -> UI must fall back to `--glass-bg-solid`, not transparent unreadable panels.
+- User has reduced transparency enabled -> ambient orbs are hidden and surfaces become solid.
+- Long Agent trace -> keep a bounded scroll container so final/original paper text remains reachable.
+
+### 5. Good/Base/Bad Cases
+
+- Good: Workspace and session detail use `.gank-liquid-panel` for main shells, `.gank-segmented-control` for mode tabs, `.gank-glass-status-grid` for compact status metrics, and `.gank-text-panel` for paper text.
+- Good: New CSS bundle in `package/static/index.html` references current hashed `assets/index-*.css` and contains the glass tokens.
+- Base: A small legacy card can remain if global `.gank-card` fallback styles keep it readable.
+- Bad: Editing only `frontend/dist` or only `package/static` without source changes.
+- Bad: Adding generated background images for simple glow/blur effects that CSS can produce deterministically.
+- Bad: Relying on automatic dark mode while components still hard-code `text-black`, `bg-white`, or `text-gray-*` classes.
+
+### 6. Tests Required
+
+- Static frontend test must assert the source tokens and page class usage.
+- Static frontend test must also read the CSS bundle referenced by `package/static/index.html` to prove static sync happened.
+- Run:
+  - `cd package/backend; python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
+  - `cd package/frontend; npm.cmd run build`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+<div className="rounded-2xl bg-white/70 shadow-ios backdrop-blur-xl">
+  <pre className="text-black">{paperText}</pre>
+</div>
+```
+
+#### Correct
+
+```jsx
+<div className="gank-text-panel overflow-hidden flex flex-col">
+  <div className="flex-1 overflow-y-auto bg-white/90 p-5">
+    <pre className="whitespace-pre-wrap font-sans text-black leading-relaxed">{paperText}</pre>
+  </div>
+</div>
+```
+
 ## Scenario: Zhuque AI Detect-Reduce UI Contract
 
 ### 1. Scope / Trigger
