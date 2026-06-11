@@ -349,13 +349,13 @@ const SessionDetailPage = () => {
             <div className="flex justify-between items-center min-h-[44px] gap-4">
               <div className="flex items-center gap-3">
                 <BrandLogo size="sm" showText={false} />
-                <span className="text-[12px] font-medium tracking-[-0.01em] text-white/92">GankAIGC</span>
-                <span className="hidden sm:inline text-white/48">会话详情</span>
+                <span className="text-[12px] font-medium tracking-[-0.01em] text-[#1d1d1f]">GankAIGC</span>
+                <span className="hidden sm:inline text-[#6e6e73]">会话详情</span>
               </div>
 
               <button
                 onClick={() => navigate('/workspace')}
-                className="inline-flex items-center gap-1 text-[12px] text-white/82 transition hover:text-white"
+                className="inline-flex items-center gap-1 text-[12px] text-[#0066cc] transition hover:text-[#0071e3]"
               >
                 <ArrowLeft className="w-4 h-4" />
                 返回工作台

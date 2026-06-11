@@ -92,6 +92,11 @@ code {
   --apple-surface-black: #000000;
   --apple-on-dark: #ffffff;
   --apple-muted-on-dark: #cccccc;
+  --apple-nav-bg: rgba(251, 251, 253, 0.86);
+  --apple-nav-border: rgba(0, 0, 0, 0.08);
+  --apple-nav-text: #1d1d1f;
+  --apple-nav-muted: #6e6e73;
+  --apple-nav-chip: rgba(0, 0, 0, 0.045);
   --apple-chip: #d2d2d7;
   --apple-divider-soft: #f0f0f0;
   --apple-radius-lg: 18px;
@@ -423,11 +428,14 @@ code {
 
 .apple-global-nav {
   min-height: 44px;
-  color: var(--apple-on-dark);
-  background: var(--apple-surface-black);
+  color: var(--apple-nav-text);
+  background: var(--apple-nav-bg);
+  border-bottom: 1px solid var(--apple-nav-border);
   font-size: 12px;
   line-height: 1;
   letter-spacing: -0.12px;
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
 }
 
 .apple-subnav {
@@ -719,6 +727,7 @@ code {
   .gank-glass-card,
   .gank-liquid-panel,
   .gank-liquid-section,
+  .apple-global-nav,
   .apple-subnav,
   .apple-product-tile,
   .apple-product-tile-dark,
@@ -742,6 +751,7 @@ code {
   .gank-glass-card,
   .gank-liquid-panel,
   .gank-liquid-section,
+  .apple-global-nav,
   .apple-subnav,
   .apple-product-tile,
   .apple-product-tile-dark,

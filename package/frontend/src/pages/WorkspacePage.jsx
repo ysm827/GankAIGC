@@ -636,29 +636,29 @@ const WorkspacePage = () => {
             <div className="flex justify-between items-center min-h-[44px] gap-4">
               <div className="flex items-center gap-3">
                 <BrandLogo size="sm" showText={false} />
-                <span className="text-[12px] font-medium tracking-[-0.01em] text-white/92">GankAIGC</span>
-                <span className="hidden sm:inline text-white/48">论文重构工作台</span>
+                <span className="text-[12px] font-medium tracking-[-0.01em] text-[#1d1d1f]">GankAIGC</span>
+                <span className="hidden sm:inline text-[#6e6e73]">论文重构工作台</span>
               </div>
 
               <div className="flex items-center gap-3 overflow-x-auto">
                 {/* 队列状态 */}
                 {queueStatus && (
                   <div className="hidden md:flex items-center gap-2 text-[12px]">
-                    <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-white/82">
+                    <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]" />
                       <span className="font-medium">
                         在线 {queueStatus.online_users ?? 0}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-white/82">
-                      <ListChecks className="w-3.5 h-3.5 text-white/70" />
+                    <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
+                      <ListChecks className="w-3.5 h-3.5 text-[#6e6e73]" />
                       <span className="font-medium">
                         处理中 {queueStatus.current_users}/{queueStatus.max_users}
                       </span>
                     </div>
                     {queueStatus.queue_length > 0 && (
-                      <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1.5 text-white/82">
-                        <Clock className="w-3.5 h-3.5 text-white/70" />
+                      <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
+                        <Clock className="w-3.5 h-3.5 text-[#6e6e73]" />
                         <span className="font-medium">
                           {queueStatus.queue_length} 排队
                         </span>

@@ -66,7 +66,7 @@ Questions to answer:
 ### 1. Scope / Trigger
 
 - Trigger: any production UI theme or layout change in `package/frontend/src/pages/WorkspacePage.jsx`, `SessionDetailPage.jsx`, or shared app shell styling in `package/frontend/src/index.css`.
-- Current visual direction: Apple website product tile language for a paper AI-reduction workspace. Use content-first black/white/light-gray sections, SF Pro/system typography, low chrome, and one interaction accent: Action Blue `#0066cc`.
+- Current visual direction: Apple website product tile language for a paper AI-reduction workspace. Use content-first white/light-gray sections, SF Pro/system typography, low chrome, and one interaction accent: Action Blue `#0066cc`; reserve dark tiles for local product moments rather than the global app chrome.
 - This is a CSS/product-language approximation only. Do not copy Apple assets, screenshots, icons, product claims, or private design-system code.
 
 ### 2. Signatures
@@ -86,8 +86,8 @@ Questions to answer:
 ### 3. Contracts
 
 - Use Action Blue `#0066cc` as the only interactive accent for primary CTAs, active choices, links, and product-stage highlights. Do not reintroduce warm orange/black pill CTA as the main theme.
-- Workspace must include an Apple-style black global nav plus frosted light `.apple-subnav`, followed by a full-width `.apple-product-tile.apple-paper-stage` hero containing `AI PAPER RECONSTRUCTION` and the paper flow chips: `Zhuque detection`, `paper reconstruction`, `full-text recheck`.
-- Use product-tile contrast intentionally: light/parchment paper stage for the main workspace, dark tile (`.apple-product-tile-dark`) for a compact hero metric or high-contrast product moment, and white utility cards for forms/report metrics.
+- Workspace must include a light frosted `.apple-global-nav` plus frosted light `.apple-subnav`, followed by a full-width `.apple-product-tile.apple-paper-stage` hero containing `AI PAPER RECONSTRUCTION` and the paper flow chips: `Zhuque detection`, `paper reconstruction`, `full-text recheck`. Do not use a full-width black top bar for the workspace chrome.
+- Use product-tile contrast intentionally: light/parchment paper stage for the main workspace, optional local dark tile (`.apple-product-tile-dark`) only inside hero/report content, and white utility cards for forms/report metrics.
 - Primary actions should use `.apple-action-pill` and active press `scale(0.95)`. Secondary actions should use `.apple-ghost-pill` or a low-chrome text/link treatment.
 - Utility/report cards should be low chrome: `18px` radius, hairline borders, minimal/no shadow. Heavy generic shadows and decorative gradients are not part of this direction except the single product-preview resting shadow.
 - Keep legacy `.gank-*` class strings where tests or existing pages depend on them, but the visual source of truth for new theme work is the `.apple-*` class set above.
@@ -116,7 +116,7 @@ Questions to answer:
 - Base: A small legacy `.gank-liquid-panel` wrapper can remain for compatibility if the visible card is governed by the Apple low-chrome tokens/classes.
 - Bad: Editing only `frontend/dist` or only `package/static` without source changes.
 - Bad: Copying Apple screenshots, icons, marketing claims, reference-site logos, or fake product imagery into GankAIGC.
-- Bad: Reintroducing multiple accent colors, warm orange primary states, black primary pill buttons, or decorative mesh gradients.
+- Bad: Reintroducing multiple accent colors, warm orange primary states, black primary pill buttons, full-width black workspace chrome, or decorative mesh gradients.
 - Bad: Shipping only token changes that still look like the previous white-card workspace in screenshots.
 
 ### 6. Tests Required
