@@ -59,10 +59,10 @@ code {
   --glass-border-subtle: rgba(148, 163, 184, 0.22);
   --glass-highlight: rgba(255, 255, 255, 0.72);
   --glass-refraction: rgba(255, 255, 255, 0.46);
-  --glass-tint: rgba(255, 106, 26, 0.14);
-  --glass-tint-strong: rgba(255, 149, 0, 0.18);
-  --glass-shadow: 0 34px 110px rgba(68, 39, 16, 0.14), 0 12px 36px rgba(68, 39, 16, 0.08), inset 0 1px 0 var(--glass-edge);
-  --glass-shadow-soft: 0 20px 54px rgba(68, 39, 16, 0.09), 0 5px 16px rgba(68, 39, 16, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --glass-tint: rgba(0, 102, 204, 0.08);
+  --glass-tint-strong: rgba(0, 113, 227, 0.12);
+  --glass-shadow: 0 18px 54px rgba(0, 0, 0, 0.08), inset 0 1px 0 var(--glass-edge);
+  --glass-shadow-soft: 0 1px 0 rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.82);
   --glass-blur: 34px;
   --glass-blur-strong: 46px;
   --glass-saturate: 1.85;
@@ -70,18 +70,38 @@ code {
   --glass-radius-md: 20px;
   --glass-radius-lg: 24px;
   --glass-radius-xl: 30px;
-  --app-accent: 255 106 26;
-  --app-accent-strong: #ff6a1a;
-  --app-accent-ink: #9a3412;
-  --app-bg: #fffaf5;
-  --app-text: #0f172a;
+  --app-accent: 0 102 204;
+  --app-accent-strong: #0066cc;
+  --app-accent-ink: #004b99;
+  --app-bg: #f5f5f7;
+  --app-text: #1d1d1f;
   --app-muted: #64748b;
   --app-surface-text: #111827;
-  --gank-accent: #ff6a1a;
-  --gank-accent-rgb: 255 106 26;
-  --gank-cream: #fff7ef;
-  --gank-cream-strong: #fff1e6;
-  --gank-ink-strong: #080806;
+  --apple-blue: #0066cc;
+  --apple-blue-focus: #0071e3;
+  --apple-blue-on-dark: #2997ff;
+  --apple-ink: #1d1d1f;
+  --apple-body-muted: #6e6e73;
+  --apple-canvas: #ffffff;
+  --apple-parchment: #f5f5f7;
+  --apple-pearl: #fafafc;
+  --apple-hairline: #e0e0e0;
+  --apple-dark-tile: #272729;
+  --apple-dark-tile-2: #2a2a2c;
+  --apple-dark-tile-3: #252527;
+  --apple-surface-black: #000000;
+  --apple-on-dark: #ffffff;
+  --apple-muted-on-dark: #cccccc;
+  --apple-chip: #d2d2d7;
+  --apple-divider-soft: #f0f0f0;
+  --apple-radius-lg: 18px;
+  --apple-radius-pill: 9999px;
+  --apple-product-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0;
+  --gank-accent: var(--apple-blue);
+  --gank-accent-rgb: 0 102 204;
+  --gank-cream: var(--apple-parchment);
+  --gank-cream-strong: #ffffff;
+  --gank-ink-strong: var(--apple-ink);
   --gank-ink: #101828;
   --gank-muted: #667085;
   --gank-line: rgba(148, 163, 184, 0.26);
@@ -101,10 +121,7 @@ code {
   min-height: 100dvh;
   color: var(--app-text);
   background:
-    radial-gradient(circle at 50% 12rem, rgba(255, 106, 26, 0.10), transparent 34rem),
-    radial-gradient(circle at 14% 44%, rgba(255, 207, 126, 0.34), transparent 30rem),
-    radial-gradient(circle at 88% 22%, rgba(255, 226, 214, 0.50), transparent 33rem),
-    linear-gradient(180deg, #ffffff 0%, #ffffff 34%, #fff7ef 100%);
+    linear-gradient(180deg, var(--apple-canvas) 0%, var(--apple-parchment) 100%);
   position: relative;
   isolation: isolate;
   overflow-x: clip;
@@ -118,8 +135,8 @@ code {
   pointer-events: none;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(255, 106, 26, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 106, 26, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(0, 0, 0, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.014) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.44), transparent 72%);
 }
@@ -132,9 +149,8 @@ code {
   pointer-events: none;
   z-index: -1;
   background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.55), transparent 34%),
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.86), transparent 22rem);
-  opacity: 0.88;
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 22rem);
+  opacity: 0.52;
 }
 
 .gank-ambient-orb {
@@ -152,7 +168,7 @@ code {
   height: 24rem;
   top: 6rem;
   left: max(-2rem, calc(50% - 48rem));
-  background: radial-gradient(circle, rgba(255, 149, 0, 0.26), transparent 66%);
+  background: radial-gradient(circle, rgba(0, 102, 204, 0.12), transparent 66%);
 }
 
 .gank-ambient-orb.orb-two {
@@ -160,7 +176,7 @@ code {
   height: 30rem;
   right: max(-4rem, calc(50% - 52rem));
   bottom: 4rem;
-  background: radial-gradient(circle, rgba(255, 106, 26, 0.22), transparent 68%);
+  background: radial-gradient(circle, rgba(210, 210, 215, 0.24), transparent 68%);
 }
 
 .gank-ambient-orb.orb-three {
@@ -168,7 +184,7 @@ code {
   height: 22rem;
   top: 36%;
   right: 12%;
-  background: radial-gradient(circle, rgba(148, 163, 184, 0.22), transparent 72%);
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.08), transparent 72%);
 }
 
 .gank-glass-toolbar {
@@ -244,7 +260,7 @@ code {
   border: 1px solid rgba(255, 255, 255, 0.42);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.26),
-    inset 0 -24px 48px rgba(255, 106, 26, 0.040);
+    inset 0 -24px 48px rgba(0, 102, 204, 0.035);
 }
 
 .gank-liquid-panel > * {
@@ -342,31 +358,32 @@ code {
 }
 
 .gank-glass-choice-active {
-  border-color: rgba(255, 106, 26, 0.58);
+  border-color: rgba(0, 102, 204, 0.44);
   background:
-    radial-gradient(circle at 0% 0%, rgba(255, 106, 26, 0.22), transparent 38%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 247, 237, 0.42)),
+    radial-gradient(circle at 0% 0%, rgba(0, 102, 204, 0.13), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(245, 245, 247, 0.58)),
     rgba(255, 255, 255, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(255, 106, 26, 0.12), 0 18px 42px rgba(255, 106, 26, 0.13);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(0, 102, 204, 0.10), 0 12px 30px rgba(0, 102, 204, 0.10);
 }
 
 .gank-glass-choice-warm {
-  border-color: rgba(245, 158, 11, 0.58);
+  border-color: rgba(0, 102, 204, 0.34);
   background:
-    radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.22), transparent 38%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 251, 235, 0.38)),
+    radial-gradient(circle at 0% 0%, rgba(0, 102, 204, 0.10), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(250, 250, 252, 0.58)),
     rgba(255, 255, 255, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(245, 158, 11, 0.12), 0 18px 42px rgba(245, 158, 11, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 0 0 1px rgba(0, 102, 204, 0.08), 0 12px 30px rgba(0, 0, 0, 0.06);
 }
 
 .gank-primary-button {
   color: white;
-  background: linear-gradient(135deg, #080806, #1f1b16);
-  box-shadow: 0 18px 36px rgba(8, 8, 6, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  background: var(--apple-blue);
+  box-shadow: none;
 }
 
 .gank-primary-button:hover {
-  filter: brightness(0.98);
+  background: var(--apple-blue-focus);
+  filter: none;
 }
 
 .gank-secondary-button {
@@ -381,40 +398,180 @@ code {
 .gank-pill-button {
   border-radius: 999px;
   color: #ffffff;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), transparent),
-    #080806;
-  box-shadow: 0 16px 34px rgba(8, 8, 6, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: var(--apple-blue);
+  box-shadow: none;
   transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
 }
 
 .gank-pill-button:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 20px 42px rgba(8, 8, 6, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: var(--apple-blue-focus);
+  filter: none;
+  box-shadow: none;
 }
 
 .gank-pill-button:active {
-  transform: translateY(1px) scale(0.99);
+  transform: scale(0.95);
 }
 
 .gank-eyebrow {
   color: var(--gank-accent);
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.20em;
   text-transform: uppercase;
 }
 
+.apple-global-nav {
+  min-height: 44px;
+  color: var(--apple-on-dark);
+  background: var(--apple-surface-black);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: -0.12px;
+}
+
+.apple-subnav {
+  min-height: 52px;
+  color: var(--apple-ink);
+  background: rgba(245, 245, 247, 0.86);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(20px) saturate(1.35);
+  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+}
+
+.apple-product-tile,
 .gank-tabbit-hero {
   position: relative;
   overflow: hidden;
-  border-radius: 38px;
+  border-radius: 0;
+  color: var(--apple-ink);
+  background: var(--apple-canvas);
+  border: 0;
+  box-shadow: none;
+}
+
+.apple-product-tile {
+  padding: clamp(3rem, 7vw, 5rem);
+}
+
+.apple-product-tile.apple-paper-stage,
+.apple-paper-stage {
   background:
-    radial-gradient(circle at 50% 100%, rgba(255, 106, 26, 0.18), transparent 42%),
-    radial-gradient(circle at 12% 18%, rgba(255, 214, 160, 0.32), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 247, 239, 0.78));
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  box-shadow: 0 42px 120px rgba(68, 39, 16, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    linear-gradient(180deg, var(--apple-canvas) 0%, var(--apple-parchment) 100%);
+}
+
+.apple-product-tile-dark {
+  color: var(--apple-on-dark);
+  background:
+    radial-gradient(circle at 50% 112%, rgba(41, 151, 255, 0.18), transparent 38%),
+    linear-gradient(180deg, var(--apple-dark-tile), var(--apple-dark-tile-3));
+}
+
+.apple-product-tile-dark .gank-eyebrow,
+.apple-product-tile-dark a,
+.apple-product-tile-dark .apple-link {
+  color: var(--apple-blue-on-dark);
+}
+
+.apple-action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  border-radius: var(--apple-radius-pill);
+  border: 1px solid transparent;
+  color: var(--apple-on-dark);
+  background: var(--apple-blue);
+  padding: 0.72rem 1.4rem;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.374px;
+  box-shadow: none;
+  transition: transform 160ms ease, background-color 160ms ease, opacity 160ms ease;
+}
+
+.apple-action-pill:hover {
+  background: var(--apple-blue-focus);
+}
+
+.apple-action-pill:active {
+  transform: scale(0.95);
+}
+
+.apple-ghost-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  border-radius: var(--apple-radius-pill);
+  border: 1px solid var(--apple-hairline);
+  color: var(--apple-blue);
+  background: var(--apple-canvas);
+  padding: 0.62rem 1.1rem;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.apple-ghost-pill:hover {
+  border-color: rgba(0, 102, 204, 0.26);
+  background: #ffffff;
+}
+
+.apple-ghost-pill:active {
+  transform: scale(0.95);
+}
+
+.apple-utility-card {
+  border: 1px solid var(--apple-hairline);
+  border-radius: var(--apple-radius-lg);
+  background: var(--apple-canvas);
+  box-shadow: none;
+}
+
+.apple-metric-card {
+  border: 1px solid var(--apple-divider-soft);
+  border-radius: var(--apple-radius-lg);
+  background: var(--apple-pearl);
+  box-shadow: none;
+}
+
+.apple-config-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: var(--apple-radius-pill);
+  border: 1px solid var(--apple-hairline);
+  background: var(--apple-canvas);
+  color: var(--apple-ink);
+  padding: 0.72rem 1rem;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+.apple-reading-panel {
+  border: 1px solid var(--apple-hairline);
+  border-radius: var(--apple-radius-lg);
+  background: var(--apple-canvas);
+  box-shadow: none;
+}
+
+.apple-report-stage {
+  border: 1px solid var(--apple-hairline);
+  border-radius: 28px;
+  background: var(--apple-canvas);
+  box-shadow: none;
+}
+
+.gank-tabbit-hero {
+  background:
+    linear-gradient(180deg, var(--apple-canvas) 0%, var(--apple-parchment) 100%);
 }
 
 .gank-tabbit-hero::after {
@@ -424,22 +581,20 @@ code {
   height: 54%;
   pointer-events: none;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(255, 106, 26, 0.18), transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(0, 102, 204, 0.10), transparent 70%);
   filter: blur(22px);
 }
 
-.gank-product-preview {
+.gank-product-preview,
+.apple-paper-stage-preview {
   position: relative;
   overflow: hidden;
-  border-radius: 30px;
+  border-radius: 28px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 250, 245, 0.76)),
-    rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.86);
-  box-shadow:
-    0 44px 90px rgba(68, 39, 16, 0.14),
-    0 16px 38px rgba(68, 39, 16, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 250, 252, 0.92)),
+    var(--apple-canvas);
+  border: 1px solid var(--apple-hairline);
+  box-shadow: var(--apple-product-shadow);
   backdrop-filter: blur(26px) saturate(1.4);
   -webkit-backdrop-filter: blur(26px) saturate(1.4);
 }
@@ -451,7 +606,7 @@ code {
   pointer-events: none;
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.76), transparent 28%),
-    radial-gradient(circle at 82% 12%, rgba(255, 106, 26, 0.16), transparent 30%);
+    radial-gradient(circle at 82% 12%, rgba(0, 102, 204, 0.08), transparent 30%);
 }
 
 .gank-product-preview > * {
@@ -460,16 +615,16 @@ code {
 }
 
 .gank-preview-window {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(231, 222, 213, 0.78);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 18px 44px rgba(68, 39, 16, 0.08);
+  border-radius: var(--apple-radius-lg);
+  background: var(--apple-canvas);
+  border: 1px solid var(--apple-hairline);
+  box-shadow: none;
 }
 
 .gank-preview-line {
   height: 0.55rem;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(255, 106, 26, 0.32), rgba(255, 203, 145, 0.46));
+  background: linear-gradient(90deg, rgba(0, 102, 204, 0.30), rgba(210, 210, 215, 0.56));
 }
 
 .gank-process-chip {
@@ -477,17 +632,16 @@ code {
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 106, 26, 0.18);
-  background: rgba(255, 255, 255, 0.74);
-  color: #9a3412;
-  box-shadow: 0 10px 26px rgba(68, 39, 16, 0.055);
+  border: 1px solid var(--apple-hairline);
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--apple-ink);
+  box-shadow: none;
 }
 
-.gank-report-shell {
-  border-color: rgba(255, 255, 255, 0.84);
-  background:
-    radial-gradient(circle at 0% 0%, rgba(255, 106, 26, 0.15), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 247, 239, 0.66));
+.gank-report-shell,
+.apple-report-stage {
+  border-color: var(--apple-hairline);
+  background: var(--apple-canvas);
 }
 
 .gank-agent-scroll {
@@ -565,6 +719,13 @@ code {
   .gank-glass-card,
   .gank-liquid-panel,
   .gank-liquid-section,
+  .apple-subnav,
+  .apple-product-tile,
+  .apple-product-tile-dark,
+  .apple-utility-card,
+  .apple-paper-stage-preview,
+  .apple-report-stage,
+  .apple-reading-panel,
   .gank-segmented-control,
   .gank-secondary-button,
   .gank-input,
@@ -581,6 +742,13 @@ code {
   .gank-glass-card,
   .gank-liquid-panel,
   .gank-liquid-section,
+  .apple-subnav,
+  .apple-product-tile,
+  .apple-product-tile-dark,
+  .apple-utility-card,
+  .apple-paper-stage-preview,
+  .apple-report-stage,
+  .apple-reading-panel,
   .gank-segmented-control,
   .gank-secondary-button,
   .gank-input,

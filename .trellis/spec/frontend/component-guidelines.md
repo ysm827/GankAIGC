@@ -61,20 +61,21 @@ Questions to answer:
 ---
 
 
-## Scenario: Apple Glass Workspace Theme
+## Scenario: Apple Product Tile Workspace Theme
 
 ### 1. Scope / Trigger
 
 - Trigger: any production UI theme or layout change in `package/frontend/src/pages/WorkspacePage.jsx`, `SessionDetailPage.jsx`, or shared app shell styling in `package/frontend/src/index.css`.
-- The current visual direction is an Apple-inspired paper workspace: translucent, calm, academic, and readable. It is a web approximation using CSS `backdrop-filter`; it is not an official Apple design-system dependency.
+- Current visual direction: Apple website product tile language for a paper AI-reduction workspace. Use content-first black/white/light-gray sections, SF Pro/system typography, low chrome, and one interaction accent: Action Blue `#0066cc`.
+- This is a CSS/product-language approximation only. Do not copy Apple assets, screenshots, icons, product claims, or private design-system code.
 
 ### 2. Signatures
 
 - Shared CSS tokens/classes in `src/index.css`:
-  - `--glass-bg`, `--glass-bg-strong`, `--glass-bg-solid`, `--glass-border`, `--glass-shadow`, `--glass-blur`, `--glass-radius-xl`, `--app-accent`.
-  - `--gank-accent`, `--gank-cream`, `--gank-ink-strong` for the Tabbit-inspired warm Apple glass direction.
-  - `.gank-app-page`, `.gank-ambient-orb`, `.gank-liquid-panel`, `.gank-liquid-section`, `.gank-text-panel`, `.gank-segmented-control`, `.gank-glass-status-grid`, `.gank-primary-button`, `.gank-secondary-button`, `.gank-input`.
-  - `.gank-tabbit-hero`, `.gank-product-preview`, `.gank-pill-button`, `.gank-process-chip`, `.gank-report-shell`, `.gank-agent-scroll`.
+  - Compatibility glass tokens that must remain for existing tests and fallbacks: `--glass-bg`, `--glass-bg-strong`, `--glass-bg-solid`, `--glass-border`, `--glass-edge`, `--glass-refraction`, `--glass-shadow`, `--glass-blur`, `--glass-radius-xl`, `--app-accent`.
+  - Apple product tokens: `--apple-blue`, `--apple-blue-focus`, `--apple-blue-on-dark`, `--apple-ink`, `--apple-body-muted`, `--apple-canvas`, `--apple-parchment`, `--apple-pearl`, `--apple-hairline`, `--apple-dark-tile`.
+  - Apple layout/component classes: `.apple-global-nav`, `.apple-subnav`, `.apple-product-tile`, `.apple-product-tile-dark`, `.apple-action-pill`, `.apple-ghost-pill`, `.apple-utility-card`, `.apple-paper-stage`, `.apple-paper-stage-preview`, `.apple-report-stage`, `.apple-reading-panel`, `.apple-metric-card`, `.apple-config-chip`.
+  - Legacy compatibility classes still used by tests/pages: `.gank-app-page`, `.gank-ambient-orb`, `.gank-liquid-panel`, `.gank-liquid-section`, `.gank-text-panel`, `.gank-segmented-control`, `.gank-glass-status-grid`, `.gank-glass-choice-active`, `.gank-glass-choice-warm`, `.gank-agent-scroll`.
 - Primary pages using the contract:
   - `src/pages/WorkspacePage.jsx`.
   - `src/pages/SessionDetailPage.jsx`.
@@ -84,67 +85,65 @@ Questions to answer:
 
 ### 3. Contracts
 
-- Production pages must reuse the shared glass classes instead of repeating ad-hoc `bg-white/70 backdrop-blur-* shadow-*` combinations.
-- The Apple glass theme must be visually recognizable, not just a plain white card: use layered highlights, edge strokes, ambient tint, and choice-state classes such as `.gank-glass-choice-active` / `.gank-glass-choice-warm` for high-frequency controls.
-- When adapting a reference site such as Tabbit, migrate the design language rather than copying assets: warm white/cream stage, orange accent, black pill CTA, fixed blurred toolbar, large product-preview shell, and rounded report cards.
-- A reference-site visual refresh must change the page skeleton where needed. Updating only color tokens or blur values is insufficient if screenshots still look like the previous white-card workspace.
-- The workspace hero should use `.gank-tabbit-hero` and a CSS-built `.gank-product-preview` instead of copied screenshots. The hero must preserve app IA and include paper-specific process chips such as Zhuque detection, paper reconstruction, and full-text recheck when relevant.
-- The session detail report should use `.gank-report-shell`; long agent histories should use `.gank-agent-scroll` plus `custom-scrollbar` so the result/original text panels remain reachable.
-- Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` or an equally high-opacity background. Do not make paper body text heavily transparent.
-- Ambient page background should be CSS-native (`.gank-ambient-orb` and gradients) unless the task explicitly requires generated imagery.
-- The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black` content unreadable unless the pages are audited end-to-end.
-- All glass surfaces must have solid fallbacks through both:
+- Use Action Blue `#0066cc` as the only interactive accent for primary CTAs, active choices, links, and product-stage highlights. Do not reintroduce warm orange/black pill CTA as the main theme.
+- Workspace must include an Apple-style black global nav plus frosted light `.apple-subnav`, followed by a full-width `.apple-product-tile.apple-paper-stage` hero containing `AI PAPER RECONSTRUCTION` and the paper flow chips: `Zhuque detection`, `paper reconstruction`, `full-text recheck`.
+- Use product-tile contrast intentionally: light/parchment paper stage for the main workspace, dark tile (`.apple-product-tile-dark`) for a compact hero metric or high-contrast product moment, and white utility cards for forms/report metrics.
+- Primary actions should use `.apple-action-pill` and active press `scale(0.95)`. Secondary actions should use `.apple-ghost-pill` or a low-chrome text/link treatment.
+- Utility/report cards should be low chrome: `18px` radius, hairline borders, minimal/no shadow. Heavy generic shadows and decorative gradients are not part of this direction except the single product-preview resting shadow.
+- Keep legacy `.gank-*` class strings where tests or existing pages depend on them, but the visual source of truth for new theme work is the `.apple-*` class set above.
+- Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` plus `.apple-reading-panel` or an equally opaque background. Do not make paper body text translucent.
+- Long Agent histories must remain inside `.gank-agent-scroll` plus `custom-scrollbar` and `max-h-[560px]` so the result/original text panels stay reachable.
+- The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black`, `bg-white`, or `text-gray-*` content unreadable unless the pages are audited end-to-end.
+- All translucent surfaces must have solid fallbacks through both:
   - `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))`.
   - `@media (prefers-reduced-transparency: reduce)`.
 - After any production frontend change, run `npm.cmd run build`, sync `package/frontend/dist` into `package/static`, force-stage new ignored static assets, and stage old hashed assets as deletions.
 
 ### 4. Validation & Error Matrix
 
-- Missing glass tokens/classes in source -> `test_frontend_uses_apple_glass_theme_tokens` fails.
+- Missing Apple tokens/classes in source -> `test_frontend_uses_apple_glass_theme_tokens` fails.
 - Static bundle not synced after build -> the same test fails because it reads the CSS bundle referenced by `package/static/index.html`.
-- Browser lacks `backdrop-filter` -> UI must fall back to `--glass-bg-solid`, not transparent unreadable panels.
+- Browser lacks `backdrop-filter` -> UI must fall back to solid readable surfaces, not transparent unreadable panels.
 - User has reduced transparency enabled -> ambient orbs are hidden and surfaces become solid.
+- Warm Tabbit/orange remnants become primary visual language -> visual review fails even if static string tests pass.
 - Long Agent trace -> keep a bounded scroll container so final/original paper text remains reachable.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: Workspace and session detail use `.gank-liquid-panel` for main shells, `.gank-segmented-control` for mode tabs, `.gank-glass-status-grid` for compact status metrics, `.gank-glass-choice-*` for selectable cards, and `.gank-text-panel` for paper text.
-- Good: Reference-inspired workspace adds a clear hero/product-preview section with `AI PAPER RECONSTRUCTION`, warm orange process chips, and black pill CTAs while keeping the existing task form, project list, billing copy, and Zhuque readiness flow.
-- Good: Session detail shows a distinct "检测报告预览" shell and keeps Agent trace rows inside `.gank-agent-scroll`.
-- Good: New CSS bundle in `package/static/index.html` references current hashed `assets/index-*.css` and contains the glass tokens.
-- Base: A small legacy card can remain if global `.gank-card` fallback styles keep it readable.
+- Good: Workspace uses `.apple-global-nav`, `.apple-subnav`, `.apple-product-tile.apple-paper-stage`, `.apple-action-pill`, `.apple-config-chip`, and keeps the existing task form, project list, billing copy, and Zhuque readiness flow.
+- Good: Session detail shows a distinct `.apple-report-stage` "Detection report preview" shell, `.apple-utility-card` metric tiles, `.apple-reading-panel` text panes, and keeps Agent trace rows inside `.gank-agent-scroll`.
+- Good: New CSS bundle in `package/static/index.html` references current hashed `assets/index-*.css` and contains the Apple + fallback tokens.
+- Base: A small legacy `.gank-liquid-panel` wrapper can remain for compatibility if the visible card is governed by the Apple low-chrome tokens/classes.
 - Bad: Editing only `frontend/dist` or only `package/static` without source changes.
-- Bad: Adding generated background images for simple glow/blur effects that CSS can produce deterministically.
-- Bad: Relying on automatic dark mode while components still hard-code `text-black`, `bg-white`, or `text-gray-*` classes.
-- Bad: Shipping only subtle opacity changes that look indistinguishable from the previous iOS white-card theme in screenshots.
-- Bad: Copying a reference site's logo, screenshots, claims, fake model names, or marketing copy into GankAIGC.
+- Bad: Copying Apple screenshots, icons, marketing claims, reference-site logos, or fake product imagery into GankAIGC.
+- Bad: Reintroducing multiple accent colors, warm orange primary states, black primary pill buttons, or decorative mesh gradients.
+- Bad: Shipping only token changes that still look like the previous white-card workspace in screenshots.
 
 ### 6. Tests Required
 
-- Static frontend test must assert the source tokens and page class usage.
+- Static frontend test must assert source tokens/classes and page class usage.
 - Static frontend test must also read the CSS bundle referenced by `package/static/index.html` to prove static sync happened.
 - Run:
-  - `cd package/backend; python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
   - `cd package/frontend; npm.cmd run build`
+  - `cd package/backend; python -m pytest tests/test_frontend_redeem_entry.py -q --basetemp D:\AI\TOOL\GankAIGC\package\backend\tmp-pytest`
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```jsx
-<div className="rounded-2xl bg-white/70 shadow-ios backdrop-blur-xl">
-  <pre className="text-black">{paperText}</pre>
-</div>
+<section className="gank-tabbit-hero rounded-[38px] bg-orange-50">
+  <button className="gank-pill-button bg-black text-white">Start optimization</button>
+</section>
 ```
 
 #### Correct
 
 ```jsx
-<div className="gank-text-panel overflow-hidden flex flex-col">
-  <div className="flex-1 overflow-y-auto bg-white/90 p-5">
-    <pre className="whitespace-pre-wrap font-sans text-black leading-relaxed">{paperText}</pre>
-  </div>
-</div>
+<section className="apple-product-tile apple-paper-stage gank-tabbit-hero">
+  <p className="gank-eyebrow">AI PAPER RECONSTRUCTION</p>
+  <a href="#new-task" className="apple-action-pill">Start optimization</a>
+</section>
 ```
 
 ## Scenario: Zhuque AI Detect-Reduce UI Contract

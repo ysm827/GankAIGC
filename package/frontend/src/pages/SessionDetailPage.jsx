@@ -343,32 +343,41 @@ const SessionDetailPage = () => {
       <div className="gank-ambient-orb orb-three" />
 
       {/* 顶部导航 */}
-      <nav className="gank-glass-toolbar sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center min-h-[64px] gap-4">
-            <div className="flex items-center gap-3">
-              <BrandLogo size="sm" />
+      <header className="sticky top-0 z-50">
+        <nav className="apple-global-nav">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center min-h-[44px] gap-4">
+              <div className="flex items-center gap-3">
+                <BrandLogo size="sm" showText={false} />
+                <span className="text-[12px] font-medium tracking-[-0.01em] text-white/92">GankAIGC</span>
+                <span className="hidden sm:inline text-white/48">会话详情</span>
+              </div>
+
               <button
                 onClick={() => navigate('/workspace')}
-                className="flex items-center gap-1 text-ios-blue hover:opacity-70 transition-opacity -ml-2 px-2 py-1 rounded-lg"
+                className="inline-flex items-center gap-1 text-[12px] text-white/82 transition hover:text-white"
               >
-                <ArrowLeft className="w-5 h-5" />
-                <span className="text-[17px] font-normal">返回</span>
+                <ArrowLeft className="w-4 h-4" />
+                返回工作台
               </button>
-              
-              <div className="h-6 w-[1px] bg-gray-300 mx-1" />
-
-              <div className="flex items-center gap-2">
-                <h1 className="text-[17px] font-semibold text-black">
-                  会话详情
-                </h1>
-                <span className="text-[13px] text-ios-gray font-normal">
-                  {formatChinaDate(session.created_at)}
-                </span>
-              </div>
             </div>
+          </div>
+        </nav>
+        <div className="apple-subnav">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center min-h-[52px] gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-[17px] font-semibold tracking-[-0.022em] text-[#1d1d1f]">
+                    会话详情
+                  </h1>
+                  <span className="hidden text-[13px] text-[#6e6e73] sm:inline">
+                    {formatChinaDate(session.created_at)}
+                  </span>
+                </div>
+              </div>
 
-            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3">
               {session.status === 'completed' && (
                 <>
                   <div className="hidden sm:flex items-center gap-1.5 text-ios-green bg-green-50 px-2 py-1 rounded-md">
@@ -378,7 +387,7 @@ const SessionDetailPage = () => {
                   
                   <button
                     onClick={() => setShowExportModal(true)}
-                    className="gank-primary-button flex items-center gap-1.5 rounded-full py-1.5 px-4 text-[15px] font-semibold transition-all active:scale-[0.98]"
+                    className="apple-action-pill gank-primary-button flex items-center gap-1.5 min-h-0 py-2 px-4 text-[15px] font-semibold transition-all active:scale-[0.95]"
                   >
                     <Download className="w-4 h-4" />
                     导出
@@ -394,7 +403,7 @@ const SessionDetailPage = () => {
               )}
 
               {session.status === 'stopped' && (
-                <div className="flex items-center gap-1.5 text-orange-600 bg-orange-50 px-2 py-1 rounded-md">
+                <div className="flex items-center gap-1.5 text-[#6e6e73] bg-[#f5f5f7] px-2 py-1 rounded-md">
                   <AlertCircle className="w-4 h-4" />
                   <span className="text-[13px] font-medium">已停止</span>
                 </div>
@@ -412,7 +421,8 @@ const SessionDetailPage = () => {
             </div>
           </div>
         </div>
-      </nav>
+        </div>
+      </header>
 
       {/* 主内容 */}
       <div className="relative z-[1] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -468,10 +478,10 @@ const SessionDetailPage = () => {
           {activeTab === 'result' && (
             <>
               {zhuqueReport && (
-                <div className="gank-liquid-panel gank-report-shell overflow-hidden">
-                  <div className="p-5 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
+                <div className="apple-report-stage gank-liquid-panel gank-report-shell overflow-hidden">
+                  <div className="p-5 bg-[#fafafc] border-b border-[#e0e0e0] flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center shadow-inner">
+                      <div className="w-11 h-11 rounded-2xl bg-blue-50 text-[#0066cc] flex items-center justify-center">
                         <BarChart3 className="w-5 h-5" />
                       </div>
                       <div>
@@ -492,27 +502,27 @@ const SessionDetailPage = () => {
 
                   <div className="p-5 space-y-5">
                     <div className="gank-glass-status-grid grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div className="apple-utility-card apple-metric-card px-4 py-3">
                         <p className="text-[12px] text-ios-gray mb-1">最终风险率</p>
                         <p className="text-[24px] font-bold text-black tracking-tight">
                           {formatRate(zhuqueReport.finalRate)}
                         </p>
                       </div>
-                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div className="apple-utility-card apple-metric-card px-4 py-3">
                         <p className="text-[12px] text-ios-gray mb-1">朱雀检测</p>
                         <p className="text-[24px] font-bold text-black tracking-tight">
                           {zhuqueReport.detectCount}
                           <span className="text-[13px] font-medium text-ios-gray ml-1">次</span>
                         </p>
                       </div>
-                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div className="apple-utility-card apple-metric-card px-4 py-3">
                         <p className="text-[12px] text-ios-gray mb-1">降重轮次</p>
                         <p className="text-[24px] font-bold text-black tracking-tight">
                           {zhuqueReport.reduceRounds}
                           <span className="text-[13px] font-medium text-ios-gray ml-1">轮</span>
                         </p>
                       </div>
-                      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div className="apple-utility-card apple-metric-card px-4 py-3">
                         <p className="text-[12px] text-ios-gray mb-1">朱雀剩余</p>
                         <p className="text-[24px] font-bold text-black tracking-tight">
                           {zhuqueReport.result?.remaining_uses ?? '--'}
@@ -535,25 +545,25 @@ const SessionDetailPage = () => {
                         <h4 className="text-[14px] font-semibold text-black">处理过程</h4>
                       </div>
                       <div className="gank-glass-status-grid grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                          <div className="apple-utility-card px-4 py-3">
                           <p className="text-[13px] font-semibold text-black">1. 全文检测</p>
                           <p className="text-[12px] text-ios-gray mt-1">
                             合并 {zhuqueReport.segmentCount} 段调用朱雀
                           </p>
                         </div>
-                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                        <div className="apple-utility-card px-4 py-3">
                           <p className="text-[13px] font-semibold text-black">2. 论文润色</p>
                           <p className="text-[12px] text-ios-gray mt-1">
                             {zhuqueReport.reduceRounds > 0 ? `已执行 ${zhuqueReport.reduceRounds} 轮` : '风险率未超阈值，未调用'}
                           </p>
                         </div>
-                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                        <div className="apple-utility-card px-4 py-3">
                           <p className="text-[13px] font-semibold text-black">3. 论文增强</p>
                           <p className="text-[12px] text-ios-gray mt-1">
                             {zhuqueReport.reduceRounds > 0 ? '使用增强结果作为最终文本' : '保留原文'}
                           </p>
                         </div>
-                        <div className="rounded-xl border border-gray-100 px-4 py-3">
+                        <div className="apple-utility-card px-4 py-3">
                           <p className="text-[13px] font-semibold text-black">4. 全文复检</p>
                           <p className="text-[12px] text-ios-gray mt-1">
                             {zhuqueReport.detectCount > 1 ? `已复检 ${zhuqueReport.detectCount - 1} 次` : '无需复检'}
@@ -566,10 +576,10 @@ const SessionDetailPage = () => {
               )}
 
               {session?.processing_mode === 'ai_detect_reduce' && (zhuqueAgentTrace || zhuqueLiveEvents.length > 0) && (
-                <div className="gank-liquid-panel overflow-hidden">
-                  <div className="p-4 bg-white/35 border-b border-white/50 flex items-center justify-between gap-4 flex-wrap">
+                <div className="apple-utility-card gank-liquid-panel overflow-hidden">
+                  <div className="p-4 bg-[#fafafc] border-b border-[#e0e0e0] flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#0066cc] flex items-center justify-center">
                         <Activity className="w-5 h-5" />
                       </div>
                       <div>
@@ -580,7 +590,7 @@ const SessionDetailPage = () => {
                       </div>
                     </div>
                     {zhuqueAgentTrace?.final?.diagnosis && (
-                      <div className="rounded-full bg-amber-50 px-3 py-1.5 text-[13px] font-semibold text-amber-700">
+                      <div className="rounded-full bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700">
                         诊断建议：{zhuqueAgentTrace.final.diagnosis}
                       </div>
                     )}
@@ -607,12 +617,12 @@ const SessionDetailPage = () => {
                             </span>
                           )}
                           {event.current_strategy && (
-                            <span className="rounded-full bg-purple-50 px-2.5 py-1 text-[12px] font-semibold text-purple-700">
+                            <span className="rounded-full bg-[#f5f5f7] px-2.5 py-1 text-[12px] font-semibold text-[#6e6e73]">
                               当前：{event.current_strategy}
                             </span>
                           )}
                           {event.next_strategy && (
-                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-semibold text-amber-700">
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-[#0066cc]">
                               下一轮：{event.next_strategy}
                             </span>
                           )}
@@ -670,7 +680,7 @@ const SessionDetailPage = () => {
                           </div>
                         )}
                         {event.type === 'plateau_exit' && (
-                          <div className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-[13px] leading-6 text-orange-800">
+                          <div className="mt-2 rounded-lg bg-[#f5f5f7] px-3 py-2 text-[13px] leading-6 text-[#1d1d1f]">
                             <p className="font-semibold">卡点退出</p>
                             <p>已保留上一版最低风险文本，建议人工微调顽固段落或调整阈值后复检。</p>
                           </div>
@@ -683,7 +693,7 @@ const SessionDetailPage = () => {
                           </div>
                         )}
                         {event.root_causes && event.root_causes.length > 0 && (
-                          <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] leading-6 text-amber-800">
+                          <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-[13px] leading-6 text-blue-800">
                             <p className="font-semibold">失败原因</p>
                             <p>{event.root_causes.join('；')}</p>
                           </div>
@@ -735,8 +745,8 @@ const SessionDetailPage = () => {
               )}
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/80 border-b border-orange-100/80 flex justify-between items-center">
+                <div className="apple-reading-panel gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-white/90 border-b border-[#e0e0e0] flex justify-between items-center">
                     <div className="flex items-center gap-3">
                       <h3 className="text-[15px] font-semibold text-black ml-2">
                         {shouldShowResultSwitch()
@@ -771,7 +781,7 @@ const SessionDetailPage = () => {
                     </div>
 
                     <button
-                      className="rounded-full bg-[#080806] px-3 py-1 text-[13px] font-semibold text-white transition hover:brightness-110"
+                      className="apple-action-pill min-h-0 px-3 py-1.5 text-[13px] font-semibold"
                       onClick={() => {
                         navigator.clipboard.writeText(getDisplayText());
                         toast.success('已复制到剪贴板');
@@ -787,8 +797,8 @@ const SessionDetailPage = () => {
                   </div>
                 </div>
               
-                <div className="gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/80 border-b border-orange-100/80">
+                <div className="apple-reading-panel gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
+                  <div className="p-3 bg-white/90 border-b border-[#e0e0e0]">
                     <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
                       原始文本
                     </h3>
@@ -804,7 +814,7 @@ const SessionDetailPage = () => {
           )}
 
           {activeTab === 'compare' && (
-            <div className="gank-liquid-panel p-6 min-h-[calc(100vh-180px)]">
+            <div className="apple-utility-card gank-liquid-panel p-6 min-h-[calc(100vh-180px)]">
               <h3 className="text-[20px] font-bold text-black mb-6 tracking-tight">
                 变更对照记录
               </h3>
