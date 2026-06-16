@@ -90,7 +90,7 @@ class UnavailableZhuqueService:
 
     async def start(self):
         self.start_calls += 1
-        raise RuntimeError(f"无法连接Chrome CDP端口 {self.port}。请确保Chrome以 --remote-debugging-port={self.port} 启动")
+        raise RuntimeError("未找到朱雀微信登录凭证，请先微信扫码授权")
 
     async def readiness(self, text=None):
         return {
@@ -104,8 +104,8 @@ class UnavailableZhuqueService:
             "text_length_ok": len(text or "") >= 350 if text is not None else True,
             "estimated_first_round_credits": 0,
             "estimated_max_round_credits": 0,
-            "message": f"无法连接 Chrome CDP 端口 {self.port}",
-            "actions": ["点击启动朱雀浏览器"],
+            "message": "未找到朱雀微信登录凭证",
+            "actions": ["微信扫码登录朱雀"],
         }
 
     async def detect(self, text):
@@ -119,6 +119,10 @@ class StatusOnlyZhuqueAPI:
         self.status_calls = 0
 
     async def status(self):
+        self.status_calls += 1
+        return dict(self.status_payload)
+
+    def credential_status(self):
         self.status_calls += 1
         return dict(self.status_payload)
 
@@ -290,43 +294,112 @@ def _create_user(*, credit_balance=20, zhuque_free_uses_remaining=20):
         db.close()
 
 
-def test_launch_zhuque_chrome_uses_configured_port_and_profile(monkeypatch, tmp_path):
-    from app.services import zhuque_browser_launcher
+def test_zhuque_wechat_capture_launches_capture_script(monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
 
-    chrome_path = tmp_path / "chrome.exe"
-    chrome_path.write_text("", encoding="utf-8")
+    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path.write_text("print('capture')", encoding="utf-8")
     popen_calls = []
 
     class FakePopen:
-        def __init__(self, args, stdout=None, stderr=None):
-            popen_calls.append({"args": args, "stdout": stdout, "stderr": stderr})
+        def __init__(self, args, cwd=None, env=None, stdout=None, stderr=None, start_new_session=None):
+            popen_calls.append(
+                {
+                    "args": args,
+                    "cwd": cwd,
+                    "env": env,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "start_new_session": start_new_session,
+                }
+            )
 
-    monkeypatch.setattr(zhuque_browser_launcher, "find_chrome_executable", lambda: str(chrome_path))
-    monkeypatch.setattr(zhuque_browser_launcher, "get_zhuque_user_data_dir", lambda port: str(tmp_path / f"profile-{port}"))
-    monkeypatch.setattr(zhuque_browser_launcher.subprocess, "Popen", FakePopen)
-    monkeypatch.setattr(zhuque_browser_launcher.settings, "ZHUQUE_CDP_PORT", 9333, raising=False)
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": False,
+                "credential_file": str(script_path.parent / "creds_latest.json"),
+            }
 
-    result = zhuque_browser_launcher.launch_zhuque_chrome()
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_zhuque_capture_script_path", lambda: script_path)
+    monkeypatch.setattr(optimization_route.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(optimization_route, "_zhuque_playwright_browser_ready", lambda: True)
+    monkeypatch.setattr(optimization_route.subprocess, "Popen", FakePopen)
+
+    result = optimization_route._start_zhuque_wechat_capture()
 
     assert result["status"] == "started"
-    assert result["port"] == 9333
-    assert result["url"] == zhuque_browser_launcher.ZHUQUE_DETECT_URL
-    assert Path(result["user_data_dir"]).name == "profile-9333"
+    assert result["auth_mode"] == "headless_api"
+    assert result["login_mode"] == "wechat_qr"
+    assert result["credential_file"].endswith("creds_latest.json")
+    assert "无头 API" in result["message"]
     assert popen_calls
-    args = popen_calls[0]["args"]
-    assert args[0] == str(chrome_path)
-    assert "--remote-debugging-port=9333" in args
-    assert f"--user-data-dir={result['user_data_dir']}" in args
-    assert zhuque_browser_launcher.ZHUQUE_DETECT_URL in args
+    assert popen_calls[0]["args"] == [optimization_route.sys.executable, str(script_path)]
+    assert popen_calls[0]["cwd"] == str(script_path.parent)
+    assert "PLAYWRIGHT_BROWSERS_PATH" in popen_calls[0]["env"]
+    assert popen_calls[0]["start_new_session"] is True
 
 
-def test_launch_zhuque_chrome_reports_missing_chrome(monkeypatch):
-    from app.services import zhuque_browser_launcher
+def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
 
-    monkeypatch.setattr(zhuque_browser_launcher, "find_chrome_executable", lambda: None)
+    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path.write_text("print('capture')", encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="未找到 Chrome"):
-        zhuque_browser_launcher.launch_zhuque_chrome()
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": False,
+                "credential_file": str(script_path.parent / "creds_latest.json"),
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_zhuque_capture_script_path", lambda: script_path)
+    monkeypatch.setattr(optimization_route.importlib.util, "find_spec", lambda name: None)
+
+    result = optimization_route._start_zhuque_wechat_capture()
+
+    assert result["status"] == "manual_required"
+    assert "pip install playwright" in result["command"]
+    assert "扫码授权页" in result["message"]
+
+
+def test_zhuque_wechat_capture_reports_missing_playwright_browser(monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path.write_text("print('capture')", encoding="utf-8")
+
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": False,
+                "credential_file": str(script_path.parent / "creds_latest.json"),
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_zhuque_capture_script_path", lambda: script_path)
+    monkeypatch.setattr(optimization_route.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(optimization_route, "_zhuque_playwright_browser_ready", lambda: False)
+
+    result = optimization_route._start_zhuque_wechat_capture()
+
+    assert result["status"] == "manual_required"
+    assert "playwright install chromium" in result["command"]
+    assert "无头 API" in result["message"]
 
 
 def test_zhuque_api_parses_websocket_success_frame():
@@ -448,21 +521,23 @@ def test_zhuque_api_classify_uses_websocket_label_mapping():
     assert human_result["verdict_label"] == "人工编写"
 
 
-def test_zhuque_browser_start_endpoint_launches_local_chrome(client, monkeypatch, tmp_path):
+def test_zhuque_browser_start_endpoint_starts_wechat_capture(client, monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
     token = create_user_access_token(user_id, "zhuque-user")
-    user_data_dir = str(tmp_path / "profile")
+    credential_file = str(tmp_path / "creds_latest.json")
 
     monkeypatch.setattr(
         optimization_route,
-        "launch_zhuque_chrome",
+        "_start_zhuque_wechat_capture",
         lambda: {
             "status": "started",
-            "port": 9333,
-            "url": "https://matrix.tencent.com/ai-detect/",
-            "user_data_dir": user_data_dir,
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": credential_file,
+            "command": "python zhuque_pkg/capture_zhuque_creds.py",
+            "message": "已打开朱雀微信扫码授权页；扫码完成后检测走无头 API",
         },
     )
 
@@ -474,29 +549,38 @@ def test_zhuque_browser_start_endpoint_launches_local_chrome(client, monkeypatch
     assert response.status_code == 200
     assert response.json() == {
         "status": "started",
-        "port": 9333,
-        "url": "https://matrix.tencent.com/ai-detect/",
-        "user_data_dir": user_data_dir,
+        "auth_mode": "headless_api",
+        "login_mode": "wechat_qr",
+        "credential_file": credential_file,
+        "command": "python zhuque_pkg/capture_zhuque_creds.py",
+        "message": "已打开朱雀微信扫码授权页；扫码完成后检测走无头 API",
     }
 
 
-def test_zhuque_browser_status_endpoint_reports_live_cdp(client, monkeypatch):
+def test_zhuque_browser_status_endpoint_reports_ready_credentials(client, monkeypatch):
     import app.routes.optimization as optimization_route
 
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
     token = create_user_access_token(user_id, "zhuque-user")
 
-    monkeypatch.setattr(
-        optimization_route,
-        "get_zhuque_browser_status",
-        lambda: {
-            "status": "connected",
-            "connected": True,
-            "port": 9333,
-            "url": "https://matrix.tencent.com/ai-detect/",
-            "message": "Chrome CDP 已连接",
-        },
-    )
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": True,
+                "connected": True,
+                "has_token": True,
+                "credential_file": "/tmp/creds_latest.json",
+                "user_name": "tester",
+                "quota_text": "今日剩余 18 次",
+                "captured_at": "2026-06-16T00:00:00Z",
+                "message": "朱雀微信凭证已就绪，检测将走无头 API",
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
 
     response = client.get(
         "/api/optimization/zhuque/browser/status",
@@ -504,28 +588,37 @@ def test_zhuque_browser_status_endpoint_reports_live_cdp(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["connected"] is True
-    assert response.json()["status"] == "connected"
-    assert response.json()["port"] == 9333
+    body = response.json()
+    assert body["connected"] is True
+    assert body["ready"] is True
+    assert body["status"] == "connected"
+    assert body["auth_mode"] == "headless_api"
+    assert body["login_mode"] == "wechat_qr"
+    assert body["credential_file"] == "/tmp/creds_latest.json"
+    assert body["user_name"] == "tester"
 
 
-def test_zhuque_browser_status_endpoint_reports_closed_cdp(client, monkeypatch):
+def test_zhuque_browser_status_endpoint_reports_missing_credentials(client, monkeypatch):
     import app.routes.optimization as optimization_route
 
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
     token = create_user_access_token(user_id, "zhuque-user")
 
-    monkeypatch.setattr(
-        optimization_route,
-        "get_zhuque_browser_status",
-        lambda: {
-            "status": "disconnected",
-            "connected": False,
-            "port": 9333,
-            "url": "https://matrix.tencent.com/ai-detect/",
-            "message": "未连接到 Chrome CDP 端口 9333",
-        },
-    )
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": False,
+                "connected": False,
+                "has_token": False,
+                "credential_file": "/tmp/creds_latest.json",
+                "message": "未找到朱雀微信登录凭证",
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
 
     response = client.get(
         "/api/optimization/zhuque/browser/status",
@@ -533,29 +626,33 @@ def test_zhuque_browser_status_endpoint_reports_closed_cdp(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["connected"] is False
-    assert response.json()["status"] == "disconnected"
-    assert "9333" in response.json()["message"]
+    body = response.json()
+    assert body["connected"] is False
+    assert body["ready"] is False
+    assert body["status"] == "missing_credentials"
+    assert "微信登录凭证" in body["message"]
 
 
-def test_zhuque_service_allows_anonymous_page_with_remaining_free_uses(monkeypatch):
+def test_zhuque_service_starts_with_wechat_credentials(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
 
     fake_api = StatusOnlyZhuqueAPI(
         {
-            "url": "https://matrix.tencent.com/ai-detect/",
-            "has_token": False,
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
             "remaining_uses": 5,
-            "btn_text": "立即检测(今日剩余5次)",
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "朱雀微信凭证已就绪，检测将走无头 API",
         }
     )
     service = ZhuqueService()
     service.api = None
     service._ready = False
     service._consumer_task = None
-    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda cdp_port, debug=False: fake_api)
-    monkeypatch.setattr(zhuque_service_module.settings, "ZHUQUE_CDP_PORT", 9333, raising=False)
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
 
     try:
         asyncio.run(service.start())
@@ -570,34 +667,34 @@ def test_zhuque_service_allows_anonymous_page_with_remaining_free_uses(monkeypat
         service._consumer_task = None
 
 
-def test_zhuque_service_readiness_reports_page_state_and_text_length(monkeypatch):
+def test_zhuque_service_readiness_reports_credential_state_and_text_length(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
 
     fake_api = StatusOnlyZhuqueAPI(
         {
-            "url": "https://matrix.tencent.com/ai-detect/",
-            "has_token": False,
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
             "remaining_uses": 3,
-            "btn_text": "立即检测(今日剩余3次)",
-            "btn_disabled": False,
-            "textarea_present": True,
-            "submit_button_present": True,
+            "button_enabled": True,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "朱雀微信凭证已就绪，检测将走无头 API",
         }
     )
     service = ZhuqueService()
     service.api = None
     service._ready = False
     service._consumer_task = None
-    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda cdp_port, debug=False: fake_api)
-    monkeypatch.setattr(zhuque_service_module.settings, "ZHUQUE_CDP_PORT", 9333, raising=False)
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
 
     try:
         result = asyncio.run(service.readiness("短文本"))
 
         assert result["connected"] is True
         assert result["page_found"] is True
-        assert result["has_token"] is False
+        assert result["has_token"] is True
         assert result["remaining_uses"] == 3
         assert result["button_enabled"] is True
         assert result["text_length"] == 3
@@ -701,8 +798,8 @@ def test_ai_detect_reduce_start_rejects_unready_zhuque_before_creating_session(c
                 "text_length_ok": True,
                 "estimated_first_round_credits": 10,
                 "estimated_max_round_credits": 50,
-                "message": "未连接到 Chrome CDP 端口 9333",
-                "actions": ["点击启动朱雀浏览器"],
+                "message": "未找到朱雀微信登录凭证",
+                "actions": ["微信扫码登录朱雀"],
             }
 
     monkeypatch.setattr(optimization, "zhuque_service", FakeUnreadyService())
@@ -718,8 +815,8 @@ def test_ai_detect_reduce_start_rejects_unready_zhuque_before_creating_session(c
     )
 
     assert response.status_code == 400
-    assert "未连接到 Chrome CDP 端口 9333" in response.json()["detail"]
-    assert "启动朱雀浏览器" in response.json()["detail"]
+    assert "未找到朱雀微信登录凭证" in response.json()["detail"]
+    assert "微信扫码登录朱雀" in response.json()["detail"]
 
     db = SessionLocal()
     try:
@@ -2690,13 +2787,11 @@ def test_ai_detect_reduce_preflights_zhuque_before_segment_loop(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
-    configured_port = 9333
-    fake_zhuque = UnavailableZhuqueService(port=configured_port)
+    fake_zhuque = UnavailableZhuqueService()
     monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
 
     init_calls = []
     monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: init_calls.append(self.session_obj.session_id))
-    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_CDP_PORT", configured_port, raising=False)
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
     db = SessionLocal()
@@ -2726,7 +2821,7 @@ def test_ai_detect_reduce_preflights_zhuque_before_segment_loop(monkeypatch):
         db.commit()
 
         service = OptimizationService(db, session)
-        with pytest.raises(RuntimeError, match=f"Chrome CDP端口 {configured_port}"):
+        with pytest.raises(RuntimeError, match="微信扫码凭证不可用"):
             asyncio.run(service.start_optimization())
 
         db.refresh(session)
@@ -2734,8 +2829,8 @@ def test_ai_detect_reduce_preflights_zhuque_before_segment_loop(monkeypatch):
         assert fake_zhuque.detect_calls == 0
         assert init_calls == []
         assert session.status == "failed"
-        assert f"Chrome {configured_port}" in session.error_message
-        assert "--remote-debugging-port=9333" in session.error_message
-        assert "启动朱雀浏览器" in session.error_message
+        assert "微信扫码凭证不可用" in session.error_message
+        assert "微信扫码登录朱雀" in session.error_message
+        assert "无头 API" in session.error_message
     finally:
         db.close()

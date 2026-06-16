@@ -36,3 +36,5 @@ platformdirs>=4.2.0,<5
 jaraco.text
 jaraco.functools
 jaraco.context
+# 朱雀微信扫码凭证捕获
+playwright>=1.40.0

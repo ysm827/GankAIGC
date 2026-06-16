@@ -150,14 +150,14 @@ Questions to answer:
 
 ### 1. Scope / Trigger
 
-- Trigger: any frontend change to `ai_detect_reduce` mode selection, Zhuque browser launch/status guidance, session progress labels, result detail, or export/copy text display.
+- Trigger: any frontend change to `ai_detect_reduce` mode selection, Zhuque WeChat credential guidance, session progress labels, result detail, or export/copy text display.
 - This UI mirrors backend contracts; do not invent different risk-rate or billing semantics in components.
 
 ### 2. Signatures
 
 - API client functions in `src/api/index.js`:
-  - `optimizationAPI.startZhuqueBrowser()`.
-  - `optimizationAPI.getZhuqueBrowserStatus()`.
+  - `optimizationAPI.startZhuqueLogin()`.
+  - `optimizationAPI.getZhuqueAuthStatus()`.
   - `optimizationAPI.getZhuqueReadiness()`.
   - `optimizationAPI.preflightZhuqueTask(payload)`.
 - Session segment fields consumed by detail UI:
@@ -171,11 +171,12 @@ Questions to answer:
 
 - Workspace mode list must include `AI检测 + 降重`.
 - Platform billing copy for `ai_detect_reduce` must say detection does not consume beer and actual high-AI LLM rewrite is charged by reduce call. Estimated start cost should display as zero/skip.
-- When `processingMode === "ai_detect_reduce"`, show the Zhuque browser panel, call `getZhuqueBrowserStatus()` immediately, then poll every 5 seconds while the mode remains selected.
-- The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, then display page status, remaining uses, text-length readiness, readiness message, and actions.
+- When `processingMode === "ai_detect_reduce"`, show the Zhuque credential panel, call `getZhuqueAuthStatus()` immediately, then poll every 5 seconds while the mode remains selected.
+- The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, then display credential status, remaining uses, text-length readiness, readiness message, and actions.
 - Before starting an `ai_detect_reduce` task, call `preflightZhuqueTask({original_text, processing_mode, billing_mode})`; if `ready=false`, show the backend message and do not call `startOptimization`.
 - If preflight returns `estimated_max_round_credits`, show it as a risk estimate only. Do not present it as a pre-held or guaranteed charge.
-- The launcher button calls `startZhuqueBrowser()` and keeps status based on the status endpoint's `connected` field, not on the launch response alone.
+- The login button calls `startZhuqueLogin()` and keeps status based on the status endpoint's `connected` field, not on the launch response alone.
+- UI copy must say the visible page is a one-time WeChat QR authorization/credential-capture step. It must not tell users to "start Zhuque browser" or imply detection depends on a local browser/debug port; after credentials are ready, detection is direct headless WebSocket API.
 - Session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
 - Zhuque report risk rate in UI must use `max(labels_ratio[0], labels_ratio[2]) * 100` when `labels_ratio` is present, matching backend threshold semantics. `zhuque_pkg` v2 maps `0=AI`, `1=human`, `2=suspicious/mixed`.
 - Session detail must parse `zhuque_agent_trace` defensively and render the "Agent 决策轨迹" panel when trace or live Zhuque SSE events exist. The trace list must live in a bounded-height scroll container so long multi-round histories do not push the final/original text panels off the page.
@@ -190,7 +191,8 @@ Questions to answer:
 
 ### 4. Validation & Error Matrix
 
-- Browser status endpoint fails -> show disconnected guidance, not a blocking crash.
+- Credential status endpoint fails -> show disconnected guidance, not a blocking crash.
+- Start login returns `manual_required` -> show backend message and command, making clear the missing dependency is for the QR authorization page only.
 - Readiness endpoint fails -> show a not-ready panel with action guidance, not a blocking crash.
 - Preflight returns `ready=false` -> do not start the task; toast/display `message` and `actions`.
 - Launch endpoint fails -> toast backend `detail` if present.
@@ -200,8 +202,8 @@ Questions to answer:
 
 ### 5. Good/Base/Bad Cases
 
-- Good: selecting `ai_detect_reduce` shows browser launcher, connected state updates from polling, and detail page shows final risk rate, detect count, reduce rounds, remaining uses, labels ratio, text length, and process timeline.
-- Good: readiness shows page status, remaining uses, text length, action suggestions, and a "朱雀已就绪" state before task start.
+- Good: selecting `ai_detect_reduce` shows credential guidance, connected state updates from polling, and detail page shows final risk rate, detect count, reduce rounds, remaining uses, labels ratio, text length, and process timeline.
+- Good: readiness shows credential status, remaining uses, text length, action suggestions, and a "朱雀已就绪" state before task start.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
 - Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Good: detail page shows Prompt Evolution learning rows explaining why the previous prompt failed and which safe patch was used next.
@@ -211,7 +213,7 @@ Questions to answer:
 - Good: detail page shows "回滚保护" when a round regresses, including the restored segment indices and risk-rate rollback.
 - Good: a long Agent trace is scrollable inside the trace card, and `plateau_exit` appears as "卡点退出" with manual-review guidance.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
-- Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, or marks browser connected just because launch was attempted.
+- Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, marks credentials connected just because launch was attempted, or uses old browser-launch wording.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
 
 ### 6. Tests Required

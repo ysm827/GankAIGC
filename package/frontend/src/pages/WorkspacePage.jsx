@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -194,9 +194,9 @@ const WorkspacePage = () => {
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [announcements, setAnnouncements] = useState([]);
-  const [isLaunchingZhuque, setIsLaunchingZhuque] = useState(false);
-  const [zhuqueLaunchInfo, setZhuqueLaunchInfo] = useState(null);
-  const [zhuqueBrowserStatus, setZhuqueBrowserStatus] = useState(null);
+  const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
+  const [zhuqueLoginInfo, setZhuqueLoginInfo] = useState(null);
+  const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
   const navigate = useNavigate();
 
@@ -277,20 +277,20 @@ const WorkspacePage = () => {
     }
   }, []);
 
-  const loadZhuqueBrowserStatus = useCallback(async () => {
+  const loadZhuqueAuthStatus = useCallback(async () => {
     try {
-      const response = await optimizationAPI.getZhuqueBrowserStatus();
-      setZhuqueBrowserStatus(response.data);
+      const response = await optimizationAPI.getZhuqueAuthStatus();
+      setZhuqueAuthStatus(response.data);
       if (!response.data.connected) {
-        setZhuqueLaunchInfo(null);
+        setZhuqueLoginInfo(null);
       }
     } catch (error) {
-      setZhuqueBrowserStatus({
+      setZhuqueAuthStatus({
         status: 'disconnected',
         connected: false,
-        message: '无法检测朱雀浏览器状态',
+        message: '无法检测朱雀凭证状态',
       });
-      setZhuqueLaunchInfo(null);
+      setZhuqueLoginInfo(null);
     }
   }, []);
 
@@ -308,7 +308,7 @@ const WorkspacePage = () => {
         button_enabled: false,
         text_length_ok: true,
         message: '无法检测朱雀就绪状态',
-        actions: ['点击启动朱雀浏览器'],
+        actions: ['微信扫码登录朱雀'],
       });
     }
   }, []);
@@ -381,14 +381,14 @@ const WorkspacePage = () => {
       return;
     }
 
-    loadZhuqueBrowserStatus();
+    loadZhuqueAuthStatus();
     loadZhuqueReadiness();
     const interval = setInterval(() => {
-      loadZhuqueBrowserStatus();
+      loadZhuqueAuthStatus();
       loadZhuqueReadiness();
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadZhuqueBrowserStatus, loadZhuqueReadiness, processingMode]);
+  }, [loadZhuqueAuthStatus, loadZhuqueReadiness, processingMode]);
 
   const handleCreateProject = useCallback(async (e) => {
     e.preventDefault();
@@ -510,9 +510,9 @@ const WorkspacePage = () => {
           return;
         }
         if (preflight.estimated_max_round_credits > 0) {
-          toast(`朱雀已就绪，预计最多消耗 ${preflight.estimated_max_round_credits} 啤酒（仅实际降重时扣）`);
+          toast(`朱雀无头 API 已就绪，预计最多消耗 ${preflight.estimated_max_round_credits} 啤酒（仅实际降重时扣）`);
         } else {
-          toast.success('朱雀已就绪');
+          toast.success('朱雀无头 API 已就绪');
         }
       }
 
@@ -537,24 +537,24 @@ const WorkspacePage = () => {
     }
   }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, navigate]);
 
-  const handleLaunchZhuqueBrowser = useCallback(async () => {
-    if (isLaunchingZhuque) {
+  const handleStartZhuqueLogin = useCallback(async () => {
+    if (isStartingZhuqueLogin) {
       return;
     }
 
     try {
-      setIsLaunchingZhuque(true);
-      const response = await optimizationAPI.startZhuqueBrowser();
-      setZhuqueLaunchInfo(response.data);
-      await loadZhuqueBrowserStatus();
+      setIsStartingZhuqueLogin(true);
+      const response = await optimizationAPI.startZhuqueLogin();
+      setZhuqueLoginInfo(response.data);
+      await loadZhuqueAuthStatus();
       await loadZhuqueReadiness();
-      toast.success(`已打开朱雀检测浏览器，请保持窗口打开`);
+      toast.success(response.data?.message || '已打开朱雀微信扫码授权页；扫码完成后检测走无头 API');
     } catch (error) {
-      toast.error(error.response?.data?.detail || '启动朱雀浏览器失败');
+      toast.error(error.response?.data?.detail || '微信扫码登录朱雀失败');
     } finally {
-      setIsLaunchingZhuque(false);
+      setIsStartingZhuqueLogin(false);
     }
-  }, [isLaunchingZhuque, loadZhuqueBrowserStatus, loadZhuqueReadiness]);
+  }, [isStartingZhuqueLogin, loadZhuqueAuthStatus, loadZhuqueReadiness]);
 
   const handleDeleteSession = useCallback(async (session) => {
     const confirmDelete = window.confirm('确认删除该会话及其结果吗?');
@@ -889,7 +889,7 @@ const WorkspacePage = () => {
                       )}
                       <span className="block mt-0.5 text-gray-400">
                         {processingMode === 'ai_detect_reduce'
-                          ? '可在下方一键启动朱雀检测浏览器'
+                          ? '可在下方微信扫码登录朱雀，之后直接走无头 API 检测'
                           : '1 啤酒 = 1000 非空白字符，综合模式按两阶段计费'}
                       </span>
                     </p>
@@ -923,36 +923,38 @@ const WorkspacePage = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <ExternalLink className="h-4 w-4 text-[#0066cc]" />
-                        <p className="text-[15px] font-semibold text-black">朱雀检测浏览器</p>
+                        <p className="text-[15px] font-semibold text-black">朱雀无头检测 API</p>
                       </div>
                       <p className="mt-1 text-[13px] leading-5 text-gray-600">
-                        点击启动后会打开独立 Chrome 窗口。未登录也可使用朱雀免费次数；次数不足时请登录或切换账号，并保持窗口打开。
+                        点击后只会打开一次朱雀微信扫码授权页，用来保存登录凭证；后续检测直接走无头 WebSocket API，不走旧版页面控制链路，也不需要启动本地检测窗口。次数不足时请切换朱雀微信账号或等待恢复。
                       </p>
                       <p
                         className={`mt-2 text-[12px] ${
-                          zhuqueBrowserStatus?.connected ? 'text-ios-green' : 'text-[#0066cc]'
+                          zhuqueAuthStatus?.connected ? 'text-ios-green' : 'text-[#0066cc]'
                         }`}
                       >
-                        {zhuqueBrowserStatus?.connected ? (
+                        {zhuqueAuthStatus?.connected ? (
                           <>
-                            已连接端口 {zhuqueBrowserStatus.port}：{zhuqueBrowserStatus.url}
+                            凭证已就绪{zhuqueAuthStatus.user_name ? `：${zhuqueAuthStatus.user_name}` : ''}
+                            {zhuqueAuthStatus.credential_file ? `（${zhuqueAuthStatus.credential_file}）` : ''}
                           </>
                         ) : (
                           <>
-                            未连接{zhuqueBrowserStatus?.port ? `端口 ${zhuqueBrowserStatus.port}` : ''}，关闭朱雀窗口后会自动变为未连接
+                            未找到有效朱雀微信凭证，请先扫码登录；检测本身将直接走无头 API
                           </>
                         )}
                       </p>
-                      {zhuqueLaunchInfo && !zhuqueBrowserStatus?.connected && (
+                      {zhuqueLoginInfo && !zhuqueAuthStatus?.connected && (
                         <p className="mt-1 text-[12px] text-gray-500">
-                          已尝试启动：{zhuqueLaunchInfo.url}
+                          {zhuqueLoginInfo.message || '已尝试打开微信扫码授权页'}
+                          {zhuqueLoginInfo.command ? `；手动命令：${zhuqueLoginInfo.command}` : ''}
                         </p>
                       )}
                       {zhuqueReadiness && (
                         <div className="gank-glass-status-grid mt-3 grid grid-cols-2 gap-2 text-[12px] text-gray-600">
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">页面状态：</span>
-                            {zhuqueReadiness.page_found ? '朱雀页面已打开' : '未找到朱雀页面'}
+                            <span className="font-semibold text-gray-800">认证方式：</span>
+                            {zhuqueReadiness.auth_mode === 'headless_api' ? '无头 API' : '微信扫码'}
                           </div>
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
                             <span className="font-semibold text-gray-800">剩余次数：</span>
@@ -965,8 +967,12 @@ const WorkspacePage = () => {
                               : zhuqueReadiness.text_length_ok === false ? '不足 350 字' : '满足检测要求'}
                           </div>
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">Agent 状态：</span>
-                            {zhuqueReadiness.ready ? '朱雀已就绪' : (zhuqueReadiness.message || '等待就绪')}
+                            <span className="font-semibold text-gray-800">凭证状态：</span>
+                            {zhuqueReadiness.ready ? '朱雀无头 API 已就绪' : (zhuqueReadiness.message || '等待就绪')}
+                          </div>
+                          <div className="col-span-2 rounded-lg bg-white/70 px-2.5 py-2">
+                            <span className="font-semibold text-gray-800">凭证文件：</span>
+                            {zhuqueReadiness.credential_file || '等待微信扫码生成 creds_latest.json'}
                           </div>
                           {zhuqueReadiness.estimated_max_round_credits > 0 && (
                             <div className="col-span-2 rounded-lg bg-blue-50 px-2.5 py-2 text-blue-700">
@@ -983,28 +989,28 @@ const WorkspacePage = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={handleLaunchZhuqueBrowser}
-                      disabled={isLaunchingZhuque}
+                      onClick={handleStartZhuqueLogin}
+                      disabled={isStartingZhuqueLogin}
                       className={`apple-action-pill gank-pill-button shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[14px] font-semibold transition-all disabled:bg-gray-300 disabled:cursor-not-allowed ${
-                        zhuqueBrowserStatus?.connected
+                        zhuqueAuthStatus?.connected
                           ? 'bg-ios-green'
                           : ''
                       }`}
                     >
-                      {isLaunchingZhuque ? (
+                      {isStartingZhuqueLogin ? (
                         <>
                           <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                          启动中
+                          打开授权页
                         </>
-                      ) : zhuqueBrowserStatus?.connected ? (
+                      ) : zhuqueAuthStatus?.connected ? (
                         <>
                           <CheckCircle className="h-4 w-4" />
-                          已连接
+                          凭证已就绪
                         </>
                       ) : (
                         <>
                           <ExternalLink className="h-4 w-4" />
-                          启动朱雀浏览器
+                          微信扫码登录朱雀
                         </>
                       )}
                     </button>

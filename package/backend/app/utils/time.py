@@ -1,6 +1,6 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def utcnow() -> datetime:
     """返回数据库兼容的 UTC naive 时间。"""
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(timezone.utc).replace(tzinfo=None)

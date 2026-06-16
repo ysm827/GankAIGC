@@ -79,8 +79,7 @@ def _default_credentials_file() -> Path:
 
     here = Path(__file__).resolve()
     candidates = [
-        here.parents[4] / "zhuque_pkg" / "creds_latest.json",  # repo root when running from package/backend/app/services
-        here.parents[3] / "zhuque_pkg" / "creds_latest.json",  # package/zhuque_pkg for bundled layouts
+        here.parent / "creds_latest.json",
         Path.cwd() / "zhuque_pkg" / "creds_latest.json",
         Path.cwd().parent / "zhuque_pkg" / "creds_latest.json",
     ]

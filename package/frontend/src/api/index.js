@@ -120,13 +120,13 @@ export const optimizationAPI = {
     api.post(`/optimization/sessions/${sessionId}/retry`, data, {
       timeout: 15000, // 15秒超时
     }),
-  startZhuqueBrowser: () =>
+  startZhuqueLogin: () =>
     api.post('/optimization/zhuque/browser/start', null, {
-      timeout: 10000, // 10秒超时
+      timeout: 10000, // 10秒超时；兼容旧路径，实际启动微信扫码凭证捕获
     }),
-  getZhuqueBrowserStatus: () =>
+  getZhuqueAuthStatus: () =>
     api.get('/optimization/zhuque/browser/status', {
-      timeout: 5000, // 5秒超时
+      timeout: 5000, // 5秒超时；兼容旧路径，实际读取无头 API 凭证状态
     }),
   getZhuqueReadiness: () =>
     api.get('/optimization/zhuque/readiness', {

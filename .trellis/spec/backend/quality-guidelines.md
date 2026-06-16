@@ -56,17 +56,17 @@ Questions to answer:
 
 ### 1. Scope / Trigger
 
-- Trigger: any change to `ai_detect_reduce`, Zhuque CDP integration, optimization billing, retry flow, SSE progress, or session export.
-- This is a cross-layer contract: database fields, backend service flow, API schemas, browser launcher endpoints, frontend report rendering, and tests must stay aligned.
+- Trigger: any change to `ai_detect_reduce`, Zhuque 无头 API integration, optimization billing, retry flow, SSE progress, or session export.
+- This is a cross-layer contract: database fields, backend service flow, API schemas, legacy credential endpoint URLs, frontend report rendering, and tests must stay aligned.
 
 ### 2. Signatures
 
 - API:
   - `POST /api/optimization/start` accepts `processing_mode="ai_detect_reduce"`.
   - `POST /api/optimization/sessions/{session_id}/retry` must preserve Zhuque retry state.
-  - `POST /api/optimization/zhuque/browser/start` returns `{status, port, url, user_data_dir}`.
-  - `GET /api/optimization/zhuque/browser/status` returns `{status, connected, port, url, message}`.
-  - `GET /api/optimization/zhuque/readiness` returns Zhuque page readiness without consuming a detection use.
+  - `POST /api/optimization/zhuque/browser/start` is a legacy URL name; it starts one-time WeChat QR credential capture and returns `{status, auth_mode="headless_api", login_mode="wechat_qr", credential_file, command?, message}`.
+  - `GET /api/optimization/zhuque/browser/status` is a legacy URL name; it returns credential status `{status, connected, ready, auth_mode, login_mode, credential_file, user_name, quota_text, captured_at, message}`.
+  - `GET /api/optimization/zhuque/readiness` returns Zhuque credential/API readiness without consuming a detection use.
   - `POST /api/optimization/zhuque/preflight` accepts `{original_text, processing_mode, billing_mode}` and returns readiness plus cost estimates without creating a session.
 - DB:
   - `users.zhuque_free_uses_remaining`, `users.zhuque_total_uses`.
@@ -80,6 +80,9 @@ Questions to answer:
 ### 3. Contracts
 
 - Detection is a Zhuque-side quota operation and must not create GankAIGC beer transactions.
+- Login/setup is one-time WeChat QR credential capture via `zhuque_pkg/capture_zhuque_creds.py`; after `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API. Do not resurrect local page-control/CDP detection logic.
+- The credential file default search order must prefer the repo-level `zhuque_pkg/creds_latest.json` so `cd package && python main.py` and repo-root tooling agree. `ZHUQUE_CREDENTIALS_FILE` may override it.
+- `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. It must not return `started` if the QR capture process cannot open a browser; otherwise users see a false positive while no credential can be saved.
 - Start/retry in `platform` mode for `ai_detect_reduce` must leave `charge_status="not_charged"` and `charged_credits=0`; only actual LLM reduce calls create `reason="zhuque_reduce"` transactions.
 - `ai_detect_reduce` start must run a preflight before creating a session:
   - text shorter than 350 chars -> HTTP 400, no session, no transaction
@@ -109,8 +112,10 @@ Questions to answer:
 
 ### 4. Validation & Error Matrix
 
-- Chrome CDP unreachable -> task `failed`, error mentions the configured CDP port and the browser-launch guidance.
-- Readiness endpoint CDP unreachable -> HTTP 200 with `ready=false`, `connected=false`, message/actions; it must not throw a blocking 500 for normal user setup issues.
+- 微信扫码凭证 missing/expired -> task `failed`, error mentions WeChat QR login and credential capture guidance.
+- Readiness endpoint credential missing/browser setup incomplete -> HTTP 200 with `ready=false`, `connected=false`, message/actions; it must not throw a blocking 500 for normal user setup issues.
+- Start credential capture with missing Playwright package -> `{status:"manual_required"}` and command includes `pip install playwright`.
+- Start credential capture with missing Chromium/Chrome -> `{status:"manual_required"}` and command includes `playwright install chromium`; do not report `started`.
 - Preflight endpoint must not click Zhuque detect or consume Zhuque quota.
 - Zhuque page/button unusable or quota exhausted -> task `failed`, error tells the user to login/switch accounts/wait for quota restoration.
 - Initial full-text detection returns `success=false` -> task `failed`; do not initialize or call LLM services.
@@ -125,7 +130,8 @@ Questions to answer:
 ### 5. Good/Base/Bad Cases
 
 - Good: full text returns labels for only segments 1 and 3; only those segments run polish/enhance, two `zhuque_reduce` transactions are recorded, and the recheck writes the final report to all segments.
-- Good: Workspace preflight sees ready Zhuque page and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
+- Good: Workspace preflight sees ready Zhuque credentials and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
+- Good: QR capture is needed only before credentials exist; subsequent detections use WebSocket API and never need a local browser/debug port.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
 - Good: A high-risk session whose first reduced output is too long records `length_adjustments`, saves a repaired/fallback text within ±10%, and rechecks that text.
 - Good: A session with repeated minor drops records reflection events, upgrades strategy despite nominal rate decreases, and shows stubborn segments in final diagnosis if still above threshold.
@@ -144,7 +150,7 @@ Questions to answer:
 - Billing: start and retry do not pre-hold platform credit for `ai_detect_reduce`; actual reduce charges `zhuque_reduce`.
 - Pipeline: low-risk skip, high-risk selective rewrite by `segment_labels`, suspicious-label rewrite, no-label fallback, max-round failure, retry from latest reduced text, cumulative retry rounds, and length repair for bloated reduce output.
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
-- Browser launcher: configured port/profile in launched Chrome args, missing Chrome error, status endpoint connected/disconnected shapes.
+- WeChat credential capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`), and credential status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.

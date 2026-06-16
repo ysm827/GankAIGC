@@ -1,9 +1,14 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import func, and_, case
 from typing import List, Optional
 import base64
+import importlib.util
+import os
+import subprocess
+import sys
 from io import BytesIO
+from pathlib import Path
 import json
 import re
 from app.database import get_db
@@ -20,7 +25,6 @@ from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
 from app.services.zhuque_service import zhuque_service
-from app.services.zhuque_browser_launcher import launch_zhuque_chrome, get_zhuque_browser_status
 from app.services.ai_service import split_text_into_segments
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
@@ -149,6 +153,142 @@ def _validate_request_model_base_url(config, label: str) -> str:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+
+
+def _zhuque_capture_script_path() -> Optional[Path]:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[4] / "zhuque_pkg" / "capture_zhuque_creds.py",
+        here.parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py",
+        Path.cwd() / "zhuque_pkg" / "capture_zhuque_creds.py",
+        Path.cwd().parent / "zhuque_pkg" / "capture_zhuque_creds.py",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _zhuque_playwright_browsers_path() -> Path:
+    return Path(__file__).resolve().parents[3] / ".playwright-browsers"
+
+
+def _zhuque_local_browser_executable() -> Optional[Path]:
+    """Return a Linux browser executable Playwright can control from WSL/Linux."""
+    env_path = os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
+    candidates = [
+        env_path,
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return None
+
+
+def _zhuque_playwright_browser_ready() -> bool:
+    if _zhuque_local_browser_executable() is not None:
+        return True
+    browser_root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or _zhuque_playwright_browsers_path())
+    executable_patterns = [
+        "*/chrome-linux/chrome",
+        "*/chrome-linux64/chrome",
+        "*/chromium*/chrome",
+    ]
+    for pattern in executable_patterns:
+        if any(candidate.exists() for candidate in browser_root.glob(pattern)):
+            return True
+    return False
+
+
+def _zhuque_capture_env() -> dict:
+    env = os.environ.copy()
+    env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_zhuque_playwright_browsers_path()))
+    return env
+
+
+def _start_zhuque_wechat_capture() -> dict:
+    status = zhuque_service._ensure_api().credential_status()
+    script_path = _zhuque_capture_script_path()
+    if script_path is None:
+        return {
+            "status": "missing_script",
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": status.get("credential_file", ""),
+            "command": "python zhuque_pkg/capture_zhuque_creds.py",
+            "message": "未找到 zhuque_pkg/capture_zhuque_creds.py，请确认新朱雀包在项目根目录",
+        }
+
+    command = f'{sys.executable} {script_path}'
+    if importlib.util.find_spec("playwright") is None:
+        browsers_path = _zhuque_playwright_browsers_path()
+        return {
+            "status": "manual_required",
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "command": f'{sys.executable} -m pip install playwright && PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
+            "message": "当前 Python 环境未安装 Playwright，无法自动打开朱雀微信扫码授权页。请先安装 Playwright 并执行扫码命令。",
+        }
+    if not _zhuque_playwright_browser_ready():
+        browsers_path = _zhuque_playwright_browsers_path()
+        return {
+            "status": "manual_required",
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "command": f'PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
+            "message": "Playwright 已安装，但未找到可用于扫码授权页的 Chromium/Chrome。请先安装浏览器内核；扫码只用于保存朱雀凭证，后续检测仍直接走无头 API。",
+        }
+
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script_path)],
+            cwd=str(script_path.parent),
+            env=_zhuque_capture_env(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return {
+            "status": "started",
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "command": command,
+            "message": "已打开朱雀微信扫码授权页；扫码完成后会保存凭证，后续检测走无头 API",
+        }
+    except Exception as exc:
+        return {
+            "status": "manual_required",
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "command": command,
+            "message": f"自动打开扫码授权页失败，请在终端手动运行命令完成微信扫码授权：{command}；错误: {exc}",
+        }
+
+
+def _get_zhuque_headless_status() -> dict:
+    status = zhuque_service._ensure_api().credential_status()
+    ready = bool(status.get("ready"))
+    return {
+        "status": "connected" if ready else "missing_credentials",
+        "connected": ready,
+        "ready": ready,
+        "auth_mode": "headless_api",
+        "login_mode": "wechat_qr",
+        "credential_file": status.get("credential_file", ""),
+        "user_name": status.get("user_name", ""),
+        "quota_text": status.get("quota_text", ""),
+        "captured_at": status.get("captured_at", ""),
+        "message": status.get("message") or ("朱雀无头 API 已就绪" if ready else "未找到朱雀微信扫码凭证"),
+    }
 
 def _with_zhuque_cost_estimate(readiness: dict, text: str) -> dict:
     segments = split_text_into_segments(text or "") if text else []
@@ -335,19 +475,16 @@ async def start_optimization(
 async def start_zhuque_browser(
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """启动用于朱雀 AI 检测的本地 Chrome 调试窗口。"""
-    try:
-        return launch_zhuque_chrome()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    """兼容旧路径：启动微信扫码凭证捕获，不再启动本地页面调试窗口。"""
+    return _start_zhuque_wechat_capture()
 
 
 @router.get("/zhuque/browser/status", response_model=ZhuqueBrowserStatusResponse)
 async def get_zhuque_browser_connection_status(
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """检查用于朱雀 AI 检测的本地 Chrome CDP 端口是否仍可连接。"""
-    return get_zhuque_browser_status()
+    """兼容旧路径：返回朱雀微信凭证 / 无头 API 状态。"""
+    return _get_zhuque_headless_status()
 
 
 @router.get("/zhuque/readiness", response_model=ZhuqueReadinessResponse)

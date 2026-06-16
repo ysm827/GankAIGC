@@ -1,4 +1,4 @@
-﻿from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
@@ -232,19 +232,26 @@ class SessionRetryRequest(BaseModel):
 
 
 class ZhuqueBrowserLaunchResponse(BaseModel):
-    """朱雀浏览器启动响应"""
+    """朱雀微信扫码登录响应（兼容旧浏览器启动接口名）"""
     status: str
-    port: int
-    url: str
-    user_data_dir: str
+    auth_mode: str = "headless_api"
+    login_mode: str = "wechat_qr"
+    credential_file: str
+    command: Optional[str] = None
+    message: str
 
 
 class ZhuqueBrowserStatusResponse(BaseModel):
-    """朱雀浏览器连接状态响应"""
+    """朱雀无头 API 凭证状态响应（兼容旧浏览器状态接口名）"""
     status: str
     connected: bool
-    port: int
-    url: str
+    ready: bool = False
+    auth_mode: str = "headless_api"
+    login_mode: str = "wechat_qr"
+    credential_file: str = ""
+    user_name: str = ""
+    quota_text: str = ""
+    captured_at: str = ""
     message: str
 
 
@@ -256,7 +263,7 @@ class ZhuquePreflightRequest(BaseModel):
 
 
 class ZhuqueReadinessResponse(BaseModel):
-    """朱雀检测页面就绪状态"""
+    """朱雀无头 API / 微信凭证就绪状态"""
     ready: bool
     connected: bool
     page_found: bool
@@ -269,6 +276,12 @@ class ZhuqueReadinessResponse(BaseModel):
     estimated_max_round_credits: int = 0
     message: str
     actions: List[str] = []
+    auth_mode: str = "headless_api"
+    login_mode: str = "wechat_qr"
+    credential_file: str = ""
+    user_name: str = ""
+    quota_text: str = ""
+    captured_at: str = ""
 
 
 class SegmentResponse(BaseModel):

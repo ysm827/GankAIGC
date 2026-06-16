@@ -1,4 +1,4 @@
-﻿import json
+import json
 import asyncio
 import logging
 import math
@@ -304,7 +304,7 @@ class OptimizationService:
         try:
             processing_mode = self.session_obj.processing_mode or 'paper_polish_enhance'
             if processing_mode != 'ai_detect_reduce':
-                # 朱雀模式只有命中高AI段落后才需要LLM降重，避免Chrome预检失败时误初始化模型。
+                # 朱雀模式只有命中高AI段落后才需要LLM降重，避免朱雀凭证预检失败时误初始化模型。
                 self._init_ai_services()
 
             # 重置错误状态
@@ -412,12 +412,11 @@ class OptimizationService:
         try:
             await zhuque_service.start()
         except Exception as e:
-            cdp_port = settings.ZHUQUE_CDP_PORT
             raise RuntimeError(
-                f"朱雀检测启动失败：无法连接本机 Chrome {cdp_port} 调试端口或朱雀页面不可用。"
-                "请先在工作台选择“AI检测 + 降重”，点击“启动朱雀浏览器”，"
-                "在弹出的朱雀页面保持窗口打开后再重试；未登录也可使用朱雀提供的免费次数，"
-                "次数用尽时请登录或切换账号刷新次数。"
+                "朱雀检测启动失败：微信扫码凭证不可用或已过期。"
+                "请先在工作台选择“AI检测 + 降重”，点击“微信扫码登录朱雀”，"
+                "扫码完成后系统会保存凭证，后续检测走无头 API；"
+                "次数用尽时请切换朱雀微信账号或等待次数恢复。"
                 f"原始错误: {e}"
             ) from e
 
