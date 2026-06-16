@@ -1034,7 +1034,7 @@ class OptimizationService:
     def _get_zhuque_risk_rate(self, result: dict) -> float:
         labels_ratio = result.get("labels_ratio") or {}
         try:
-            ai_rate = float(labels_ratio.get("1", 0)) * 100
+            ai_rate = float(labels_ratio.get("0", 0)) * 100
         except (TypeError, ValueError):
             ai_rate = 0.0
         try:
@@ -1089,7 +1089,7 @@ class OptimizationService:
         high_ai_spans: List[Tuple[int, int]] = []
 
         for item in labels:
-            if not isinstance(item, dict) or item.get("label") not in (1, 2):
+            if not isinstance(item, dict) or item.get("label") not in (0, 2):
                 continue
             position = item.get("position")
             if (

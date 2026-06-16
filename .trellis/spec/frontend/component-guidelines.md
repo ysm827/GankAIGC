@@ -177,7 +177,7 @@ Questions to answer:
 - If preflight returns `estimated_max_round_credits`, show it as a risk estimate only. Do not present it as a pre-held or guaranteed charge.
 - The launcher button calls `startZhuqueBrowser()` and keeps status based on the status endpoint's `connected` field, not on the launch response alone.
 - Session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
-- Zhuque report risk rate in UI must use `max(labels_ratio[1], labels_ratio[2]) * 100` when `labels_ratio` is present, matching backend threshold semantics.
+- Zhuque report risk rate in UI must use `max(labels_ratio[0], labels_ratio[2]) * 100` when `labels_ratio` is present, matching backend threshold semantics. `zhuque_pkg` v2 maps `0=AI`, `1=human`, `2=suspicious/mixed`.
 - Session detail must parse `zhuque_agent_trace` defensively and render the "Agent 决策轨迹" panel when trace or live Zhuque SSE events exist. The trace list must live in a bounded-height scroll container so long multi-round histories do not push the final/original text panels off the page.
 - When trace contains `type="reflection"` events, render them as "收敛反思" rows and show `stubborn_segment_indices`, `stagnation_count`, `current_strategy`, `next_strategy`, and `action` when present.
 - When trace contains `type="prompt_evolution"` events, render them as "Agent 学习结果" rows and show root causes, source, safety status, and a collapsible `prompt_patch`.
@@ -211,7 +211,7 @@ Questions to answer:
 - Good: detail page shows "回滚保护" when a round regresses, including the restored segment indices and risk-rate rollback.
 - Good: a long Agent trace is scrollable inside the trace card, and `plateau_exit` appears as "卡点退出" with manual-review guidance.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
-- Bad: UI treats `labels_ratio[0]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, or marks browser connected just because launch was attempted.
+- Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, or marks browser connected just because launch was attempted.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
 
 ### 6. Tests Required
@@ -229,7 +229,7 @@ Questions to answer:
 
 ```jsx
 const finalText = segments.map(seg => seg.enhanced_text || seg.polished_text || seg.original_text);
-const aiRate = Number(result.labels_ratio?.[0] || 0) * 100;
+const aiRate = Number(result.labels_ratio?.[1] || 0) * 100;
 ```
 
 #### Correct
@@ -238,7 +238,7 @@ const aiRate = Number(result.labels_ratio?.[0] || 0) * 100;
 const finalText = segments.map(
   seg => seg.zhuque_reduced_text || seg.enhanced_text || seg.polished_text || seg.original_text
 );
-const aiRate = Number(result.labels_ratio?.[1] || result.labels_ratio?.["1"] || 0) * 100;
-const suspiciousRate = Number(result.labels_ratio?.[2] || result.labels_ratio?.["2"] || 0) * 100;
+const aiRate = Number(result.labels_ratio?.[0] ?? result.labels_ratio?.["0"] ?? 0) * 100;
+const suspiciousRate = Number(result.labels_ratio?.[2] ?? result.labels_ratio?.["2"] ?? 0) * 100;
 const riskRate = Math.max(aiRate, suspiciousRate);
 ```

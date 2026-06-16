@@ -18,14 +18,14 @@ from typing import Optional, Dict, Any
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 LABEL_NAMES = {
-    0: "人工编写",
-    1: "AI生成",
+    0: "AI生成",
+    1: "人工编写",
     2: "混合/可疑"
 }
 
 LABEL_EMOJI = {
-    0: "✍️",
-    1: "🤖",
+    0: "🤖",
+    1: "✍️",
     2: "⚠️"
 }
 
@@ -45,7 +45,13 @@ def _parse_remaining_uses(text: str) -> int:
 
 
 def parse_zhuque_websocket_result(payload: str, text_length: int) -> Optional[dict]:
-    """Parse a terminal Zhuque WebSocket result frame into the public result shape."""
+    """Parse a terminal Zhuque WebSocket result frame into the public result shape.
+
+    zhuque_pkg v2's verified runtime path is DOM/Vue polling, but keeping this
+    parser preserves the service boundary for captured WebSocket frames and
+    tests. New package semantics are:
+      0 = AI generated, 1 = human written, 2 = mixed/suspicious.
+    """
     try:
         data = json.loads(payload)
     except (TypeError, json.JSONDecodeError):
@@ -55,13 +61,16 @@ def parse_zhuque_websocket_result(payload: str, text_length: int) -> Optional[di
         return None
 
     labels_ratio = data.get("labels_ratio") or {}
-    # WebSocket result labels differ from the legacy DOM comments:
-    # label 1 is AI feature, label 0 is human feature, label 2 is suspicious/mixed.
-    ai_ratio = _coerce_ratio_value(labels_ratio.get("1"))
+    ai_ratio = _coerce_ratio_value(labels_ratio.get("0"))
     suspicious_ratio = _coerce_ratio_value(labels_ratio.get("2"))
     rate = round(ai_ratio * 100, 2)
     risk_rate = round(max(ai_ratio, suspicious_ratio) * 100, 2)
-    alert_text = "未发现明显的人工创作特征" if ai_ratio >= 0.5 else "人工创作特征较明显"
+    if ai_ratio >= 0.5:
+        alert_text = "未发现明显的人工创作特征"
+    elif suspicious_ratio >= 0.5:
+        alert_text = "人工创作特征较弱或混合可疑"
+    else:
+        alert_text = "人工创作特征较明显"
 
     return {
         "success": True,
@@ -188,7 +197,7 @@ class ZhuqueAPI:
                 "success": True/False,
                 "rate": 0-100,           # AI浓度百分比 (越高越像AI)
                 "rate_label": str,        # 如 "嗅探到AI浓度"
-                "labels_ratio": {0: 人类概率, 1: AI概率, 2: 混合概率},
+                "labels_ratio": {0: AI概率, 1: 人类概率, 2: 混合概率},
                 "alert_text": str,        # 人类可读判定, 如 "未发现明显的人工创作特征"
                 "alert_title": str,       # 提示信息
                 "message": str,           # 额外消息
@@ -208,18 +217,6 @@ class ZhuqueAPI:
 
         cdp_ws = await self._cdp_connect()
         async with websockets.connect(cdp_ws, max_size=2**24) as ws:
-            try:
-                await self._eval(ws, "1", timeout=1.0)
-                await ws.send(json.dumps({
-                    "id": self._seq + 1,
-                    "method": "Network.enable",
-                    "params": {},
-                }))
-                self._seq += 1
-            except Exception:
-                if self.debug:
-                    print("  [detect] Network.enable 失败，将仅使用 DOM 轮询")
-
             # Step 1: 点击"清空"按钮, 确保处于输入模式
             await self._eval(ws, """
                 (function(){
@@ -289,35 +286,11 @@ class ZhuqueAPI:
             if self.debug:
                 print(f"  [detect] 按钮状态: {btn_check}, 文本长度: {text_len}")
 
-            # Step 5: 优先监听 WebSocket 结果帧，保留 DOM/Vue 轮询作为兜底
+            # Step 5: 轮询结果
             start = time.time()
             last_result = None
-            next_dom_poll = 0.0
             while time.time() - start < timeout:
-                now = time.time()
-                try:
-                    raw_msg = await asyncio.wait_for(ws.recv(), timeout=0.2)
-                    msg = json.loads(raw_msg)
-                    if msg.get("method") == "Network.webSocketFrameReceived":
-                        payload = (
-                            msg.get("params", {})
-                            .get("response", {})
-                            .get("payloadData", "")
-                        )
-                        ws_result = parse_zhuque_websocket_result(payload, text_len)
-                        if ws_result:
-                            if self.debug:
-                                print("  [detect] 使用 WebSocket 结果帧")
-                            return ws_result
-                    continue
-                except asyncio.TimeoutError:
-                    pass
-                except json.JSONDecodeError:
-                    pass
-
-                if now < next_dom_poll:
-                    continue
-                next_dom_poll = now + 1.0
+                await asyncio.sleep(1.0)
 
                 poll_js = """
                 (function(){
@@ -364,7 +337,10 @@ class ZhuqueAPI:
                     # 解析剩余次数
                     remaining = -1
                     rt = data.get('remaining_text', '')
-                    remaining = _parse_remaining_uses(rt)
+                    import re
+                    m = re.search(r'(\d+)', rt or '')
+                    if m:
+                        remaining = int(m.group(1))
 
                     return {
                         "success": True,
@@ -432,14 +408,11 @@ class ZhuqueAPI:
         elif '人工创作特征较弱' in alert:
             verdict = 'human_written'
         elif ratio:
-            # labelsRatio: key 0 是人工特征, key 1 是AI特征, key 2 是疑似/混合
-            human_prob = float(ratio.get('0', 0))
-            ai_prob = float(ratio.get('1', 0))
-            suspicious_prob = float(ratio.get('2', 0))
+            # 用labelsRatio: key 1 是"人工", key 0 是"AI"
+            human_prob = float(ratio.get('1', 0))
+            ai_prob = float(ratio.get('0', 0))
             if ai_prob > human_prob:
                 verdict = 'AI_generated'
-            elif suspicious_prob > human_prob:
-                verdict = 'mixed'
             elif human_prob > ai_prob:
                 verdict = 'human_written'
             else:
@@ -450,7 +423,7 @@ class ZhuqueAPI:
         return {
             "verdict": verdict,
             "verdict_label": LABEL_NAMES.get(
-                1 if verdict == 'AI_generated' else (0 if verdict == 'human_written' else 2),
+                0 if verdict == 'AI_generated' else (1 if verdict == 'human_written' else 2),
                 verdict
             ),
             "confidence": rate / 100.0,
@@ -528,8 +501,8 @@ async def main():
 
         if args.classify:
             emoji = LABEL_EMOJI.get(
-                1 if result['verdict'] == 'AI_generated' else
-                (0 if result['verdict'] == 'human_written' else 2),
+                0 if result['verdict'] == 'AI_generated' else
+                (1 if result['verdict'] == 'human_written' else 2),
                 ''
             )
             print(f"\n{'='*50}")
@@ -541,8 +514,8 @@ async def main():
             if result['success']:
                 print(f"\n{'='*50}")
                 print(f"  🎯 AI浓度: {result['rate']:.1f}%")
-                print(f"  📊 标签比例: AI={result['labels_ratio'].get('1', '?')}, "
-                      f"人类={result['labels_ratio'].get('0', '?')}, "
+                print(f"  📊 标签比例: AI={result['labels_ratio'].get('0', '?')}, "
+                      f"人类={result['labels_ratio'].get('1', '?')}, "
                       f"混合={result['labels_ratio'].get('2', '?')}")
                 print(f"  📋 判定: {result['alert_text']}")
                 if result['remaining_uses'] >= 0:

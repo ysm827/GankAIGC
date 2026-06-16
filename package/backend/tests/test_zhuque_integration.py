@@ -52,7 +52,7 @@ class FakeZhuqueService:
         return {
             "success": True,
             "rate": rate,
-            "labels_ratio": {"0": max(0, 1 - rate / 100), "1": rate / 100, "2": 0.0},
+            "labels_ratio": {"0": rate / 100, "1": max(0, 1 - rate / 100), "2": 0.0},
             "remaining_uses": 99,
             "text_length": len(text),
         }
@@ -126,7 +126,7 @@ class StatusOnlyZhuqueAPI:
         return {
             "success": True,
             "rate": 0,
-            "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
+            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
             "remaining_uses": 4,
             "text_length": len(text),
         }
@@ -336,11 +336,11 @@ def test_zhuque_api_parses_websocket_success_frame():
         {
             "status": "success",
             "confidence": 1.0,
-            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+            "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
             "segment_labels": [
                 {
                     "text": "检测文本",
-                    "label": 1,
+                    "label": 0,
                     "conf": 0.9979,
                     "order": 1,
                     "position": [0, 4],
@@ -360,7 +360,7 @@ def test_zhuque_api_parses_websocket_success_frame():
         "rate": 100.0,
         "risk_rate": 100.0,
         "rate_label": "WebSocket检测结果",
-        "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+        "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
         "alert_text": "未发现明显的人工创作特征",
         "alert_title": "",
         "message": "",
@@ -370,7 +370,7 @@ def test_zhuque_api_parses_websocket_success_frame():
         "segment_labels": [
             {
                 "text": "检测文本",
-                "label": 1,
+                "label": 0,
                 "conf": 0.9979,
                 "order": 1,
                 "position": [0, 4],
@@ -382,14 +382,14 @@ def test_zhuque_api_parses_websocket_success_frame():
     }
 
 
-def test_zhuque_api_treats_websocket_label_zero_as_human():
+def test_zhuque_api_treats_websocket_label_one_as_human():
     from app.services.zhuque_api import parse_zhuque_websocket_result
 
     payload = json.dumps(
         {
             "status": "success",
             "confidence": 0.0,
-            "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
+            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
             "availableUses": 18,
         },
         ensure_ascii=False,
@@ -427,7 +427,7 @@ def test_zhuque_api_classify_uses_websocket_label_mapping():
                 "success": True,
                 "rate": 100.0,
                 "alert_text": "",
-                "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+                "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
             }
         )
     )
@@ -437,7 +437,7 @@ def test_zhuque_api_classify_uses_websocket_label_mapping():
                 "success": True,
                 "rate": 0.0,
                 "alert_text": "",
-                "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
+                "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
             }
         )
     )
@@ -1139,11 +1139,11 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
             {
                 "success": True,
                 "rate": 80,
-                "labels_ratio": {"0": 0.2, "1": 0.8, "2": 0.0},
+                "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
                 "segment_labels": [
                     {
                         "text": segment_texts[1],
-                        "label": 1,
+                        "label": 0,
                         "conf": 0.99,
                         "order": 1,
                         "position": [
@@ -1153,7 +1153,7 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
                     },
                     {
                         "text": segment_texts[3],
-                        "label": 1,
+                        "label": 0,
                         "conf": 0.98,
                         "order": 2,
                         "position": [
@@ -1256,7 +1256,7 @@ def test_ai_detect_reduce_treats_suspicious_ratio_as_over_threshold(monkeypatch)
             {
                 "success": True,
                 "rate": 0.0,
-                "labels_ratio": {"0": 0.275, "1": 0.0, "2": 0.725},
+                "labels_ratio": {"0": 0.0, "1": 0.275, "2": 0.725},
                 "segment_labels": [],
                 "remaining_uses": 99,
             }
@@ -1325,7 +1325,7 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
             {
                 "success": True,
                 "rate": 0.0,
-                "labels_ratio": {"0": 0.275, "1": 0.0, "2": 0.725},
+                "labels_ratio": {"0": 0.0, "1": 0.275, "2": 0.725},
                 "segment_labels": [
                     {
                         "text": segment_texts[0],
@@ -1343,7 +1343,7 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
                     },
                     {
                         "text": segment_texts[2],
-                        "label": 0,
+                        "label": 1,
                         "conf": 0.99,
                         "order": 3,
                         "position": [segment_starts[2], segment_starts[2] + len(segment_texts[2])],
@@ -2060,11 +2060,11 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
             {
                 "success": True,
                 "rate": 80,
-                "labels_ratio": {"0": 0.2, "1": 0.8, "2": 0.0},
+                "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
                 "segment_labels": [
                     {
                         "text": segment_texts[1],
-                        "label": 1,
+                        "label": 0,
                         "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
                     }
                 ],
@@ -2072,11 +2072,11 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
             {
                 "success": True,
                 "rate": 45,
-                "labels_ratio": {"0": 0.55, "1": 0.45, "2": 0.0},
+                "labels_ratio": {"0": 0.45, "1": 0.55, "2": 0.0},
                 "segment_labels": [
                     {
                         "text": segment_texts[1],
-                        "label": 1,
+                        "label": 0,
                         "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
                     }
                 ],
@@ -2084,11 +2084,11 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
             {
                 "success": True,
                 "rate": 45,
-                "labels_ratio": {"0": 0.55, "1": 0.45, "2": 0.0},
+                "labels_ratio": {"0": 0.45, "1": 0.55, "2": 0.0},
                 "segment_labels": [
                     {
                         "text": segment_texts[1],
-                        "label": 1,
+                        "label": 0,
                         "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
                     }
                 ],
@@ -2612,9 +2612,9 @@ def test_ai_detect_reduce_reflects_minor_drops_and_marks_stubborn_segments(monke
     user_id = _create_user(credit_balance=100, zhuque_free_uses_remaining=20)
     fake_zhuque = FakeZhuqueService([
         {"rate": 80, "labels_ratio": {"0": 0.2, "1": 0.0, "2": 0.8}},
-        {"rate": 79.8, "labels_ratio": {"0": 0.202, "1": 0.0, "2": 0.798}},
-        {"rate": 79.6, "labels_ratio": {"0": 0.204, "1": 0.0, "2": 0.796}},
-        {"rate": 10, "labels_ratio": {"0": 0.9, "1": 0.0, "2": 0.1}},
+        {"rate": 79.8, "labels_ratio": {"0": 0.0, "1": 0.202, "2": 0.798}},
+        {"rate": 79.6, "labels_ratio": {"0": 0.0, "1": 0.204, "2": 0.796}},
+        {"rate": 10, "labels_ratio": {"0": 0.0, "1": 0.9, "2": 0.1}},
     ])
     fake_ai = FakeAIService()
     monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)

@@ -262,7 +262,7 @@ const SessionDetailPage = () => {
   const getZhuqueRiskRate = (result, fallbackRate = null) => {
     const labelsRatio = result?.labels_ratio;
     if (labelsRatio && typeof labelsRatio === 'object') {
-      const aiRate = Number(labelsRatio[1] ?? labelsRatio['1'] ?? 0) * 100;
+      const aiRate = Number(labelsRatio[0] ?? labelsRatio['0'] ?? 0) * 100;
       const suspiciousRate = Number(labelsRatio[2] ?? labelsRatio['2'] ?? 0) * 100;
       const riskRate = Math.max(
         Number.isNaN(aiRate) ? 0 : aiRate,
@@ -278,8 +278,8 @@ const SessionDetailPage = () => {
       return null;
     }
     const labelNames = {
-      0: '人工特征',
-      1: 'AI特征',
+      0: 'AI特征',
+      1: '人工特征',
       2: '疑似AI',
     };
     return Object.entries(labelsRatio)

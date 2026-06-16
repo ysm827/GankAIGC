@@ -86,8 +86,8 @@ Questions to answer:
   - Zhuque unready -> HTTP 400 with actionable message, no session, no transaction
   - `byok` without saved/request provider config -> HTTP 400 before touching Zhuque readiness
 - Each reduce operation charges 10 beers per segment before calling polish/enhance. If the user lacks enough beers, the LLM call must not run.
-- The pipeline detects the joined full text once first. Risk rate is `max(labels_ratio["1"], labels_ratio["2"]) * 100` when `labels_ratio` is present; fallback to `rate`.
-- Zhuque `segment_labels[].position` is relative to the joined text using `"\n\n"` separators. Only labels `1` (AI) and `2` (suspicious) select segments for rewrite. If usable positions are absent, rewrite all segments as a safe fallback.
+- The pipeline detects the joined full text once first. Risk rate is `max(labels_ratio["0"], labels_ratio["2"]) * 100` when `labels_ratio` is present; fallback to `rate`. `zhuque_pkg` v2 maps `0=AI`, `1=human`, `2=suspicious/mixed`; do not reuse the old `0=human,1=AI` mapping.
+- Zhuque `segment_labels[].position` is relative to the joined text using `"\n\n"` separators. Only labels `0` (AI) and `2` (suspicious) select segments for rewrite. If usable positions are absent, rewrite all segments as a safe fallback.
 - Retry after failure must detect `zhuque_reduced_text` first when present and continue from `max(zhuque_reduce_attempt) + 1`; it must not restart from original text.
 - Export and session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
 - Zhuque reduce output length is a hard service-side contract, not prompt-only guidance. For each rewritten segment, compare the final reduced text against `original_text` with `count_text_length`; accepted output must stay within ±10%. Retry may still start detection/rewrite from latest `zhuque_reduced_text`, but the length baseline remains the original segment to avoid carrying forward already-bloated text. If polish/enhance output exceeds the bound, run one `enhance_text` length-repair call using a "Zhuque length correction" prompt, still preserving facts, terminology, data, citations, and conclusions. If the repair still fails, fall back to the length-compliant polished result, original segment, or original round input; do not blindly truncate text.
@@ -143,7 +143,7 @@ Questions to answer:
 
 - Billing: start and retry do not pre-hold platform credit for `ai_detect_reduce`; actual reduce charges `zhuque_reduce`.
 - Pipeline: low-risk skip, high-risk selective rewrite by `segment_labels`, suspicious-label rewrite, no-label fallback, max-round failure, retry from latest reduced text, cumulative retry rounds, and length repair for bloated reduce output.
-- Zhuque API: WebSocket success parsing, label mapping (`0=human`, `1=AI`, `2=suspicious`), and non-terminal frame ignore.
+- Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
 - Browser launcher: configured port/profile in launched Chrome args, missing Chrome error, status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.

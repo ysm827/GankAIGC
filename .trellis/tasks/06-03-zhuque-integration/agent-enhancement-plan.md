@@ -18,7 +18,7 @@
   - 朱雀检测不扣 GankAIGC 啤酒。
   - 只有实际 LLM 降 AI 改写扣 `zhuque_reduce`。
   - 最终文本优先级：`zhuque_reduced_text > enhanced_text > polished_text > original_text`。
-  - 风险率：优先 `max(labels_ratio["1"], labels_ratio["2"]) * 100`。
+  - 风险率：优先 `max(labels_ratio["0"], labels_ratio["2"]) * 100`（`zhuque_pkg` v2: `0=AI`, `1=human`, `2=suspicious/mixed`）。
   - 失败重试必须从最新 `zhuque_reduced_text` 继续，累计轮次。
 
 ## 1. 当前基线快照

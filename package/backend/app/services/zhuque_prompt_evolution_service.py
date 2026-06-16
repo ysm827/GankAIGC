@@ -37,7 +37,7 @@ class ZhuquePromptEvolutionService:
         trace = trace or {}
         zhuque_result = zhuque_result or {}
         labels_ratio = zhuque_result.get("labels_ratio") or {}
-        ai_ratio = self._safe_ratio(labels_ratio.get("1"))
+        ai_ratio = self._safe_ratio(labels_ratio.get("0"))
         suspicious_ratio = self._safe_ratio(labels_ratio.get("2"))
         dominant_label = "suspicious" if suspicious_ratio >= ai_ratio else "ai"
 
