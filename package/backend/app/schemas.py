@@ -246,6 +246,9 @@ class ZhuqueBrowserStatusResponse(BaseModel):
     status: str
     connected: bool
     ready: bool = False
+    has_token: bool = False
+    remaining_uses: int = -1
+    button_enabled: bool = False
     auth_mode: str = "headless_api"
     login_mode: str = "wechat_qr"
     credential_file: str = ""

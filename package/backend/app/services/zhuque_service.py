@@ -29,7 +29,18 @@ class ZhuqueService:
         self._queue: asyncio.Queue = asyncio.Queue()
         self._ready: bool = False
         self._consumer_task: Optional[asyncio.Task] = None
+        self._last_remaining_uses: Optional[int] = None
         self._initialized = True
+
+    def _remember_remaining_uses(self, value) -> int:
+        """Cache the latest known Zhuque quota; -1 means unknown."""
+        try:
+            remaining_uses = int(value)
+        except (TypeError, ValueError):
+            return -1
+        if remaining_uses >= 0:
+            self._last_remaining_uses = remaining_uses
+        return remaining_uses
 
     def _ensure_api(self) -> ZhuqueAPI:
         if self.api is None:
@@ -44,6 +55,7 @@ class ZhuqueService:
         status = await api.status()
         if not status.get("ready"):
             raise RuntimeError(status.get("message") or "朱雀微信扫码凭证不可用")
+        self._remember_remaining_uses(status.get("remaining_uses"))
         self._ready = True
         if self._consumer_task is None or self._consumer_task.done():
             self._consumer_task = asyncio.create_task(self._consumer())
@@ -61,6 +73,7 @@ class ZhuqueService:
             task_id, text, future = await self._queue.get()
             try:
                 result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
+                self._remember_remaining_uses(result.get("remaining_uses"))
                 future.set_result(result)
             except Exception as e:
                 future.set_exception(e)
@@ -100,13 +113,17 @@ class ZhuqueService:
         }
 
         status = self._ensure_api().credential_status()
-        remaining_uses = status.get("remaining_uses", -1)
-        try:
-            remaining_uses = int(remaining_uses)
-        except (TypeError, ValueError):
-            remaining_uses = -1
-
         has_token = bool(status.get("has_token"))
+        remaining_uses = self._remember_remaining_uses(status.get("remaining_uses"))
+        if remaining_uses < 0 and self._last_remaining_uses is not None:
+            remaining_uses = self._last_remaining_uses
+        if remaining_uses < 0 and has_token:
+            api = self._ensure_api()
+            peek_remaining = getattr(api, "peek_remaining_uses", None)
+            if callable(peek_remaining):
+                live_remaining = await peek_remaining(timeout=2.5)
+                remaining_uses = self._remember_remaining_uses(live_remaining)
+
         ready = has_token and text_length_ok and remaining_uses != 0
         actions = []
         if not has_token:

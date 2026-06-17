@@ -36,8 +36,108 @@ POLL_INTERVAL = 1
 STORAGE_STATE_FILE = TEMP / "browser_state.json"  # 持久化 browser context（cookies+localStorage）
 
 
+def _pick_local_storage_token(local_storage: dict) -> tuple[str, str]:
+    """Return (token, key) from known or token-like localStorage entries."""
+    preferred_keys = [
+        "aiGenAccessToken",
+        "access_token",
+        "accessToken",
+        "token",
+    ]
+    for key in preferred_keys:
+        value = local_storage.get(key)
+        if value:
+            return _unwrap_token_value(value), key
+
+    for key, value in local_storage.items():
+        lower_key = str(key).lower()
+        if value and "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
+            return _unwrap_token_value(value), str(key)
+    return "", ""
+
+
+def _unwrap_token_value(value) -> str:
+    """Zhuque stores aiGenAccessToken as either a raw token or JSON {value, expiry, uid}."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("value") or value.get("token") or value.get("access_token") or "")
+    text = str(value)
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return text
+    if isinstance(parsed, dict):
+        return str(parsed.get("value") or parsed.get("token") or parsed.get("access_token") or text)
+    return text
+
+
+def _parse_remaining_uses(text: str) -> int:
+    match = re.search(r"(\d+)", text or "")
+    return int(match.group(1)) if match else -1
+
+
+def _pick_cookie_value(cookies: list, names: tuple[str, ...]) -> tuple[str, str]:
+    """Return (cookie value, cookie name) from Playwright cookie dicts."""
+    wanted = {name.lower() for name in names}
+    for cookie in cookies or []:
+        name = str(cookie.get("name", ""))
+        if name.lower() in wanted and cookie.get("value"):
+            return str(cookie["value"]), name
+    return "", ""
+
+
+async def inspect_auth_state(page) -> dict:
+    """Inspect page login state without assuming Zhuque keeps the same token key forever."""
+    browser_state = await page.evaluate("""
+        (() => {
+            const localStorageValues = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                localStorageValues[k] = localStorage.getItem(k);
+            }
+            const un = document.querySelector('.user-name');
+            let quotaEl = null, bestLen = Infinity;
+            const submitBtn = document.querySelector('.submit-btn')
+                || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+            for (const el of document.querySelectorAll('*')) {
+                const txt = (el.textContent || '').trim();
+                if (/(今日剩余|剩余.*次|可用.*次|\\d+\\s*left)/i.test(txt) && txt.length < bestLen && txt.length < 100) {
+                    quotaEl = el; bestLen = txt.length;
+                }
+            }
+            return {
+                localStorage: localStorageValues,
+                userName: un ? un.textContent.trim() : '',
+                quotaText: quotaEl ? quotaEl.textContent.trim() : '',
+                submitButtonText: submitBtn ? submitBtn.textContent.trim() : '',
+                url: location.href
+            };
+        })()
+    """)
+    cookies = await page.context.cookies()
+    local_storage = browser_state.get("localStorage", {})
+    token, token_source = _pick_local_storage_token(local_storage)
+    cookie_token, cookie_token_source = _pick_cookie_value(cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
+    fp = local_storage.get("fp") or ""
+    user_name = (browser_state.get("userName") or "").strip()
+    quota_text = (browser_state.get("quotaText") or browser_state.get("submitButtonText") or "").strip()
+    ready = bool(token or cookie_token or (user_name and (fp or cookies)))
+    return {
+        **browser_state,
+        "cookies": cookies,
+        "token": token or cookie_token,
+        "tokenSource": token_source or cookie_token_source,
+        "fp": fp,
+        "ready": ready,
+        "userName": user_name,
+        "quotaText": quota_text,
+        "remainingUses": _parse_remaining_uses(quota_text),
+    }
+
+
 def find_browser_executable():
-    """优先复用 Linux Chrome/Chromium，避免必须下载 Playwright 内置 Chromium。"""
+    """优先复用系统 Chromium 内核浏览器，避免必须下载 Playwright 内置 Chromium。"""
     env_path = os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
     candidates = [
         env_path,
@@ -45,6 +145,13 @@ def find_browser_executable():
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
+        "/usr/bin/microsoft-edge",
+        "/usr/bin/microsoft-edge-stable",
+        "/usr/bin/msedge",
+        "/usr/bin/brave-browser",
+        "/usr/bin/brave",
+        "/snap/bin/chromium",
+        "/snap/bin/brave",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists():
@@ -71,9 +178,11 @@ async def extract_credentials(page) -> dict:
             const ua = document.querySelector('.user-info img, .avatar img');
             // 配额文字 — 找最具体的元素（textContent最短的）
             let quotaEl = null, bestLen = Infinity;
+            const submitBtn = document.querySelector('.submit-btn')
+                || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
             for (const el of document.querySelectorAll('*')) {
                 const txt = (el.textContent || '').trim();
-                if (/今日剩余|剩余.*次|可用.*次/i.test(txt) && txt.length < bestLen && txt.length < 100) {
+                if (/(今日剩余|剩余.*次|可用.*次|\\d+\\s*left)/i.test(txt) && txt.length < bestLen && txt.length < 100) {
                     quotaEl = el; bestLen = txt.length;
                 }
             }
@@ -81,7 +190,8 @@ async def extract_credentials(page) -> dict:
                 localStorage: ls,
                 userName: un ? un.textContent.trim() : '',
                 avatarUrl: ua ? ua.src || '' : '',
-                quotaText: quotaEl ? quotaEl.textContent.trim() : '',
+                quotaText: quotaEl ? quotaEl.textContent.trim() : (submitBtn ? submitBtn.textContent.trim() : ''),
+                submitButtonText: submitBtn ? submitBtn.textContent.trim() : '',
                 url: location.href,
                 timestamp: new Date().toISOString()
             };
@@ -89,11 +199,20 @@ async def extract_credentials(page) -> dict:
     """)
     creds['cookies'] = all_cookies
     creds['cookieString'] = '; '.join([f"{c['name']}={c['value']}" for c in all_cookies])
+    token, token_source = _pick_local_storage_token(creds.get("localStorage", {}))
+    if not token:
+        token, token_source = _pick_cookie_value(all_cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
+    if token:
+        creds["access_token"] = token
+        creds["access_token_source"] = token_source
+    if creds.get("localStorage", {}).get("fp"):
+        creds["fp"] = creds["localStorage"]["fp"]
+    creds["remainingUses"] = _parse_remaining_uses(creds.get("quotaText") or creds.get("submitButtonText") or "")
     return creds
 
 
 async def wait_for_login(page, timeout=WAIT_TIMEOUT):
-    """轮询检测登录：localStorage.aiGenAccessToken 出现"""
+    """轮询检测登录：兼容 localStorage token、cookie token 和已登录用户态。"""
     print(f"\n[wait] 等待微信扫码登录（最长 {timeout}s）...")
     print("   请在手机微信中扫描浏览器显示的二维码\n")
 
@@ -102,19 +221,19 @@ async def wait_for_login(page, timeout=WAIT_TIMEOUT):
 
     while time.time() - start < timeout:
         try:
-            token = await page.evaluate("localStorage.getItem('aiGenAccessToken') || ''")
-            if token:
+            auth_state = await inspect_auth_state(page)
+            token = auth_state.get("token") or ""
+            if auth_state.get("ready"):
                 elapsed = time.time() - start
                 print(f"\n[OK] 检测到登录态！（耗时 {elapsed:.0f}s）")
-                print(f"   Token 前60字符: {token[:60]}...")
+                if token:
+                    print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
+                elif auth_state.get("userName"):
+                    print(f"   用户: {auth_state.get('userName')}（未暴露 localStorage token，改用 cookie/fp 凭证）")
                 return True
 
             # 显示 localStorage 变化
-            cur_keys = await page.evaluate("""(() => {
-                const ks = [];
-                for (let i=0;i<localStorage.length;i++) ks.push(localStorage.key(i));
-                return ks;
-            })()""")
+            cur_keys = list((auth_state.get("localStorage") or {}).keys())
             cur_set = set(cur_keys or [])
             new_keys = cur_set - last_ls_keys
             if new_keys:
@@ -336,6 +455,22 @@ async def trigger_login_flow(page) -> bool:
 
 # ===================== 主流程 =====================
 
+async def open_matrix_page(page) -> None:
+    """Open Zhuque page without requiring networkidle, which can hang on long-lived assets."""
+    print(f"\n[open] 打开 {MATRIX_URL}")
+    try:
+        await page.goto(MATRIX_URL, wait_until="domcontentloaded", timeout=60000)
+    except PwTimeout as exc:
+        print(f"  [WARN] 页面 domcontentloaded 等待超时，继续尝试检查当前页面: {exc}")
+    except Exception as exc:
+        print(f"  [WARN] 页面打开异常，继续尝试检查当前页面: {exc}")
+    try:
+        await page.wait_for_load_state("load", timeout=15000)
+    except Exception:
+        print("  [note] load 状态未完全结束，可能有长连接/埋点请求；继续登录检测")
+    await asyncio.sleep(3)
+
+
 async def capture_flow(headless=False, force_login=False):
     """打开浏览器 → 触发登录 → 等待扫码 → 提取凭证 → 保存"""
     pw = await async_playwright().start()
@@ -352,7 +487,7 @@ async def capture_flow(headless=False, force_login=False):
         launch_kwargs["executable_path"] = browser_executable
         print(f"  [browser] 使用系统浏览器: {browser_executable}")
     else:
-        print("  [browser] 未找到系统 Chrome/Chromium，尝试使用 Playwright 内置 Chromium")
+        print("  [browser] 未找到系统 Chromium 内核浏览器，尝试使用 Playwright 内置 Chromium")
 
     browser = await pw.chromium.launch(
         **launch_kwargs,
@@ -372,23 +507,20 @@ async def capture_flow(headless=False, force_login=False):
     print(f"  模式: {'可见浏览器' if not headless else '无头（仅测试已登录态）'}")
     print(f"{'='*60}")
 
-    # 打开页面
-    print(f"\n[open] 打开 {MATRIX_URL}")
-    await page.goto(MATRIX_URL, wait_until="networkidle", timeout=30000)
-    await asyncio.sleep(2)
+    # 打开页面。不要等待 networkidle：朱雀页面有长连接/埋点请求，可能永远不 idle。
+    await open_matrix_page(page)
 
-    # 检查是否已登录
-    token = (await page.evaluate("localStorage.getItem('aiGenAccessToken') || ''"))
-    user_name = (await page.evaluate("""
-        (document.querySelector('.user-name') || {}).textContent || ''
-    """)).strip()
+    # 检查是否已登录。朱雀前端偶尔会调整 token 存储 key，所以这里不只看 aiGenAccessToken。
+    auth_state = await inspect_auth_state(page)
+    token = auth_state.get("token") or ""
+    user_name = (auth_state.get("userName") or "").strip()
 
     # 判断是否需要触发登录流程
     needs_login = False
 
     if token:
         print(f"  [info] 浏览器已有登录态: {user_name}")
-        print(f"   Token: {token[:60]}...")
+        print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
 
         if force_login:
             print(f"\n  [switch] 强制切号模式 — 先退出当前账号")
@@ -403,6 +535,16 @@ async def capture_flow(headless=False, force_login=False):
         else:
             print(f"   （非切号模式，直接提取已有凭证）")
             # needs_login stays False — skip login flow
+    elif auth_state.get("ready"):
+        print(f"  [info] 浏览器已有登录态: {user_name or '未知用户'}（未发现显式 token，使用 cookie/fp 凭证）")
+        if force_login:
+            print(f"\n  [switch] 强制切号模式 — 先退出当前账号")
+            ok = await perform_logout(page)
+            if not ok:
+                print("  [WARN] 退出可能未完全成功，但继续流程...")
+            needs_login = True
+        else:
+            print(f"   （非切号模式，直接提取已有凭证）")
     else:
         print(f"  [user] 当前状态: 未登录（游客）")
         needs_login = True

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
+import string
 import time
 import uuid
 from pathlib import Path
@@ -72,6 +74,38 @@ def _parse_remaining_uses(text: str) -> int:
     return int(match.group(1)) if match else -1
 
 
+def _coerce_remaining_uses(*values) -> int:
+    """Normalize Zhuque quota values from API numbers or UI text."""
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            remaining = int(value)
+            if remaining >= 0:
+                return remaining
+            continue
+        remaining = _parse_remaining_uses(str(value))
+        if remaining >= 0:
+            return remaining
+    return -1
+
+
+def _unwrap_token_value(value) -> str:
+    """Zhuque localStorage may store aiGenAccessToken as JSON {value, expiry, uid}."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("value") or value.get("token") or value.get("access_token") or "")
+    text = str(value)
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return text
+    if isinstance(parsed, dict):
+        return str(parsed.get("value") or parsed.get("token") or parsed.get("access_token") or text)
+    return text
+
+
 def _default_credentials_file() -> Path:
     env_path = os.environ.get("ZHUQUE_CREDENTIALS_FILE")
     if env_path:
@@ -91,20 +125,47 @@ def _default_credentials_file() -> Path:
 
 def _extract_credentials(raw: dict) -> dict:
     local_storage = raw.get("localStorage") or raw.get("local_storage") or {}
-    cookies = raw.get("cookies") or raw.get("cookieString") or raw.get("cookie_string") or ""
-    if isinstance(cookies, list):
+    raw_cookies = raw.get("cookies") or raw.get("cookieString") or raw.get("cookie_string") or ""
+    cookie_token = ""
+    if isinstance(raw_cookies, list):
+        for item in raw_cookies:
+            if (
+                isinstance(item, dict)
+                and str(item.get("name", "")).lower() in {"access_token", "accesstoken"}
+                and item.get("value")
+            ):
+                cookie_token = str(item["value"])
+                break
         cookies = "; ".join(
             f"{item.get('name')}={item.get('value')}"
-            for item in cookies
+            for item in raw_cookies
             if isinstance(item, dict) and item.get("name") is not None
         )
+    else:
+        cookies = raw_cookies or ""
+
+    raw_token = _unwrap_token_value(raw.get("access_token"))
+    storage_token = _unwrap_token_value(local_storage.get("aiGenAccessToken"))
+    if not storage_token:
+        for key, value in local_storage.items():
+            lower_key = str(key).lower()
+            if value and "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
+                storage_token = _unwrap_token_value(value)
+                break
 
     return {
-        "access_token": raw.get("access_token") or local_storage.get("aiGenAccessToken") or "",
+        "access_token": raw_token or storage_token or cookie_token or "",
         "fp": raw.get("fp") or local_storage.get("fp") or "",
         "cookies": cookies or "",
         "user_name": raw.get("user_name") or raw.get("userName") or "",
         "quota_text": raw.get("quota_text") or raw.get("quotaText") or "",
+        "remaining_uses": _coerce_remaining_uses(
+            raw.get("remaining_uses"),
+            raw.get("remainingUses"),
+            raw.get("availableUses"),
+            raw.get("quota_text"),
+            raw.get("quotaText"),
+        ),
         "captured_at": raw.get("captured_at") or raw.get("timestamp") or "",
         "raw": raw,
     }
@@ -206,6 +267,16 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
 
     default_rate_label = "WebSocket检测结果" if source == "websocket" else "朱雀无头检测结果"
 
+    remaining_uses = _coerce_remaining_uses(
+        data.get("availableUses"),
+        data.get("remaining_uses"),
+        data.get("remainingUses"),
+        data.get("remaining"),
+        data.get("quota_text"),
+        data.get("quotaText"),
+        data.get("button_text"),
+    )
+
     return {
         "success": True,
         "rate": rate,
@@ -215,7 +286,7 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         "alert_text": data.get("alert_text") or alert_text,
         "alert_title": data.get("alert_title", ""),
         "message": data.get("msg") or data.get("message") or "",
-        "remaining_uses": data.get("availableUses", data.get("remaining_uses", -1)),
+        "remaining_uses": remaining_uses,
         "text_length": text_length,
         "confidence": data.get("confidence"),
         "segment_labels": _convert_segment_labels(data.get("segment_labels", []), label_map),
@@ -285,13 +356,14 @@ class ZhuqueAPI:
             }
 
         quota_text = creds.get("quota_text") or ""
+        remaining_uses = _coerce_remaining_uses(creds.get("remaining_uses"), quota_text)
         has_token = bool(creds.get("access_token"))
         return {
             "ready": has_token,
             "connected": has_token,
             "page_found": has_token,
             "has_token": has_token,
-            "remaining_uses": _parse_remaining_uses(quota_text),
+            "remaining_uses": remaining_uses,
             "button_enabled": has_token,
             "credential_file": str(self.credentials_file),
             "auth_mode": "headless_api",
@@ -305,6 +377,54 @@ class ZhuqueAPI:
     async def status(self) -> dict:
         """兼容旧 status()，返回无头 API 凭证状态。"""
         return self.credential_status()
+
+    async def peek_remaining_uses(self, timeout: float = 3.0) -> Optional[int]:
+        """Read live Zhuque quota from initial WebSocket auth frames without detection."""
+        try:
+            creds = self.load_credentials(refresh=True)
+        except RuntimeError:
+            return None
+
+        auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
+        headers = self._ws_headers(creds)
+        try:
+            ws = await self._connect(headers)
+        except Exception:
+            return None
+
+        deadline = time.time() + max(timeout, 0.1)
+        try:
+            await ws.send(json.dumps(auth_payload, ensure_ascii=False))
+            while time.time() < deadline:
+                raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, deadline - time.time()))
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                if data.get("status") == "limited":
+                    return 0
+
+                remaining_uses = _coerce_remaining_uses(
+                    data.get("availableUses"),
+                    data.get("remaining_uses"),
+                    data.get("remainingUses"),
+                    data.get("remaining"),
+                    data.get("quota_text"),
+                    data.get("quotaText"),
+                    data.get("button_text"),
+                    data.get("msg"),
+                )
+                if remaining_uses >= 0:
+                    return remaining_uses
+
+                if data.get("access_token"):
+                    await ws.send(json.dumps({"access_token": data["access_token"]}, ensure_ascii=False))
+        except Exception:
+            return None
+        finally:
+            await ws.close()
+        return None
 
     # ── WebSocket 检测 ───────────────────────────────────
 
@@ -385,13 +505,12 @@ class ZhuqueAPI:
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
         headers = self._ws_headers(creds)
         deadline = time.time() + timeout
-        start_time = int(time.time() * 1000)
         text_sent = False
+        # Match the current Zhuque frontend loadErrorCallback(): callback() receives
+        # errorCode/errorMessage, but only ticket/randstr are sent to the WebSocket.
         captcha_payload = {
             "ticket": f"terror_1001_2089775896_{int(time.time())}",
-            "randstr": f"@{uuid.uuid4().hex[:12]}",
-            "errorCode": 1001,
-            "errorMessage": "jsload_error",
+            "randstr": "@" + "".join(random.choices(string.ascii_lowercase + string.digits, k=11)),
         }
 
         ws = await self._connect(headers)
@@ -424,7 +543,7 @@ class ZhuqueAPI:
                 if status == "running" and data.get("cos"):
                     return await self._poll_cos_result(
                         data["cos"],
-                        start_time,
+                        int(time.time() * 1000),
                         text_len,
                         creds,
                         max(1.0, deadline - time.time()),

@@ -65,7 +65,7 @@ Questions to answer:
   - `POST /api/optimization/start` accepts `processing_mode="ai_detect_reduce"`.
   - `POST /api/optimization/sessions/{session_id}/retry` must preserve Zhuque retry state.
   - `POST /api/optimization/zhuque/browser/start` is a legacy URL name; it starts one-time WeChat QR credential capture and returns `{status, auth_mode="headless_api", login_mode="wechat_qr", credential_file, command?, message}`.
-  - `GET /api/optimization/zhuque/browser/status` is a legacy URL name; it returns credential status `{status, connected, ready, auth_mode, login_mode, credential_file, user_name, quota_text, captured_at, message}`.
+  - `GET /api/optimization/zhuque/browser/status` is a legacy URL name; it returns credential status `{status, connected, ready, has_token, remaining_uses, button_enabled, auth_mode, login_mode, credential_file, user_name, quota_text, captured_at, message}`.
   - `GET /api/optimization/zhuque/readiness` returns Zhuque credential/API readiness without consuming a detection use.
   - `POST /api/optimization/zhuque/preflight` accepts `{original_text, processing_mode, billing_mode}` and returns readiness plus cost estimates without creating a session.
 - DB:
@@ -82,6 +82,7 @@ Questions to answer:
 - Detection is a Zhuque-side quota operation and must not create GankAIGC beer transactions.
 - Login/setup is one-time WeChat QR credential capture via `zhuque_pkg/capture_zhuque_creds.py`; after `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API. Do not resurrect local page-control/CDP detection logic.
 - The credential file default search order must prefer the repo-level `zhuque_pkg/creds_latest.json` so `cd package && python main.py` and repo-root tooling agree. `ZHUQUE_CREDENTIALS_FILE` may override it.
+- Zhuque remaining-use values are not guaranteed to exist in `quotaText`; current live pages can expose quota via `availableUses`, `remainingUses`, `remaining_uses`, button text such as `Detect now(18 left)`, or Chinese quota copy. Backend code must normalize all of these and may use `ZhuqueAPI.peek_remaining_uses()` to read initial WebSocket auth frames without submitting captcha/text. A displayed `-1` means unknown, not zero.
 - `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. It must not return `started` if the QR capture process cannot open a browser; otherwise users see a false positive while no credential can be saved.
 - Start/retry in `platform` mode for `ai_detect_reduce` must leave `charge_status="not_charged"` and `charged_credits=0`; only actual LLM reduce calls create `reason="zhuque_reduce"` transactions.
 - `ai_detect_reduce` start must run a preflight before creating a session:
@@ -153,6 +154,7 @@ Questions to answer:
 - WeChat credential capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`), and credential status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
+- Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.
 - Paper Reconstruction: repeated paper stagnation records `rewrite_mode="paper_reconstruction"`, language/section/pattern metadata, candidate selection metadata, and fact-card counts without storing full candidate text in trace.
 - Rollback protection: regression after a previously improved round restores saved text and records rollback metadata in trace/SSE.

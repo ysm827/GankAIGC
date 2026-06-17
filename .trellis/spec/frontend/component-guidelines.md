@@ -173,6 +173,7 @@ Questions to answer:
 - Platform billing copy for `ai_detect_reduce` must say detection does not consume beer and actual high-AI LLM rewrite is charged by reduce call. Estimated start cost should display as zero/skip.
 - When `processingMode === "ai_detect_reduce"`, show the Zhuque credential panel, call `getZhuqueAuthStatus()` immediately, then poll every 5 seconds while the mode remains selected.
 - The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, then display credential status, remaining uses, text-length readiness, readiness message, and actions.
+- If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state such as `检测后同步`; never show raw `-1` as a user-facing quota.
 - Before starting an `ai_detect_reduce` task, call `preflightZhuqueTask({original_text, processing_mode, billing_mode})`; if `ready=false`, show the backend message and do not call `startOptimization`.
 - If preflight returns `estimated_max_round_credits`, show it as a risk estimate only. Do not present it as a pre-held or guaranteed charge.
 - The login button calls `startZhuqueLogin()` and keeps status based on the status endpoint's `connected` field, not on the launch response alone.
@@ -204,6 +205,7 @@ Questions to answer:
 
 - Good: selecting `ai_detect_reduce` shows credential guidance, connected state updates from polling, and detail page shows final risk rate, detect count, reduce rounds, remaining uses, labels ratio, text length, and process timeline.
 - Good: readiness shows credential status, remaining uses, text length, action suggestions, and a "朱雀已就绪" state before task start.
+- Good: when the backend cannot know live quota yet, readiness shows `检测后同步` instead of `-1`, and switches to a numeric count once the live probe or a detection result returns `remaining_uses`.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
 - Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Good: detail page shows Prompt Evolution learning rows explaining why the previous prompt failed and which safe patch was used next.
@@ -214,12 +216,14 @@ Questions to answer:
 - Good: a long Agent trace is scrollable inside the trace card, and `plateau_exit` appears as "卡点退出" with manual-review guidance.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
 - Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, marks credentials connected just because launch was attempted, or uses old browser-launch wording.
+- Bad: UI displays `剩余次数：-1`, causing users to read an unknown quota as negative usage.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
 
 ### 6. Tests Required
 
 - Static/frontend tests should assert mode option text, launcher/status endpoint strings, browser status polling state usage, report field rendering, and `zhuque_reduced_text` final-text priority.
 - Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
+- Static/frontend tests should assert negative/missing `remaining_uses` renders as an unknown/sync-pending label, not raw `-1`.
 - Static/frontend tests should assert Paper Reconstruction trace strings: `paper_reconstruction`, "论文重构", `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, and `fact_card_count`.
 - Static/frontend tests should assert rollback protection strings: `rollback_applied` and "回滚保护".
 - Build must pass with `npm.cmd run build` on Windows PowerShell environments where `npm.ps1` may be blocked by execution policy.

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
+import string
 import time
 import uuid
 from pathlib import Path
@@ -72,6 +74,45 @@ def _parse_remaining_uses(text: str) -> int:
     return int(match.group(1)) if match else -1
 
 
+def _coerce_remaining_uses(*values) -> int:
+    """Normalize Zhuque quota values from API numbers or UI text.
+
+    Live Zhuque can expose the remaining quota as:
+    - `availableUses: 18`
+    - `remaining_uses: "18"`
+    - button text like `Detect now(18 left)`
+    - Chinese quota text like `今日剩余 18 次`
+    """
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            remaining = int(value)
+            if remaining >= 0:
+                return remaining
+            continue
+        remaining = _parse_remaining_uses(str(value))
+        if remaining >= 0:
+            return remaining
+    return -1
+
+
+def _unwrap_token_value(value) -> str:
+    """Zhuque localStorage may store aiGenAccessToken as JSON {value, expiry, uid}."""
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return str(value.get("value") or value.get("token") or value.get("access_token") or "")
+    text = str(value)
+    try:
+        parsed = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return text
+    if isinstance(parsed, dict):
+        return str(parsed.get("value") or parsed.get("token") or parsed.get("access_token") or text)
+    return text
+
+
 def _default_credentials_file() -> Path:
     env_path = os.environ.get("ZHUQUE_CREDENTIALS_FILE")
     if env_path:
@@ -92,20 +133,47 @@ def _default_credentials_file() -> Path:
 
 def _extract_credentials(raw: dict) -> dict:
     local_storage = raw.get("localStorage") or raw.get("local_storage") or {}
-    cookies = raw.get("cookies") or raw.get("cookieString") or raw.get("cookie_string") or ""
-    if isinstance(cookies, list):
+    raw_cookies = raw.get("cookies") or raw.get("cookieString") or raw.get("cookie_string") or ""
+    cookie_token = ""
+    if isinstance(raw_cookies, list):
+        for item in raw_cookies:
+            if (
+                isinstance(item, dict)
+                and str(item.get("name", "")).lower() in {"access_token", "accesstoken"}
+                and item.get("value")
+            ):
+                cookie_token = str(item["value"])
+                break
         cookies = "; ".join(
             f"{item.get('name')}={item.get('value')}"
-            for item in cookies
+            for item in raw_cookies
             if isinstance(item, dict) and item.get("name") is not None
         )
+    else:
+        cookies = raw_cookies or ""
+
+    raw_token = _unwrap_token_value(raw.get("access_token"))
+    storage_token = _unwrap_token_value(local_storage.get("aiGenAccessToken"))
+    if not storage_token:
+        for key, value in local_storage.items():
+            lower_key = str(key).lower()
+            if value and "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
+                storage_token = _unwrap_token_value(value)
+                break
 
     return {
-        "access_token": raw.get("access_token") or local_storage.get("aiGenAccessToken") or "",
+        "access_token": raw_token or storage_token or cookie_token or "",
         "fp": raw.get("fp") or local_storage.get("fp") or "",
         "cookies": cookies or "",
         "user_name": raw.get("user_name") or raw.get("userName") or "",
         "quota_text": raw.get("quota_text") or raw.get("quotaText") or "",
+        "remaining_uses": _coerce_remaining_uses(
+            raw.get("remaining_uses"),
+            raw.get("remainingUses"),
+            raw.get("availableUses"),
+            raw.get("quota_text"),
+            raw.get("quotaText"),
+        ),
         "captured_at": raw.get("captured_at") or raw.get("timestamp") or "",
         "raw": raw,
     }
@@ -207,6 +275,16 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
 
     default_rate_label = "WebSocket检测结果" if source == "websocket" else "朱雀无头检测结果"
 
+    remaining_uses = _coerce_remaining_uses(
+        data.get("availableUses"),
+        data.get("remaining_uses"),
+        data.get("remainingUses"),
+        data.get("remaining"),
+        data.get("quota_text"),
+        data.get("quotaText"),
+        data.get("button_text"),
+    )
+
     return {
         "success": True,
         "rate": rate,
@@ -216,7 +294,7 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         "alert_text": data.get("alert_text") or alert_text,
         "alert_title": data.get("alert_title", ""),
         "message": data.get("msg") or data.get("message") or "",
-        "remaining_uses": data.get("availableUses", data.get("remaining_uses", -1)),
+        "remaining_uses": remaining_uses,
         "text_length": text_length,
         "confidence": data.get("confidence"),
         "segment_labels": _convert_segment_labels(data.get("segment_labels", []), label_map),
@@ -244,6 +322,9 @@ class ZhuqueAPI:
         self.ws_url = ws_url
         self.http_base_url = http_base_url.rstrip("/")
         self._credentials_cache: Optional[dict] = None
+
+    def _playwright_browsers_path(self) -> Path:
+        return Path(__file__).resolve().parents[3] / ".playwright-browsers"
 
     # ── 凭证 ─────────────────────────────────────────────
 
@@ -286,13 +367,14 @@ class ZhuqueAPI:
             }
 
         quota_text = creds.get("quota_text") or ""
+        remaining_uses = _coerce_remaining_uses(creds.get("remaining_uses"), quota_text)
         has_token = bool(creds.get("access_token"))
         return {
             "ready": has_token,
             "connected": has_token,
             "page_found": has_token,
             "has_token": has_token,
-            "remaining_uses": _parse_remaining_uses(quota_text),
+            "remaining_uses": remaining_uses,
             "button_enabled": has_token,
             "credential_file": str(self.credentials_file),
             "auth_mode": "headless_api",
@@ -306,6 +388,58 @@ class ZhuqueAPI:
     async def status(self) -> dict:
         """兼容旧 status()，返回无头 API 凭证状态。"""
         return self.credential_status()
+
+    async def peek_remaining_uses(self, timeout: float = 3.0) -> Optional[int]:
+        """Read live Zhuque quota from the initial WebSocket auth frames.
+
+        This sends only the saved access token/fp and closes the connection before
+        captcha/text submission, so it does not consume a detection use.
+        """
+        try:
+            creds = self.load_credentials(refresh=True)
+        except RuntimeError:
+            return None
+
+        auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
+        headers = self._ws_headers(creds)
+        try:
+            ws = await self._connect(headers)
+        except Exception:
+            return None
+
+        deadline = time.time() + max(timeout, 0.1)
+        try:
+            await ws.send(json.dumps(auth_payload, ensure_ascii=False))
+            while time.time() < deadline:
+                raw = await asyncio.wait_for(ws.recv(), timeout=max(0.1, deadline - time.time()))
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+
+                if data.get("status") == "limited":
+                    return 0
+
+                remaining_uses = _coerce_remaining_uses(
+                    data.get("availableUses"),
+                    data.get("remaining_uses"),
+                    data.get("remainingUses"),
+                    data.get("remaining"),
+                    data.get("quota_text"),
+                    data.get("quotaText"),
+                    data.get("button_text"),
+                    data.get("msg"),
+                )
+                if remaining_uses >= 0:
+                    return remaining_uses
+
+                if data.get("access_token"):
+                    await ws.send(json.dumps({"access_token": data["access_token"]}, ensure_ascii=False))
+        except Exception:
+            return None
+        finally:
+            await ws.close()
+        return None
 
     # ── WebSocket 检测 ───────────────────────────────────
 
@@ -361,6 +495,130 @@ class ZhuqueAPI:
                 await asyncio.sleep(5)
         return self._failure(f"检测结果轮询超时 ({timeout}s)", text_length)
 
+    async def _detect_with_page(self, text: str, timeout: float, *, reason: str = "") -> dict:
+        """Fallback to the real Zhuque page so TencentCaptcha generates a valid ticket."""
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            return self._failure(
+                f"朱雀无头 API 验证失败，且当前环境未安装 Playwright，无法启用真实页面兜底。{reason}",
+                len(text),
+            )
+
+        state_file = self.credentials_file.parent / "browser_state.json"
+        if not state_file.exists():
+            return self._failure(
+                f"朱雀无头 API 验证失败，且缺少浏览器会话 {state_file}，无法启用真实页面兜底。请重新微信扫码登录。",
+                len(text),
+            )
+
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(self._playwright_browsers_path()))
+        pw = await async_playwright().start()
+        browser = None
+        try:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
+            ctx = await browser.new_context(
+                storage_state=str(state_file),
+                viewport={"width": 1280, "height": 720},
+                user_agent=DEFAULT_USER_AGENT,
+            )
+            page = await ctx.new_page()
+            await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(5000)
+
+            await page.evaluate(
+                """() => {
+                    const button = document.querySelector('.clear-btn')
+                        || [...document.querySelectorAll('button')].find(b => /清空|Clear/i.test(b.textContent || ''));
+                    if (button) button.click();
+                }"""
+            )
+            await page.wait_for_timeout(500)
+            set_result = await page.evaluate(
+                """(text) => {
+                    const ta = document.querySelector('.el-textarea__inner');
+                    if (!ta) return 'NO_TEXTAREA';
+                    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+                    setter.call(ta, text);
+                    ta.dispatchEvent(new Event('input', {bubbles: true}));
+                    return 'SET:' + ta.value.length;
+                }""",
+                text,
+            )
+            if "NO_TEXTAREA" in str(set_result):
+                return self._failure("朱雀真实页面兜底失败：找不到文本输入框", len(text))
+
+            await page.wait_for_timeout(500)
+            click_result = await page.evaluate(
+                """() => {
+                    const button = document.querySelector('.submit-btn')
+                        || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+                    if (!button) return 'NOT_FOUND';
+                    if (button.disabled) return 'DISABLED:' + button.textContent;
+                    button.click();
+                    return 'CLICKED:' + button.textContent;
+                }"""
+            )
+            if "NOT_FOUND" in str(click_result):
+                return self._failure("朱雀真实页面兜底失败：找不到检测按钮", len(text))
+            if "DISABLED" in str(click_result):
+                return self._failure("朱雀真实页面兜底失败：检测按钮被禁用，可能文本长度不足或次数用尽", len(text))
+
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                await page.wait_for_timeout(1000)
+                data = await page.evaluate(
+                    """() => {
+                        const el = document.querySelector('.ai-detection-result');
+                        const alert = document.querySelector('.el-alert__description');
+                        const title = document.querySelector('.el-alert__title');
+                        const btn = document.querySelector('.submit-btn');
+                        let vue = null;
+                        if (el && el.__vue__) {
+                            vue = {
+                                type: el.__vue__.type,
+                                processing: el.__vue__.processing,
+                                rate: el.__vue__.rate,
+                                rateLabel: el.__vue__.rateLabel,
+                                labelsRatio: el.__vue__.labelsRatio,
+                                msg: el.__vue__.msg || ''
+                            };
+                        }
+                        return {
+                            vue,
+                            alert: alert ? alert.textContent.trim() : '',
+                            alert_title: title ? title.textContent.trim() : '',
+                            button_text: btn ? btn.textContent.trim() : ''
+                        };
+                    }"""
+                )
+                vue = data.get("vue") or {}
+                if vue.get("type") and not vue.get("processing") and vue.get("rate") is not None:
+                    payload = {
+                        "confidence": vue.get("rate"),
+                        "rateLabel": vue.get("rateLabel"),
+                        "labelsRatio": vue.get("labelsRatio") or {},
+                        "msg": vue.get("msg") or "",
+                        "alert_text": (data.get("alert") or "").replace("Report", "").replace("下载报告", "").strip(),
+                        "alert_title": data.get("alert_title") or "",
+                        "availableUses": _parse_remaining_uses(data.get("button_text") or ""),
+                    }
+                    return normalize_zhuque_result(payload, text_length=len(text), source="page_fallback")
+
+            return self._failure(f"朱雀真实页面兜底检测超时 ({timeout}s)", len(text))
+        except Exception as exc:
+            return self._failure(f"朱雀真实页面兜底失败: {exc}", len(text))
+        finally:
+            if browser is not None:
+                await browser.close()
+            await pw.stop()
+
     def _failure(self, message: str, text_length: int, *, remaining_uses: int = -1) -> dict:
         return {
             "success": False,
@@ -386,13 +644,12 @@ class ZhuqueAPI:
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
         headers = self._ws_headers(creds)
         deadline = time.time() + timeout
-        start_time = int(time.time() * 1000)
         text_sent = False
+        # Match the current Zhuque frontend loadErrorCallback(): callback() receives
+        # errorCode/errorMessage, but only ticket/randstr are sent to the WebSocket.
         captcha_payload = {
             "ticket": f"terror_1001_2089775896_{int(time.time())}",
-            "randstr": f"@{uuid.uuid4().hex[:12]}",
-            "errorCode": 1001,
-            "errorMessage": "jsload_error",
+            "randstr": "@" + "".join(random.choices(string.ascii_lowercase + string.digits, k=11)),
         }
 
         ws = await self._connect(headers)
@@ -425,7 +682,7 @@ class ZhuqueAPI:
                 if status == "running" and data.get("cos"):
                     return await self._poll_cos_result(
                         data["cos"],
-                        start_time,
+                        int(time.time() * 1000),
                         text_len,
                         creds,
                         max(1.0, deadline - time.time()),
@@ -443,9 +700,10 @@ class ZhuqueAPI:
                         await ws.send(json.dumps({"text": text}, ensure_ascii=False))
                         text_sent = True
                         continue
-                    return self._failure(
-                        "朱雀无头 API 未通过验证码票据校验，请重新微信扫码登录；若仍出现，请稍后再试。",
-                        text_len,
+                    return await self._detect_with_page(
+                        text,
+                        max(30.0, deadline - time.time()),
+                        reason=f"验证码返回 code={data.get('code')} msg={data.get('msg') or ''}",
                     )
 
                 # 认证完成后复刻朱雀前端 loadErrorCallback 兜底链：验证码 JS 不可用时

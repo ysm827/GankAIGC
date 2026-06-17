@@ -175,7 +175,7 @@ def _zhuque_playwright_browsers_path() -> Path:
 
 
 def _zhuque_local_browser_executable() -> Optional[Path]:
-    """Return a Linux browser executable Playwright can control from WSL/Linux."""
+    """Return a Linux Chromium-family browser executable Playwright can control."""
     env_path = os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
     candidates = [
         env_path,
@@ -183,6 +183,13 @@ def _zhuque_local_browser_executable() -> Optional[Path]:
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
+        "/usr/bin/microsoft-edge",
+        "/usr/bin/microsoft-edge-stable",
+        "/usr/bin/msedge",
+        "/usr/bin/brave-browser",
+        "/usr/bin/brave",
+        "/snap/bin/chromium",
+        "/snap/bin/brave",
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists():
@@ -243,16 +250,19 @@ def _start_zhuque_wechat_capture() -> dict:
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
             "command": f'PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
-            "message": "Playwright 已安装，但未找到可用于扫码授权页的 Chromium/Chrome。请先安装浏览器内核；扫码只用于保存朱雀凭证，后续检测仍直接走无头 API。",
+            "message": "Playwright 已安装，但未找到可用于扫码授权页的 Chromium 内核浏览器（Chrome/Chromium/Edge/Brave）或 Playwright 内置 Chromium。请先安装任一浏览器内核；扫码只用于保存朱雀凭证，后续检测仍直接走无头 API。",
         }
 
     try:
+        log_path = script_path.parent / "capture_latest.log"
+        log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
+        log_handle.write(f"\n--- start {utcnow().isoformat()} ---\n")
         subprocess.Popen(
             [sys.executable, str(script_path)],
             cwd=str(script_path.parent),
             env=_zhuque_capture_env(),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             start_new_session=True,
         )
         return {
@@ -261,7 +271,7 @@ def _start_zhuque_wechat_capture() -> dict:
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
             "command": command,
-            "message": "已打开朱雀微信扫码授权页；扫码完成后会保存凭证，后续检测走无头 API",
+            "message": f"已打开朱雀微信扫码授权页；扫码完成后会保存凭证，后续检测走无头 API。若扫码后未保存，请查看日志: {log_path}",
         }
     except Exception as exc:
         return {
@@ -281,6 +291,9 @@ def _get_zhuque_headless_status() -> dict:
         "status": "connected" if ready else "missing_credentials",
         "connected": ready,
         "ready": ready,
+        "has_token": bool(status.get("has_token")),
+        "remaining_uses": status.get("remaining_uses", -1),
+        "button_enabled": bool(status.get("button_enabled", ready)),
         "auth_mode": "headless_api",
         "login_mode": "wechat_qr",
         "credential_file": status.get("credential_file", ""),

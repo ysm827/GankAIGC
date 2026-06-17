@@ -66,6 +66,17 @@ const getAnnouncementCategoryClass = (category) => {
   return classes[category] || classes.notice;
 };
 
+const formatZhuqueRemainingUses = (value) => {
+  if (value === null || value === undefined) {
+    return '检测后同步';
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return '检测后同步';
+  }
+  return `${numeric} 次`;
+};
+
 // 会话列表项组件 - 使用 memo 避免不必要重渲染
 const SessionItem = memo(({ session, activeSession, onView, onDelete, onRetry }) => {
   const handleDelete = useCallback((e) => {
@@ -958,7 +969,7 @@ const WorkspacePage = () => {
                           </div>
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
                             <span className="font-semibold text-gray-800">剩余次数：</span>
-                            {zhuqueReadiness.remaining_uses ?? '--'}
+                            {formatZhuqueRemainingUses(zhuqueReadiness.remaining_uses)}
                           </div>
                           <div className="rounded-lg bg-white/70 px-2.5 py-2">
                             <span className="font-semibold text-gray-800">文本长度：</span>
