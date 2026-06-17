@@ -543,6 +543,9 @@ def test_session_export_modal_only_offers_word_and_markdown():
     assert "useState('docx')" in session_detail
     assert '<option value="docx">Word文档 (.docx)</option>' in session_detail
     assert '<option value="md">Markdown文件 (.md)</option>' in session_detail
+    assert '<option value="aigc_report_docx">AIGC检测报告 (.docx)</option>' in session_detail
+    assert '<option value="aigc_report_md">AIGC检测报告 (.md)</option>' in session_detail
+    assert "每一段的 AI 率" in session_detail
     assert 'value="txt"' not in session_detail
     assert 'value="pdf"' not in session_detail
     assert "即将支持" not in session_detail

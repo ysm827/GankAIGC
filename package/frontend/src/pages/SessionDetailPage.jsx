@@ -911,7 +911,18 @@ const SessionDetailPage = () => {
                 >
                   <option value="docx">Word文档 (.docx)</option>
                   <option value="md">Markdown文件 (.md)</option>
+                  {session?.processing_mode === 'ai_detect_reduce' && (
+                    <>
+                      <option value="aigc_report_docx">AIGC检测报告 (.docx)</option>
+                      <option value="aigc_report_md">AIGC检测报告 (.md)</option>
+                    </>
+                  )}
                 </select>
+                {session?.processing_mode === 'ai_detect_reduce' && (
+                  <p className="mt-2 text-left text-[12px] leading-5 text-gray-500">
+                    AIGC检测报告会像知网报告一样列出每一段的 AI 率、AI特征、疑似AI和人工特征占比。
+                  </p>
+                )}
               </div>
             </div>
 

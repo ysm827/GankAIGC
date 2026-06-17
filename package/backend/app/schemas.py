@@ -381,7 +381,7 @@ class ExportConfirmation(BaseModel):
     """导出确认"""
     session_id: str
     acknowledge_academic_integrity: bool
-    export_format: str = Field(..., pattern="^(docx|md)$")
+    export_format: str = Field(..., pattern="^(docx|md|aigc_report_docx|aigc_report_md)$")
 
 
 class UserUsageUpdate(BaseModel):

@@ -94,6 +94,7 @@ Questions to answer:
 - Zhuque `segment_labels[].position` is relative to the joined text using `"\n\n"` separators. Only labels `0` (AI) and `2` (suspicious) select segments for rewrite. If usable positions are absent, rewrite all segments as a safe fallback.
 - Retry after failure must detect `zhuque_reduced_text` first when present and continue from `max(zhuque_reduce_attempt) + 1`; it must not restart from original text.
 - Export and session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
+- `POST /api/optimization/sessions/{session_id}/export` also supports `export_format="aigc_report_docx"` and `export_format="aigc_report_md"` for completed `ai_detect_reduce` sessions. The report must not replace the final-text export; it is a separate AIGC report artifact. It must include a summary and a per-segment table with segment index, length, risk/AI rate, AI-label rate, suspicious-label rate, human-label rate, and status. If Zhuque `segment_labels[].position` exists, map positions back to final exported segment text using the same `"\n\n"` separator convention; if positions are absent, fall back to the full-text risk/labels ratio for each segment and mark it as fallback-derived.
 - Zhuque reduce output length is a hard service-side contract, not prompt-only guidance. For each rewritten segment, compare the final reduced text against `original_text` with `count_text_length`; accepted output must stay within ±10%. Retry may still start detection/rewrite from latest `zhuque_reduced_text`, but the length baseline remains the original segment to avoid carrying forward already-bloated text. If polish/enhance output exceeds the bound, run one `enhance_text` length-repair call using a "Zhuque length correction" prompt, still preserving facts, terminology, data, citations, and conclusions. If the repair still fails, fall back to the length-compliant polished result, original segment, or original round input; do not blindly truncate text.
 - `zhuque_agent_trace` must be compact metadata only: event kind, round, strategy, rates, selected segment indices, decision, convergence reflection, message, and final diagnosis. Do not store full text in trace.
 - Reduce trace/SSE events may include `length_adjustments`, containing compact per-segment metadata only: segment index, round, original length, before/after lengths, bounds, and repair acceptance. Do not store full original or repaired text in trace.
@@ -126,6 +127,7 @@ Questions to answer:
 - Zhuque reduce output length drifts beyond ±10% -> length-repair call must run before saving `zhuque_reduced_text`; the recheck must detect the repaired/fallback text, not the bloated intermediate output.
 - A reduce round lowers risk and a later round is equal or higher -> rollback protection restores the previous segment text/detection metadata and the trace marks `rollback_applied=true`.
 - Trace JSON invalid/missing on older sessions -> session detail API still returns `zhuque_agent_trace=null`; frontend handles it as absent.
+- AIGC report export requested for a non-`ai_detect_reduce` session -> HTTP 400 with a clear message; requested before any Zhuque detection metadata exists -> HTTP 400. `txt` and `pdf` remain rejected by schema unless explicitly reintroduced with tests.
 - Prompt memory must survive startup schema creation and Alembic upgrade; missing table on existing deployments should be created by `Base.metadata.create_all()` during startup before migrations add indexes/columns.
 
 ### 5. Good/Base/Bad Cases
@@ -142,8 +144,10 @@ Questions to answer:
 - Good: A session reaches 34.9% and the next rewrite rechecks at 100%; the pipeline restores the 34.9% text instead of saving the 100% rewrite.
 - Good: A session stuck near 25% after repeated strongest-strategy rollbacks records `type="plateau_recovery"` candidate rates, tries bulk candidates first, then bounded stubborn-segment sweep candidates, and accepts a lower-risk candidate when found. If those fail, it records `type="plateau_deep_reconstruction"` and may accept a lower-risk route such as `evidence_first`.
 - Good: A session flatlining at `24.52%` against a `20%` threshold after bulk, segment-sweep, and deep-reconstruction candidates records `type="detector_floor"`, recommends a threshold such as `26%`, exits with `plateau_exit.action="detector_floor"`, and preserves the best saved text.
+- Good: a completed `ai_detect_reduce` export with `aigc_report_docx`/`aigc_report_md` returns a separate "AIGC检测报告" filename, includes each final segment's text and per-segment AI rate, and still lets normal `docx`/`md` export return only the final paper text.
 - Base: full text risk rate is below threshold; all segments keep original text, detect count is 1, and no beer transaction exists.
 - Bad: retrying a failed `ai_detect_reduce` session with 0 beers pre-holds `optimization_start` or redetects original text; both violate the contract.
+- Bad: AIGC report export uses `labels_ratio[1]` as AI, writes the report over the final paper export, omits segment rows, or reports raw `-1` remaining uses as a negative quota.
 - Bad: `byok` start with no provider config calls Zhuque readiness first; this leaks setup order and can produce confusing Zhuque errors before the API config error.
 
 ### 6. Tests Required
@@ -153,6 +157,7 @@ Questions to answer:
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
 - WeChat credential capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`), and credential status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
+- AIGC report export: `aigc_report_docx` and `aigc_report_md` return distinct filenames, MIME types, and per-segment AI-rate rows mapped from `segment_labels[].position`; non-Zhuque sessions and missing report metadata return HTTP 400.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
 - Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.

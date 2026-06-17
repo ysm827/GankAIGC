@@ -200,6 +200,7 @@ Questions to answer:
 - `zhuque_detect_result` is missing or invalid JSON -> render a lightweight empty/raw report instead of crashing.
 - `zhuque_agent_trace` is missing or invalid JSON -> hide trace or show lightweight diagnosis instead of crashing.
 - Final report absent -> show "暂无报告" and keep result text panels usable.
+- Exporting `ai_detect_reduce` sessions must offer the normal final-paper formats plus separate AIGC report formats; non-Zhuque sessions should not show report-only options.
 
 ### 5. Good/Base/Bad Cases
 
@@ -214,14 +215,17 @@ Questions to answer:
 - Good: detail page shows "论文重构" with Chinese/English language, section, AI pattern, candidate count, and fact-card metadata when a stubborn paper paragraph uses `rewrite_mode="paper_reconstruction"`.
 - Good: detail page shows "回滚保护" when a round regresses, including the restored segment indices and risk-rate rollback.
 - Good: a long Agent trace is scrollable inside the trace card, and `plateau_exit` appears as "卡点退出" with manual-review guidance.
+- Good: the export modal for completed `ai_detect_reduce` sessions offers `AIGC检测报告 (.docx)` and `AIGC检测报告 (.md)` in addition to final paper `Word文档` and `Markdown文件`, and copy explains the report lists every segment's AI rate.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
 - Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, marks credentials connected just because launch was attempted, or uses old browser-launch wording.
+- Bad: UI hides the normal final-paper export after adding AIGC report export, offers AIGC report options for non-Zhuque sessions, or labels the report export as if it were the final paper text.
 - Bad: UI displays `剩余次数：-1`, causing users to read an unknown quota as negative usage.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
 
 ### 6. Tests Required
 
 - Static/frontend tests should assert mode option text, launcher/status endpoint strings, browser status polling state usage, report field rendering, and `zhuque_reduced_text` final-text priority.
+- Static/frontend tests should assert AIGC report export option strings (`aigc_report_docx`, `aigc_report_md`) are gated to `ai_detect_reduce` sessions and that the modal explains per-segment AI-rate reporting.
 - Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Static/frontend tests should assert negative/missing `remaining_uses` renders as an unknown/sync-pending label, not raw `-1`.
 - Static/frontend tests should assert Paper Reconstruction trace strings: `paper_reconstruction`, "论文重构", `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, and `fact_card_count`.

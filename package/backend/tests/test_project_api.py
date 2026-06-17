@@ -1,9 +1,10 @@
 from sqlalchemy import inspect
 import base64
+import json
 import re
 
 from app.database import SessionLocal, engine
-from app.models.models import User
+from app.models.models import OptimizationSegment, OptimizationSession, User
 from app.utils.auth import create_user_access_token, get_password_hash
 
 
@@ -201,8 +202,6 @@ def test_list_sessions_can_filter_by_project_and_unfiled(client, monkeypatch):
 
 
 def _create_completed_session(user_id, project_id=None, task_title=None, session_id="export-session"):
-    from app.models.models import OptimizationSegment, OptimizationSession
-
     db = SessionLocal()
     try:
         session = OptimizationSession(
@@ -230,6 +229,62 @@ def _create_completed_session(user_id, project_id=None, task_title=None, session
                 status="completed",
             )
         )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _create_completed_zhuque_session(user_id, project_id=None, task_title=None, session_id="export-zhuque-report"):
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id=session_id,
+            original_text="原始第一段\n\n原始第二段",
+            current_stage="ai_detect_reduce",
+            status="completed",
+            progress=100,
+            current_position=1,
+            total_segments=2,
+            processing_mode="ai_detect_reduce",
+            project_id=project_id,
+            task_title=task_title,
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        report = {
+            "success": True,
+            "risk_rate": 30,
+            "rate": 30,
+            "labels_ratio": {"0": 0.2, "1": 0.7, "2": 0.1},
+            "remaining_uses": 16,
+            "text_length": 18,
+            "message": "检测完成",
+            "segment_labels": [
+                {"label": 0, "position": [0, 4]},
+                {"label": 1, "position": [4, 8]},
+                {"label": 2, "position": [10, 14]},
+                {"label": 1, "position": [14, 18]},
+            ],
+        }
+        for index, text in enumerate(["改后第一段", "改后第二段"]):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="enhance",
+                    original_text=f"原始第{index + 1}段",
+                    enhanced_text=text,
+                    zhuque_reduced_text=text,
+                    status="completed",
+                    zhuque_detect_rate=30,
+                    zhuque_detect_result=json.dumps(report, ensure_ascii=False),
+                    zhuque_detect_count=2,
+                    zhuque_reduce_attempt=1,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -342,3 +397,62 @@ def test_export_rejects_removed_txt_and_pdf_formats(client):
         )
 
         assert response.status_code == 422
+
+
+def test_export_zhuque_aigc_report_includes_segment_rates(client):
+    user_id, headers = _create_user()
+    project = client.post(
+        "/api/user/projects",
+        json={"title": "医学影像论文"},
+        headers=headers,
+    ).json()
+    _create_completed_zhuque_session(
+        user_id,
+        project_id=project["id"],
+        task_title="终稿降AI",
+        session_id="export-zhuque-aigc-report",
+    )
+
+    markdown_response = client.post(
+        "/api/optimization/sessions/export-zhuque-aigc-report/export",
+        json={
+            "session_id": "export-zhuque-aigc-report",
+            "acknowledge_academic_integrity": True,
+            "export_format": "aigc_report_md",
+        },
+        headers=headers,
+    )
+
+    assert markdown_response.status_code == 200
+    markdown_payload = markdown_response.json()
+    assert markdown_payload["format"] == "aigc_report_md"
+    assert markdown_payload["mime_type"] == "text/markdown;charset=utf-8"
+    assert re.fullmatch(
+        r"医学影像论文_终稿降AI_AIGC检测报告_\d{8}_\d{6}\.md",
+        markdown_payload["filename"],
+    )
+    assert "GankAIGC AIGC 检测报告" in markdown_payload["content"]
+    assert "逐段 AI 率" in markdown_payload["content"]
+    assert "| 段落 | 字数 | 段落AI率 | AI特征 | 疑似AI | 人工特征 | 结论 |" in markdown_payload["content"]
+    assert "改后第一段" in markdown_payload["content"]
+    assert "改后第二段" in markdown_payload["content"]
+
+    word_response = client.post(
+        "/api/optimization/sessions/export-zhuque-aigc-report/export",
+        json={
+            "session_id": "export-zhuque-aigc-report",
+            "acknowledge_academic_integrity": True,
+            "export_format": "aigc_report_docx",
+        },
+        headers=headers,
+    )
+
+    assert word_response.status_code == 200
+    word_payload = word_response.json()
+    assert word_payload["format"] == "aigc_report_docx"
+    assert word_payload["mime_type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert re.fullmatch(
+        r"医学影像论文_终稿降AI_AIGC检测报告_\d{8}_\d{6}\.docx",
+        word_payload["filename"],
+    )
+    assert base64.b64decode(word_payload["content_base64"]).startswith(b"PK")

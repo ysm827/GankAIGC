@@ -25,7 +25,7 @@ from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
 from app.services.zhuque_service import zhuque_service
-from app.services.ai_service import split_text_into_segments
+from app.services.ai_service import count_text_length, split_text_into_segments
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
@@ -58,11 +58,350 @@ def _build_export_filename(session: OptimizationSession, extension: str) -> str:
     return f"{'_'.join(parts)}.{extension}"
 
 
+def _build_aigc_report_filename(session: OptimizationSession, extension: str) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    project_title = session.project.title if session.project and session.project.title else ""
+    project_part = _clean_export_filename_part(project_title, "未归档")
+
+    parts = [project_part]
+    if project_title and session.task_title and session.task_title.strip():
+        parts.append(_clean_export_filename_part(session.task_title, "本次处理"))
+    parts.extend(["AIGC检测报告", timestamp])
+    return f"{'_'.join(parts)}.{extension}"
+
+
 def _build_docx_base64(text: str) -> str:
     document = Document()
     paragraphs = text.split("\n\n") if text else [""]
     for paragraph in paragraphs:
         document.add_paragraph(paragraph)
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _parse_zhuque_result(raw_result: str | dict | None) -> dict:
+    if isinstance(raw_result, dict):
+        return raw_result
+    if not raw_result:
+        return {}
+    try:
+        parsed = json.loads(raw_result)
+    except (TypeError, json.JSONDecodeError):
+        return {"raw": str(raw_result)}
+    return parsed if isinstance(parsed, dict) else {"raw": parsed}
+
+
+def _zhuque_rate_percent(value) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, min(number, 100.0)), 2)
+
+
+def _zhuque_ratio_percent(value) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    # 朱雀 labels_ratio 是 0-1；转换成报告里的 0-100。
+    if 0 <= number <= 1:
+        number *= 100
+    return _zhuque_rate_percent(number)
+
+
+def _zhuque_risk_rate_from_result(result: dict, fallback: Optional[float] = None) -> Optional[float]:
+    labels_ratio = result.get("labels_ratio") or {}
+    if isinstance(labels_ratio, dict) and labels_ratio:
+        ai_rate = _zhuque_ratio_from_result(result, "0") or 0.0
+        suspicious_rate = _zhuque_ratio_from_result(result, "2") or 0.0
+        return round(max(ai_rate, suspicious_rate), 2)
+
+    for key in ("risk_rate", "rate"):
+        rate = _zhuque_rate_percent(result.get(key))
+        if rate is not None:
+            return rate
+    return _zhuque_rate_percent(fallback)
+
+
+def _zhuque_ratio_from_result(result: dict, label: str) -> Optional[float]:
+    labels_ratio = result.get("labels_ratio") or {}
+    if not isinstance(labels_ratio, dict):
+        return None
+    legacy_keys = {
+        "0": ("ai", "AI", "ai_rate", "aiGenerated"),
+        "1": ("human", "Human", "human_rate"),
+        "2": ("suspicious", "mixed", "疑似AI"),
+    }
+    candidates = [label]
+    if label.isdigit():
+        candidates.append(int(label))
+    candidates.extend(legacy_keys.get(label, ()))
+    for key in candidates:
+        if key in labels_ratio:
+            return _zhuque_ratio_percent(labels_ratio.get(key))
+    return None
+
+
+def _format_report_rate(rate: Optional[float]) -> str:
+    if rate is None:
+        return "--"
+    return f"{rate:.1f}%"
+
+
+def _format_report_number(value) -> str:
+    return "--" if value is None else str(value)
+
+
+def _safe_report_cell(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("\r", " ").replace("\n", " ").strip()
+
+
+def _build_joined_report_spans(segments: List[OptimizationSegment]) -> List[tuple[OptimizationSegment, str, int, int]]:
+    spans: List[tuple[OptimizationSegment, str, int, int]] = []
+    cursor = 0
+    ordered_segments = sorted(segments, key=lambda item: item.segment_index)
+    for index, seg in enumerate(ordered_segments):
+        text = seg.zhuque_reduced_text or seg.enhanced_text or seg.polished_text or seg.original_text or ""
+        start = cursor
+        end = start + len(text)
+        spans.append((seg, text, start, end))
+        cursor = end
+        if index < len(ordered_segments) - 1:
+            cursor += 2
+    return spans
+
+
+def _segment_report_rows_from_labels(
+    segments: List[OptimizationSegment],
+    zhuque_result: dict,
+    fallback_rate: Optional[float],
+) -> List[dict]:
+    spans = _build_joined_report_spans(segments)
+    labels = zhuque_result.get("segment_labels") or []
+    usable_labels = []
+    if isinstance(labels, list):
+        for item in labels:
+            if not isinstance(item, dict):
+                continue
+            position = item.get("position")
+            if (
+                not isinstance(position, list)
+                or len(position) != 2
+                or not all(isinstance(value, (int, float)) for value in position)
+            ):
+                continue
+            start, end = int(position[0]), int(position[1])
+            if end <= start:
+                continue
+            try:
+                label = int(item.get("label"))
+            except (TypeError, ValueError):
+                continue
+            usable_labels.append({"label": label, "start": start, "end": end})
+
+    rows: List[dict] = []
+    full_ai_rate = _zhuque_ratio_from_result(zhuque_result, "0")
+    full_human_rate = _zhuque_ratio_from_result(zhuque_result, "1")
+    full_suspicious_rate = _zhuque_ratio_from_result(zhuque_result, "2")
+    full_risk_rate = _zhuque_risk_rate_from_result(zhuque_result, fallback_rate)
+
+    for seg, text, seg_start, seg_end in spans:
+        text_span = max(seg_end - seg_start, 0)
+        label_chars = {0: 0, 1: 0, 2: 0}
+        for item in usable_labels:
+            overlap = max(0, min(seg_end, item["end"]) - max(seg_start, item["start"]))
+            if overlap > 0 and item["label"] in label_chars:
+                label_chars[item["label"]] += overlap
+
+        if usable_labels and text_span > 0:
+            denominator = max(text_span, 1)
+            ai_rate = round(label_chars[0] / denominator * 100, 2)
+            human_rate = round(label_chars[1] / denominator * 100, 2)
+            suspicious_rate = round(label_chars[2] / denominator * 100, 2)
+            risk_rate = round(min(ai_rate + suspicious_rate, 100.0), 2)
+            source = "segment_labels"
+        else:
+            ai_rate = full_ai_rate
+            human_rate = full_human_rate
+            suspicious_rate = full_suspicious_rate
+            risk_rate = _zhuque_rate_percent(seg.zhuque_detect_rate) or full_risk_rate
+            source = "full_text_fallback"
+
+        rows.append({
+            "segment_index": seg.segment_index,
+            "text": text,
+            "char_count": count_text_length(text),
+            "ai_rate": ai_rate,
+            "human_rate": human_rate,
+            "suspicious_rate": suspicious_rate,
+            "risk_rate": risk_rate,
+            "source": source,
+            "status": "高风险" if (risk_rate is not None and risk_rate >= 50) else "需关注" if (risk_rate is not None and risk_rate >= 20) else "低风险",
+        })
+    return rows
+
+
+def _build_aigc_report_payload(session: OptimizationSession, segments: List[OptimizationSegment]) -> dict:
+    ordered_segments = sorted(segments, key=lambda item: item.segment_index)
+    result_segment = next(
+        (
+            seg for seg in reversed(ordered_segments)
+            if seg.zhuque_detect_result or seg.zhuque_detect_rate is not None
+        ),
+        ordered_segments[-1] if ordered_segments else None,
+    )
+    zhuque_result = _parse_zhuque_result(result_segment.zhuque_detect_result if result_segment else None)
+    fallback_rate = result_segment.zhuque_detect_rate if result_segment else None
+    final_risk_rate = _zhuque_risk_rate_from_result(zhuque_result, fallback_rate)
+    rows = _segment_report_rows_from_labels(ordered_segments, zhuque_result, fallback_rate)
+    threshold = float(settings.ZHUQUE_DETECT_THRESHOLD)
+    high_risk_count = sum(1 for row in rows if row["risk_rate"] is not None and row["risk_rate"] > threshold)
+
+    return {
+        "title": "GankAIGC AIGC 检测报告",
+        "session_id": session.session_id,
+        "project_title": session.project.title if session.project and session.project.title else "未归档",
+        "task_title": session.task_title or "",
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "threshold": threshold,
+        "final_risk_rate": final_risk_rate,
+        "ai_rate": _zhuque_ratio_from_result(zhuque_result, "0"),
+        "human_rate": _zhuque_ratio_from_result(zhuque_result, "1"),
+        "suspicious_rate": _zhuque_ratio_from_result(zhuque_result, "2"),
+        "detect_count": max((seg.zhuque_detect_count or 0) for seg in ordered_segments) if ordered_segments else 0,
+        "reduce_rounds": max((seg.zhuque_reduce_attempt or 0) for seg in ordered_segments) if ordered_segments else 0,
+        "remaining_uses": zhuque_result.get("remaining_uses"),
+        "text_length": zhuque_result.get("text_length"),
+        "message": zhuque_result.get("message") or zhuque_result.get("alert_text") or "",
+        "segment_count": len(rows),
+        "high_risk_count": high_risk_count,
+        "rows": rows,
+        "source": zhuque_result.get("source") or "zhuque",
+    }
+
+
+def _build_aigc_report_markdown(payload: dict) -> str:
+    lines = [
+        f"# {payload['title']}",
+        "",
+        "## 报告摘要",
+        "",
+        f"- 会话 ID：{payload['session_id']}",
+        f"- 项目：{payload['project_title']}",
+        f"- 任务：{payload['task_title'] or '--'}",
+        f"- 生成时间：{payload['generated_at']}",
+        f"- 最终风险率：{_format_report_rate(payload['final_risk_rate'])}",
+        f"- AI特征：{_format_report_rate(payload['ai_rate'])}",
+        f"- 疑似AI：{_format_report_rate(payload['suspicious_rate'])}",
+        f"- 人工特征：{_format_report_rate(payload['human_rate'])}",
+        f"- 阈值：{_format_report_rate(payload['threshold'])}",
+        f"- 朱雀检测次数：{payload['detect_count']} 次",
+        f"- 降重轮次：{payload['reduce_rounds']} 轮",
+        f"- 朱雀剩余次数：{_format_report_number(payload['remaining_uses'])}",
+        f"- 高风险段落：{payload['high_risk_count']} / {payload['segment_count']}",
+    ]
+    if payload.get("message"):
+        lines.append(f"- 朱雀提示：{payload['message']}")
+
+    lines.extend([
+        "",
+        "## 逐段 AI 率",
+        "",
+        "| 段落 | 字数 | 段落AI率 | AI特征 | 疑似AI | 人工特征 | 结论 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ])
+    for row in payload["rows"]:
+        lines.append(
+            "| "
+            f"{row['segment_index'] + 1} | "
+            f"{row['char_count']} | "
+            f"{_format_report_rate(row['risk_rate'])} | "
+            f"{_format_report_rate(row['ai_rate'])} | "
+            f"{_format_report_rate(row['suspicious_rate'])} | "
+            f"{_format_report_rate(row['human_rate'])} | "
+            f"{row['status']} |"
+        )
+
+    lines.extend(["", "## 段落明细", ""])
+    for row in payload["rows"]:
+        lines.extend([
+            f"### 段落 {row['segment_index'] + 1}｜AI率 {_format_report_rate(row['risk_rate'])}",
+            "",
+            f"- AI特征：{_format_report_rate(row['ai_rate'])}",
+            f"- 疑似AI：{_format_report_rate(row['suspicious_rate'])}",
+            f"- 人工特征：{_format_report_rate(row['human_rate'])}",
+            f"- 结论：{row['status']}",
+            "",
+            row["text"] or "（空段落）",
+            "",
+        ])
+    return "\n".join(lines)
+
+
+def _build_aigc_report_docx_base64(payload: dict) -> str:
+    document = Document()
+    document.add_heading(payload["title"], level=0)
+    document.add_paragraph(
+        "本报告基于朱雀 AI 检测结果生成，按最终导出文本映射每一段的 AI 特征、疑似 AI 与人工特征占比。"
+    )
+
+    summary_table = document.add_table(rows=0, cols=2)
+    summary_items = [
+        ("会话 ID", payload["session_id"]),
+        ("项目", payload["project_title"]),
+        ("任务", payload["task_title"] or "--"),
+        ("生成时间", payload["generated_at"]),
+        ("最终风险率", _format_report_rate(payload["final_risk_rate"])),
+        ("AI特征", _format_report_rate(payload["ai_rate"])),
+        ("疑似AI", _format_report_rate(payload["suspicious_rate"])),
+        ("人工特征", _format_report_rate(payload["human_rate"])),
+        ("阈值", _format_report_rate(payload["threshold"])),
+        ("朱雀检测次数", f"{payload['detect_count']} 次"),
+        ("降重轮次", f"{payload['reduce_rounds']} 轮"),
+        ("朱雀剩余次数", _format_report_number(payload["remaining_uses"])),
+        ("高风险段落", f"{payload['high_risk_count']} / {payload['segment_count']}"),
+    ]
+    if payload.get("message"):
+        summary_items.append(("朱雀提示", payload["message"]))
+    for key, value in summary_items:
+        row = summary_table.add_row().cells
+        row[0].text = str(key)
+        row[1].text = _safe_report_cell(value)
+
+    document.add_heading("逐段 AI 率", level=1)
+    table = document.add_table(rows=1, cols=7)
+    headers = ["段落", "字数", "段落AI率", "AI特征", "疑似AI", "人工特征", "结论"]
+    for index, header in enumerate(headers):
+        table.rows[0].cells[index].text = header
+    for row_data in payload["rows"]:
+        cells = table.add_row().cells
+        cells[0].text = str(row_data["segment_index"] + 1)
+        cells[1].text = str(row_data["char_count"])
+        cells[2].text = _format_report_rate(row_data["risk_rate"])
+        cells[3].text = _format_report_rate(row_data["ai_rate"])
+        cells[4].text = _format_report_rate(row_data["suspicious_rate"])
+        cells[5].text = _format_report_rate(row_data["human_rate"])
+        cells[6].text = row_data["status"]
+
+    document.add_heading("段落明细", level=1)
+    for row_data in payload["rows"]:
+        document.add_heading(
+            f"段落 {row_data['segment_index'] + 1}｜AI率 {_format_report_rate(row_data['risk_rate'])}",
+            level=2,
+        )
+        document.add_paragraph(
+            "AI特征 {ai}；疑似AI {suspicious}；人工特征 {human}；结论：{status}".format(
+                ai=_format_report_rate(row_data["ai_rate"]),
+                suspicious=_format_report_rate(row_data["suspicious_rate"]),
+                human=_format_report_rate(row_data["human_rate"]),
+                status=row_data["status"],
+            )
+        )
+        document.add_paragraph(row_data["text"] or "（空段落）")
 
     buffer = BytesIO()
     document.save(buffer)
@@ -795,6 +1134,28 @@ async def export_session(
     segments = db.query(OptimizationSegment).filter(
         OptimizationSegment.session_id == session.id
     ).order_by(OptimizationSegment.segment_index).all()
+
+    if confirmation.export_format in {"aigc_report_docx", "aigc_report_md"}:
+        if session.processing_mode != "ai_detect_reduce":
+            raise HTTPException(status_code=400, detail="仅 AI检测+降重 会话支持导出 AIGC 检测报告")
+        if not any(seg.zhuque_detect_result or seg.zhuque_detect_rate is not None for seg in segments):
+            raise HTTPException(status_code=400, detail="当前会话没有可导出的朱雀 AIGC 检测结果")
+
+        report_payload = _build_aigc_report_payload(session, segments)
+        if confirmation.export_format == "aigc_report_md":
+            return {
+                "format": "aigc_report_md",
+                "content": _build_aigc_report_markdown(report_payload),
+                "filename": _build_aigc_report_filename(session, "md"),
+                "mime_type": "text/markdown;charset=utf-8",
+            }
+
+        return {
+            "format": "aigc_report_docx",
+            "content_base64": _build_aigc_report_docx_base64(report_payload),
+            "filename": _build_aigc_report_filename(session, "docx"),
+            "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
     
     # 组合最终文本
     final_text = "\n\n".join([
