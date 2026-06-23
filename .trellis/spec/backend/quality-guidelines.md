@@ -52,6 +52,33 @@ Questions to answer:
 
 ---
 
+## Scenario: Starlette TestClient Requires httpx2
+
+### 1. Scope / Trigger
+
+- Trigger: any change to backend test dependencies, `fastapi`, `starlette`, `httpx`, `httpx2`, or tests using `fastapi.testclient.TestClient`.
+
+### 2. Contract
+
+- Keep `httpx2` declared in both backend dependency manifests while the project uses `fastapi==0.136.1` / `starlette==1.3.1`.
+- `httpx[socks]` is still used by runtime services; do not replace it with `httpx2`.
+- `httpx2` is required by Starlette's `testclient` path and prevents:
+  - `StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated; install httpx2 instead.`
+
+### 3. Validation
+
+```bash
+package/venv/bin/python - <<'PY'
+import warnings
+from starlette.exceptions import StarletteDeprecationWarning
+warnings.simplefilter("error", StarletteDeprecationWarning)
+from fastapi.testclient import TestClient  # noqa: F401
+print("TestClient import OK")
+PY
+```
+
+---
+
 ## Scenario: Admin Operations Status Must Report Real Runtime Metrics
 
 ### 1. Scope / Trigger
