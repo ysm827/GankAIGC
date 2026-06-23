@@ -516,11 +516,52 @@ def _zhuque_playwright_browsers_path() -> Path:
     return Path(__file__).resolve().parents[3] / ".playwright-browsers"
 
 
+def _zhuque_is_wsl() -> bool:
+    if os.environ.get("WSL_INTEROP") or os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return "microsoft" in release or "wsl" in release
+
+
+def _zhuque_windows_to_wsl_path(path: str) -> Optional[Path]:
+    text = (path or "").strip().strip('"')
+    if not text:
+        return None
+    try:
+        completed = subprocess.run(
+            ["wslpath", "-u", text],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        completed = None
+    if completed and completed.stdout.strip():
+        return Path(completed.stdout.strip())
+    match = re.match(r"^([a-zA-Z]):\\(.*)$", text)
+    if match:
+        drive, rest = match.groups()
+        linux_rest = rest.replace("\\", "/")
+        return Path(f"/mnt/{drive.lower()}/{linux_rest}")
+    return None
+
+
 def _zhuque_local_browser_executable() -> Optional[Path]:
-    """Return a Linux Chromium-family browser executable Playwright can control."""
+    """Return a Chromium-family browser executable Playwright can control.
+
+    On WSL, prefer Windows Chrome/Edge/Brave. The capture script launches it
+    with a dedicated CDP port and connects from Playwright, so the visible scan
+    window appears on the user's Windows desktop instead of inside WSL.
+    """
     env_path = os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
+    windows_env_path = _zhuque_windows_to_wsl_path(env_path) if _zhuque_is_wsl() and env_path else None
     candidates = [
         env_path,
+        windows_env_path,
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
@@ -533,6 +574,17 @@ def _zhuque_local_browser_executable() -> Optional[Path]:
         "/snap/bin/chromium",
         "/snap/bin/brave",
     ]
+    if _zhuque_is_wsl():
+        candidates.extend(
+            [
+                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                "/mnt/c/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
+                "/mnt/c/Program Files (x86)/BraveSoftware/Brave-Browser/Application/brave.exe",
+            ]
+        )
     for candidate in candidates:
         if candidate and Path(candidate).exists():
             return Path(candidate)
@@ -557,6 +609,10 @@ def _zhuque_playwright_browser_ready() -> bool:
 def _zhuque_capture_env() -> dict:
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_zhuque_playwright_browsers_path()))
+    env.setdefault("ZHUQUE_CDP_PORT", str(settings.ZHUQUE_CDP_PORT))
+    browser_executable = _zhuque_local_browser_executable()
+    if browser_executable is not None:
+        env.setdefault("ZHUQUE_CHROME_EXECUTABLE", str(browser_executable))
     return env
 
 

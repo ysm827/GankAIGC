@@ -26,7 +26,7 @@
     creds_latest.json        # 最新凭证
     qrcode_latest.png        # 二维码截图（供调试）
 """
-import asyncio, json, sys, time, os, re
+import asyncio, json, sys, time, os, re, subprocess, urllib.error, urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
@@ -37,6 +37,141 @@ POLL_INTERVAL = 0.35
 STORAGE_STATE_FILE = TEMP / "browser_state.json"  # 持久化 browser context（cookies+localStorage）
 LATEST_CREDENTIALS_FILE = TEMP / "creds_latest.json"
 SESSION_STATUS_FILE = TEMP / "session_status.json"
+DEFAULT_WINDOWS_CDP_PORT = 9223
+
+
+def _is_truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_wsl() -> bool:
+    if os.environ.get("WSL_INTEROP") or os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return "microsoft" in release or "wsl" in release
+
+
+def _run_text(args: list[str], timeout: float = 3.0) -> str:
+    try:
+        completed = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return (completed.stdout or "").strip()
+
+
+def _wsl_to_windows_path(path: str | Path) -> str:
+    text = str(path)
+    converted = _run_text(["wslpath", "-w", text], timeout=2.0)
+    if converted:
+        return converted
+    match = re.match(r"^/mnt/([a-zA-Z])/(.*)$", text)
+    if match:
+        drive, rest = match.groups()
+        windows_rest = rest.replace("/", "\\")
+        return f"{drive.upper()}:\\{windows_rest}"
+    return text
+
+
+def _windows_to_wsl_path(path: str) -> Path | None:
+    text = (path or "").strip().strip('"')
+    if not text:
+        return None
+    converted = _run_text(["wslpath", "-u", text], timeout=2.0)
+    if converted:
+        return Path(converted)
+    match = re.match(r"^([a-zA-Z]):\\(.*)$", text)
+    if match:
+        drive, rest = match.groups()
+        linux_rest = rest.replace("\\", "/")
+        return Path(f"/mnt/{drive.lower()}/{linux_rest}")
+    return None
+
+
+def _windows_local_app_data() -> str:
+    env_value = os.environ.get("ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR")
+    if env_value:
+        return env_value
+
+    local_app_data = _run_text(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            "[Environment]::GetFolderPath('LocalApplicationData')",
+        ],
+        timeout=3.0,
+    )
+    if local_app_data:
+        return local_app_data
+
+    # Fallback for minimal WSL images without powershell.exe in PATH.
+    users_root = Path("/mnt/c/Users")
+    if users_root.exists():
+        for candidate in users_root.iterdir():
+            local = candidate / "AppData" / "Local"
+            if local.exists():
+                return _wsl_to_windows_path(local)
+    return r"C:\GankAIGC"
+
+
+def _windows_chrome_profile_dir() -> str:
+    configured = os.environ.get("ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR")
+    if configured:
+        return configured
+    base = _windows_local_app_data().rstrip("\\/")
+    return base + r"\GankAIGC\ZhuqueChromeProfile"
+
+
+def _cdp_port() -> int:
+    try:
+        return int(os.environ.get("ZHUQUE_CDP_PORT") or DEFAULT_WINDOWS_CDP_PORT)
+    except (TypeError, ValueError):
+        return DEFAULT_WINDOWS_CDP_PORT
+
+
+def _windows_host_ip() -> str:
+    try:
+        resolv_conf = Path("/etc/resolv.conf").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"^nameserver\s+([0-9.]+)", resolv_conf, flags=re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+def _cdp_endpoints(port: int | None = None) -> list[str]:
+    cdp_port = port or _cdp_port()
+    hosts = ["127.0.0.1", "localhost"]
+    host_ip = _windows_host_ip()
+    if host_ip and host_ip not in hosts:
+        hosts.append(host_ip)
+    return [f"http://{host}:{cdp_port}" for host in hosts]
+
+
+def _cdp_endpoint(port: int | None = None) -> str:
+    return _cdp_endpoints(port)[0]
+
+
+def _wait_for_cdp(port: int, timeout: float = 8.0) -> str:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for endpoint in _cdp_endpoints(port):
+            try:
+                with urllib.request.urlopen(f"{endpoint}/json/version", timeout=0.5) as response:
+                    if response.status == 200:
+                        return endpoint
+            except (OSError, urllib.error.URLError):
+                continue
+        time.sleep(0.25)
+    return ""
 
 
 def _pick_local_storage_token(local_storage: dict) -> tuple[str, str]:
@@ -180,8 +315,10 @@ async def inspect_auth_state(page) -> dict:
 def find_browser_executable():
     """优先复用系统 Chromium 内核浏览器，避免必须下载 Playwright 内置 Chromium。"""
     env_path = os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
+    windows_env_path = _windows_to_wsl_path(env_path) if _is_wsl() and env_path else None
     candidates = [
         env_path,
+        windows_env_path,
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
@@ -194,10 +331,74 @@ def find_browser_executable():
         "/snap/bin/chromium",
         "/snap/bin/brave",
     ]
+    if _is_wsl():
+        candidates.extend(
+            [
+                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                "/mnt/c/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
+                "/mnt/c/Program Files (x86)/BraveSoftware/Brave-Browser/Application/brave.exe",
+            ]
+        )
     for candidate in candidates:
         if candidate and Path(candidate).exists():
-            return candidate
+            return str(candidate)
     return None
+
+
+def is_windows_browser_executable(executable: str | None) -> bool:
+    if not executable:
+        return False
+    text = str(executable).lower()
+    return text.endswith(".exe") or text.startswith("/mnt/")
+
+
+def launch_windows_chrome_for_cdp(executable: str, *, port: int | None = None) -> tuple[bool, str, str]:
+    """Launch the user's Windows Chrome/Edge in a small app window and expose CDP.
+
+    Playwright cannot directly launch a Windows .exe from Linux as a normal browser
+    process, but it can connect over Chrome DevTools Protocol after Windows Chrome
+    is started with --remote-debugging-port. This keeps the visible scan window in
+    the user's real Windows desktop while preserving backend credential sync.
+    """
+    cdp_port = port or _cdp_port()
+    existing_endpoint = _wait_for_cdp(cdp_port, timeout=0.6)
+    if existing_endpoint:
+        return True, f"已连接现有 Windows Chrome 调试端口 {cdp_port}", existing_endpoint
+
+    profile_dir = _windows_chrome_profile_dir()
+    chrome_path = str(executable)
+    width = int(os.environ.get("ZHUQUE_LOGIN_WINDOW_WIDTH") or 520)
+    height = int(os.environ.get("ZHUQUE_LOGIN_WINDOW_HEIGHT") or 760)
+    args = [
+        chrome_path,
+        f"--remote-debugging-port={cdp_port}",
+        f"--user-data-dir={profile_dir}",
+        f"--app={MATRIX_URL}",
+        f"--window-size={width},{height}",
+        "--window-position=120,80",
+        "--remote-debugging-address=0.0.0.0",
+        "--remote-allow-origins=*",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-features=Translate",
+    ]
+    try:
+        subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except OSError as exc:
+        return False, f"启动 Windows Chrome 失败: {exc}", ""
+
+    endpoint = _wait_for_cdp(cdp_port, timeout=10.0)
+    if not endpoint:
+        return False, f"Windows Chrome 已启动但调试端口 {cdp_port} 未就绪", ""
+    return True, f"已启动 Windows Chrome 小窗并连接调试端口 {cdp_port}", endpoint
 
 # ===================== 凭证提取 =====================
 
@@ -728,151 +929,161 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
     pw = await async_playwright().start()
 
     browser_executable = find_browser_executable()
-    launch_kwargs = {
-        "headless": headless,
-        "args": [
-            '--disable-blink-features=AutomationControlled',
-            '--no-sandbox',
-        ]
-    }
-    if browser_executable:
-        launch_kwargs["executable_path"] = browser_executable
-        print(f"  [browser] 使用系统浏览器: {browser_executable}")
-    else:
-        print("  [browser] 未找到系统 Chromium 内核浏览器，尝试使用 Playwright 内置 Chromium")
-
-    browser = await pw.chromium.launch(
-        **launch_kwargs,
+    browser = None
+    ctx = None
+    windows_chrome_mode = (
+        sync_session
+        and not headless
+        and not _is_truthy_env("ZHUQUE_DISABLE_WINDOWS_CHROME")
+        and _is_wsl()
+        and is_windows_browser_executable(browser_executable)
     )
-    ctx_kwargs = {
-        "viewport": {"width": 1280, "height": 720},
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    }
-    if STORAGE_STATE_FILE.exists():
-        ctx_kwargs["storage_state"] = str(STORAGE_STATE_FILE)
-        print(f"  [load] 恢复浏览器会话（{STORAGE_STATE_FILE.name}）")
-    ctx = await browser.new_context(**ctx_kwargs)
-    page = await ctx.new_page()
 
-    print(f"\n{'='*60}")
-    print(f"  朱雀凭证捕获工具 v2.0")
-    if sync_session:
-        mode_label = '真实网页状态同步'
-    else:
-        mode_label = '可见浏览器' if not headless else '无头（仅测试已登录态）'
-    print(f"  模式: {mode_label}")
-    print(f"{'='*60}")
+    try:
+        if windows_chrome_mode:
+            ok, message, cdp_endpoint = launch_windows_chrome_for_cdp(browser_executable)
+            print(f"  [browser] {message}")
+            if not ok:
+                print("  [browser] 回退到 Playwright 内置/本机 Chromium")
+                windows_chrome_mode = False
 
-    # 打开页面。不要等待 networkidle：朱雀页面有长连接/埋点请求，可能永远不 idle。
-    await open_matrix_page(page)
+        if windows_chrome_mode:
+            browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+            contexts = browser.contexts
+            ctx = contexts[0] if contexts else await browser.new_context()
+            existing_pages = [candidate for candidate in ctx.pages if not candidate.is_closed()]
+            page = next((candidate for candidate in existing_pages if "matrix.tencent.com/ai-detect" in candidate.url), None)
+            if page is None:
+                page = existing_pages[0] if existing_pages else await ctx.new_page()
+            print(f"  [browser] 使用 Windows Chrome 小窗: {browser_executable}")
+        else:
+            launch_kwargs = {
+                "headless": headless,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                ],
+            }
+            if browser_executable and not is_windows_browser_executable(browser_executable):
+                launch_kwargs["executable_path"] = browser_executable
+                print(f"  [browser] 使用系统浏览器: {browser_executable}")
+            else:
+                if browser_executable and is_windows_browser_executable(browser_executable):
+                    print("  [browser] Windows Chrome 仅支持同步扫码小窗模式，当前回退到 Playwright 内置 Chromium")
+                else:
+                    print("  [browser] 未找到系统 Chromium 内核浏览器，尝试使用 Playwright 内置 Chromium")
 
-    if sync_session:
-        try:
+            browser = await pw.chromium.launch(**launch_kwargs)
+            ctx_kwargs = {
+                "viewport": {"width": 1280, "height": 720},
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            }
+            if STORAGE_STATE_FILE.exists():
+                ctx_kwargs["storage_state"] = str(STORAGE_STATE_FILE)
+                print(f"  [load] 恢复浏览器会话（{STORAGE_STATE_FILE.name}）")
+            ctx = await browser.new_context(**ctx_kwargs)
+            page = await ctx.new_page()
+
+        print(f"\n{'='*60}")
+        print("  朱雀凭证捕获工具 v2.0")
+        if sync_session and windows_chrome_mode:
+            mode_label = "Windows Chrome 小窗状态同步"
+        elif sync_session:
+            mode_label = "真实网页状态同步"
+        else:
+            mode_label = "可见浏览器" if not headless else "无头（仅测试已登录态）"
+        print(f"  模式: {mode_label}")
+        print(f"{'='*60}")
+
+        # 打开页面。不要等待 networkidle：朱雀页面有长连接/埋点请求，可能永远不 idle。
+        await open_matrix_page(page)
+
+        if sync_session:
             return await sync_session_until_closed(page, ctx, trigger_login_when_missing=True)
-        finally:
-            await browser.close()
-            await pw.stop()
 
-    # 检查是否已登录。朱雀前端偶尔会调整 token 存储 key，所以这里不只看 aiGenAccessToken。
-    auth_state = await inspect_auth_state(page)
-    token = auth_state.get("token") or ""
-    user_name = (auth_state.get("userName") or "").strip()
+        # 检查是否已登录。朱雀前端偶尔会调整 token 存储 key，所以这里不只看 aiGenAccessToken。
+        auth_state = await inspect_auth_state(page)
+        token = auth_state.get("token") or ""
+        user_name = (auth_state.get("userName") or "").strip()
+        needs_login = False
 
-    # 判断是否需要触发登录流程
-    needs_login = False
+        if token:
+            print(f"  [info] 浏览器已有登录态: {user_name}")
+            print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
 
-    if token:
-        print(f"  [info] 浏览器已有登录态: {user_name}")
-        print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
-
-        if force_login:
-            print(f"\n  [switch] 强制切号模式 — 先退出当前账号")
-            ok = await perform_logout(page)
-            if not ok:
-                print("  [WARN] 退出可能未完全成功，但继续流程...")
-            # 退出后需要重新登录
-            needs_login = True
-            # 重置 token/user_name
-            token = ""
-            user_name = ""
+            if force_login:
+                print("\n  [switch] 强制切号模式 — 先退出当前账号")
+                ok = await perform_logout(page)
+                if not ok:
+                    print("  [WARN] 退出可能未完全成功，但继续流程...")
+                needs_login = True
+                token = ""
+                user_name = ""
+            else:
+                print("   （非切号模式，直接提取已有凭证）")
+        elif auth_state.get("ready"):
+            print(f"  [info] 浏览器已有登录态: {user_name or '未知用户'}（未发现显式 token，使用 cookie/fp 凭证）")
+            if force_login:
+                print("\n  [switch] 强制切号模式 — 先退出当前账号")
+                ok = await perform_logout(page)
+                if not ok:
+                    print("  [WARN] 退出可能未完全成功，但继续流程...")
+                needs_login = True
+            else:
+                print("   （非切号模式，直接提取已有凭证）")
         else:
-            print(f"   （非切号模式，直接提取已有凭证）")
-            # needs_login stays False — skip login flow
-    elif auth_state.get("ready"):
-        print(f"  [info] 浏览器已有登录态: {user_name or '未知用户'}（未发现显式 token，使用 cookie/fp 凭证）")
-        if force_login:
-            print(f"\n  [switch] 强制切号模式 — 先退出当前账号")
-            ok = await perform_logout(page)
-            if not ok:
-                print("  [WARN] 退出可能未完全成功，但继续流程...")
+            print("  [user] 当前状态: 未登录（游客）")
             needs_login = True
-        else:
-            print(f"   （非切号模式，直接提取已有凭证）")
-    else:
-        print(f"  [user] 当前状态: 未登录（游客）")
-        needs_login = True
 
-    # ====== 按需触发登录流程 ======
-    if needs_login:
-        if headless:
-            print("\n[FAIL] 无头模式无法显示二维码供扫码，请用可见模式运行")
-            print("   用法: python capture_zhuque_creds.py [--switch]")
+        # ====== 按需触发登录流程 ======
+        if needs_login:
+            if headless:
+                print("\n[FAIL] 无头模式无法显示二维码供扫码，请用可见模式运行")
+                print("   用法: python capture_zhuque_creds.py [--switch]")
+                return None
+
+            triggered = await trigger_login_flow(page)
+            await page.screenshot(path=str(TEMP / "qrcode_latest.png"))
+            print("\n[shot] 二维码截图已保存: temp/qrcode_latest.png")
+
+            if not triggered:
+                print("\n" + "!"*50)
+                print("  未能自动触发二维码")
+                print("  请手动操作：点击右上角「登录」→「微信登录」")
+                print("!"*50 + "\n")
+
+            success = await wait_for_login(page, WAIT_TIMEOUT)
+            if not success:
+                print("\n[FAIL] 登录未完成，退出")
+                return None
+
+        print("\n[pack] 提取凭证...")
+        creds = await extract_credentials(page)
+
+        creds_file, latest_file = save_credentials(creds)
+
+        print("\n[OK] 凭证已保存:")
+        print(f"   {creds_file}")
+        print(f"   {latest_file}")
+        print("\n[info] 凭证摘要:")
+        print(f"   用户:  {creds.get('userName', '?')}")
+        print(f"   配额:  {creds.get('quotaText', '?')}")
+        ls = creds.get("localStorage", {})
+        print(f"   Token: {ls.get('aiGenAccessToken', '')[:60]}...")
+        print(f"   FP:    {ls.get('fp', '')}")
+        print(f"   Cook:  {len(creds.get('cookies', []))} 个")
+
+        key_cookies = ["ACCESS_TOKEN", "DEFAULT_COOKIES", "JSESSIONID"]
+        for c in creds.get("cookies", []):
+            if c["name"] in key_cookies:
+                print(f"     [cookie] {c['name']}: {c['value'][:50]}...")
+
+        await save_browser_state(ctx)
+        return creds
+    finally:
+        if browser:
             await browser.close()
-            await pw.stop()
-            return None
-
-        # 触发登录
-        triggered = await trigger_login_flow(page)
-        await page.screenshot(path=str(TEMP / "qrcode_latest.png"))
-        print(f"\n[shot] 二维码截图已保存: temp/qrcode_latest.png")
-
-        if not triggered:
-            print("\n" + "!"*50)
-            print("  未能自动触发二维码")
-            print("  请手动操作：点击右上角「登录」→「微信登录」")
-            print("!"*50 + "\n")
-
-        # 等待扫码
-        success = await wait_for_login(page, WAIT_TIMEOUT)
-        if not success:
-            print("\n[FAIL] 登录未完成，退出")
-            await browser.close()
-            await pw.stop()
-            return None
-
-    # 提取凭证
-    # 提取凭证
-    print(f"\n[pack] 提取凭证...")
-    creds = await extract_credentials(page)
-
-    # 保存
-    creds_file, latest_file = save_credentials(creds)
-
-    # 摘要
-    print(f"\n[OK] 凭证已保存:")
-    print(f"   {creds_file}")
-    print(f"   {latest_file}")
-    print(f"\n[info] 凭证摘要:")
-    print(f"   用户:  {creds.get('userName', '?')}")
-    print(f"   配额:  {creds.get('quotaText', '?')}")
-    ls = creds.get('localStorage', {})
-    print(f"   Token: {ls.get('aiGenAccessToken', '')[:60]}...")
-    print(f"   FP:    {ls.get('fp', '')}")
-    print(f"   Cook:  {len(creds.get('cookies', []))} 个")
-
-    # 列出关键 cookie
-    key_cookies = ['ACCESS_TOKEN', 'DEFAULT_COOKIES', 'JSESSIONID']
-    for c in creds.get('cookies', []):
-        if c['name'] in key_cookies:
-            print(f"     [cookie] {c['name']}: {c['value'][:50]}...")
-
-    # 持久化浏览器会话（cookies+localStorage），下次启动可检测登录态
-    await save_browser_state(ctx)
-
-    await browser.close()
-    await pw.stop()
-    return creds
-
+        await pw.stop()
 
 # ===================== 凭证加载/导出 =====================
 

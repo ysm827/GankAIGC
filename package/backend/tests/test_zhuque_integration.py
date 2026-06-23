@@ -387,6 +387,53 @@ def test_zhuque_wechat_capture_sync_session_does_not_clear_stale_credentials(mon
     assert state_file.exists()
 
 
+def test_zhuque_wechat_capture_prefers_windows_chrome_on_wsl(monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path.write_text("print('capture')", encoding="utf-8")
+    windows_chrome = tmp_path / "chrome.exe"
+    windows_chrome.write_text("", encoding="utf-8")
+    popen_calls = []
+
+    class FakePopen:
+        def __init__(self, args, cwd=None, env=None, stdout=None, stderr=None, start_new_session=None):
+            popen_calls.append(
+                {
+                    "args": args,
+                    "cwd": cwd,
+                    "env": env,
+                    "start_new_session": start_new_session,
+                }
+            )
+
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": False,
+                "credential_file": str(script_path.parent / "creds_latest.json"),
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+    monkeypatch.setenv("ZHUQUE_CDP_PORT", "9333")
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_zhuque_capture_script_path", lambda: script_path)
+    monkeypatch.setattr(optimization_route, "_zhuque_local_browser_executable", lambda: windows_chrome)
+    monkeypatch.setattr(optimization_route.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(optimization_route.subprocess, "Popen", FakePopen)
+
+    result = optimization_route._start_zhuque_wechat_capture(sync_session=True)
+
+    assert result["status"] == "started"
+    assert popen_calls
+    assert popen_calls[0]["args"] == [optimization_route.sys.executable, str(script_path), "--sync-session"]
+    assert popen_calls[0]["env"]["ZHUQUE_CHROME_EXECUTABLE"] == str(windows_chrome)
+    assert popen_calls[0]["env"]["ZHUQUE_CDP_PORT"] == "9333"
+
+
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
@@ -441,7 +488,7 @@ def test_zhuque_wechat_capture_reports_missing_playwright_browser(monkeypatch, t
 
     assert result["status"] == "manual_required"
     assert "playwright install chromium" in result["command"]
-    assert "无头 API" in result["message"]
+    assert "状态同步窗口" in result["message"]
 
 
 def test_zhuque_api_parses_websocket_success_frame():

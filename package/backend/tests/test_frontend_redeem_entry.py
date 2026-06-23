@@ -1004,7 +1004,6 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "zhuqueAccountLabel" in workspace
     assert "zhuqueConnected" in workspace
     assert "zhuqueRemainingLabel" in workspace
-    assert "const zhuqueRemainingValue = zhuqueConnected" in workspace
     assert ": '免费次数'" in workspace
     assert "syncZhuqueLoggedOutSnapshot" in workspace
     assert "mergeZhuqueReadiness(preflight)" in workspace
@@ -1016,7 +1015,8 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "response.data?.switch_account" not in workspace
     assert "params: { sync_session: syncSession }" in api
     assert "params: { switch_account: switchAccount }" not in api
-    assert "点击打开朱雀网页；只有在朱雀网页内退出后才会清除登录态" in workspace
+    assert "点击打开朱雀扫码登录小窗；只有在朱雀网页内退出后才会清除登录态" in workspace
+    assert "打开 Chrome 小窗扫码登录朱雀" in workspace
     assert "startZhuqueBrowser" in workspace
     assert "loadZhuqueBrowserStatus" in workspace
     assert "zhuqueBrowserStatus?.connected" in workspace

@@ -896,7 +896,12 @@ const WorkspacePage = () => {
       const response = await optimizationAPI.startZhuqueLogin({ syncSession: true });
       setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
       await loadZhuqueStatusPanel();
-      toast.success(response.data?.message || '已打开朱雀真实网页状态同步窗口；请在朱雀网页内登录或退出');
+      const launchMessage = response.data?.message || '已打开朱雀扫码登录小窗；请在弹出的 Chrome 窗口内登录或退出';
+      if (response.data?.status === 'started') {
+        toast.success(launchMessage);
+      } else {
+        toast(launchMessage);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || '微信扫码登录朱雀失败');
     } finally {
@@ -1167,8 +1172,8 @@ const WorkspacePage = () => {
                         onClick={handleStartZhuqueLogin}
                         disabled={isStartingZhuqueLogin}
                         className={`aurora-zhuque-login-button ${zhuqueConnected ? 'is-ready' : ''}`}
-                        aria-label={zhuqueConnected ? '朱雀已登录，点击打开朱雀网页同步登录状态' : '扫码登录朱雀'}
-                        title={zhuqueConnected ? '点击打开朱雀网页；只有在朱雀网页内退出后才会清除登录态' : '扫码登录朱雀'}
+                        aria-label={zhuqueConnected ? '朱雀已登录，点击打开朱雀扫码登录小窗同步状态' : '扫码登录朱雀'}
+                        title={zhuqueConnected ? '点击打开朱雀扫码登录小窗；只有在朱雀网页内退出后才会清除登录态' : '打开 Chrome 小窗扫码登录朱雀'}
                       >
                         {isStartingZhuqueLogin ? (
                           <>
