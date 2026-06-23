@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, KeyRound, Save } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Save, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
+
+const FIELD_CONFIG = [
+  { field: 'base_url', label: 'Base URL', placeholder: '例如 https://api.openai.com/v1', type: 'text', required: true },
+  { field: 'api_key', label: 'API Key', placeholder: '保存时需重新输入', type: 'password', required: true },
+  { field: 'polish_model', label: '润色模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
+  { field: 'enhance_model', label: '增强模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
+  { field: 'emotion_model', label: '感情润色模型', placeholder: '可选', type: 'text', required: false },
+];
 
 const ApiSettingsPage = () => {
   const [form, setForm] = useState({
@@ -15,6 +23,7 @@ const ApiSettingsPage = () => {
   });
   const [maskedKey, setMaskedKey] = useState('');
   const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -77,80 +86,130 @@ const ApiSettingsPage = () => {
   };
 
   const handleTest = async () => {
+    if (testing) return;
+
+    setTesting(true);
     try {
       const response = await userAPI.testProviderConfig();
       toast.success(response.data?.message || 'API 连接测试通过');
     } catch (error) {
       toast.error(getErrorMessage(error, '请先保存完整 API 配置'));
+    } finally {
+      setTesting(false);
     }
   };
 
   return (
-    <div className="gank-app-page">
-      <header className="gank-glass-toolbar sticky top-0 z-40">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <BrandLogo size="sm" />
-          <Link to="/workspace" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900 text-sm font-semibold">
-            <ArrowLeft className="w-4 h-4" />
-            返回工作台
-          </Link>
-        </div>
+    <div className="gank-app-page aurora-app-page aurora-account-page">
+      <div className="gank-ambient-orb orb-one" />
+      <div className="gank-ambient-orb orb-two" />
+      <div className="gank-ambient-orb orb-three" />
+
+      <header className="sticky top-0 z-50">
+        <nav className="apple-global-nav aurora-topbar">
+          <div className="mx-auto flex min-h-[68px] max-w-[1180px] items-center justify-between gap-4 px-5 sm:px-8 lg:px-10">
+            <BrandLogo size="md" showText className="aurora-brand-logo" />
+            <Link to="/workspace" className="aurora-account-back-link">
+              <ArrowLeft className="h-4 w-4" />
+              <span>返回工作台</span>
+            </Link>
+          </div>
+        </nav>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8">
-        <div className="gank-card rounded-[2rem] p-6 sm:p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="gank-icon-tile w-12 h-12 rounded-2xl flex items-center justify-center">
-              <KeyRound className="w-6 h-6 text-amber-500" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-950">自带 API 配置</h1>
-              <p className="text-slate-500 text-sm">API Key 会加密保存，页面只显示后 4 位。</p>
-            </div>
+      <main className="aurora-page-shell aurora-account-shell relative z-[1] mx-auto max-w-[1180px] px-5 pb-12 pt-8 sm:px-8 lg:px-10">
+        <section className="aurora-account-hero">
+          <div>
+            <p className="gank-eyebrow">MODEL PROVIDER</p>
+            <h1>自带 API 配置</h1>
+            <p>配置自己的模型服务地址与模型名。API Key 加密保存，页面只显示后 4 位。</p>
           </div>
+          <div className="aurora-account-chip-strip" aria-label="API 配置能力">
+            <span className="apple-config-chip">BYO API</span>
+            <span className="apple-config-chip">Encrypted</span>
+            <span className="apple-config-chip">Testable</span>
+          </div>
+        </section>
 
-          {maskedKey && (
-            <div className="mb-5 rounded-2xl bg-emerald-50 text-emerald-700 px-4 py-3 text-sm font-medium">
-              已保存 API Key：****{maskedKey}
+        <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
+          <aside className="apple-utility-card aurora-account-card aurora-api-summary">
+            <div className="aurora-profile-avatar" aria-hidden="true">
+              <KeyRound className="h-10 w-10" />
             </div>
-          )}
+            <p className="gank-eyebrow">PRIVATE PROVIDER</p>
+            <h2>模型服务接入</h2>
+            <p>自带 API 模式会优先使用你保存的供应商配置，适合已有额度或私有模型网关。</p>
 
-          <form onSubmit={handleSave} className="space-y-4">
-            {[
-              ['base_url', 'Base URL，例如 https://api.openai.com/v1'],
-              ['api_key', 'API Key，保存时需重新输入'],
-              ['polish_model', '润色模型'],
-              ['enhance_model', '增强模型'],
-              ['emotion_model', '感情润色模型，可选'],
-            ].map(([field, placeholder]) => (
-              <input
-                key={field}
-                type={field === 'api_key' ? 'password' : 'text'}
-                value={form[field]}
-                onChange={(event) => updateField(field, event.target.value)}
-                placeholder={placeholder}
-                className="gank-input px-4 py-3 rounded-2xl"
-                required={field !== 'emotion_model'}
-              />
-            ))}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                type="submit"
-                disabled={loading}
-                className="gank-primary-button flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-2xl disabled:opacity-60 text-white font-semibold"
-              >
-                <Save className="w-4 h-4" />
-                {loading ? '保存中...' : '保存配置'}
-              </button>
-              <button
-                type="button"
-                onClick={handleTest}
-                className="gank-secondary-button flex-1 py-3 rounded-2xl text-slate-900 font-semibold"
-              >
-                测试配置
-              </button>
+            <div className="aurora-api-checklist">
+              <div>
+                <ShieldCheck className="h-4 w-4" />
+                <span>Key 仅保存密文，前端不回显完整密钥</span>
+              </div>
+              <div>
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>润色、增强、感情润色模型可分开指定</span>
+              </div>
+              <div>
+                <CheckCircle2 className="h-4 w-4" />
+                <span>保存后可即时发起连接测试</span>
+              </div>
             </div>
-          </form>
+          </aside>
+
+          <section className="apple-utility-card aurora-account-card aurora-api-form-card">
+            <div className="aurora-account-form-head">
+              <div>
+                <p className="gank-eyebrow">CONFIGURATION</p>
+                <h2>供应商配置</h2>
+              </div>
+              {maskedKey && <span className="aurora-subtle-badge aurora-badge-success">已保存 ****{maskedKey}</span>}
+            </div>
+
+            {maskedKey && (
+              <div className="aurora-saved-key-notice" role="status">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>已保存 API Key：****{maskedKey}。如需修改，请重新输入完整 Key 后保存。</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSave} className="aurora-api-form">
+              {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => (
+                <div key={field} className={field === 'base_url' || field === 'api_key' ? 'md:col-span-2' : ''}>
+                  <label className="aurora-field-label" htmlFor={`api-${field}`}>{label}</label>
+                  <input
+                    id={`api-${field}`}
+                    type={type}
+                    value={form[field]}
+                    onChange={(event) => updateField(field, event.target.value)}
+                    placeholder={placeholder}
+                    className="aurora-input"
+                    required={required}
+                    autoComplete={field === 'api_key' ? 'off' : undefined}
+                  />
+                </div>
+              ))}
+
+              <div className="aurora-api-actions md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {loading ? '保存中...' : '保存配置'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  测试配置
+                </button>
+              </div>
+            </form>
+          </section>
         </div>
       </main>
     </div>

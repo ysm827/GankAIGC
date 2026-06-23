@@ -231,12 +231,18 @@ class SessionRetryRequest(BaseModel):
     billing_mode: str = Field(default="keep", pattern="^(keep|platform|byok)$")
 
 
+class SessionProjectUpdateRequest(BaseModel):
+    """更新会话所属论文项目"""
+    project_id: Optional[int] = None
+
+
 class ZhuqueBrowserLaunchResponse(BaseModel):
     """朱雀微信扫码登录响应（兼容旧浏览器启动接口名）"""
     status: str
     auth_mode: str = "headless_api"
     login_mode: str = "wechat_qr"
     credential_file: str
+    sync_session: bool = True
     command: Optional[str] = None
     message: str
 

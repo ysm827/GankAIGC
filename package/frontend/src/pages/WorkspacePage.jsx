@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
-  FileText, History, Play,
-  ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Info, Pencil, ExternalLink
+  FileText, History,
+  ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Pencil, ExternalLink,
+  Sparkles, TrendingUp, ShieldCheck, Heart, Layers, Link as LinkIcon, Folder,
+  Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput
 } from 'lucide-react';
 import { optimizationAPI, projectAPI, userAPI } from '../api';
-import UserMenu from '../components/UserMenu';
 import BrandLogo from '../components/BrandLogo';
+import UserMenu from '../components/UserMenu';
 import { formatChinaDate } from '../utils/dateTime';
 
 const CREDIT_UNIT_CHARACTERS = 1000;
@@ -18,12 +20,29 @@ const PROCESSING_MODE_STAGE_MULTIPLIERS = {
 };
 
 const PROCESSING_MODE_OPTIONS = [
-  { id: 'paper_polish', title: '论文润色', desc: '提升学术表达质量' },
-  { id: 'paper_enhance', title: '论文增强', desc: '直接提升原创性' },
-  { id: 'paper_polish_enhance', title: '润色 + 增强', desc: '两阶段完整处理' },
-  { id: 'ai_detect_reduce', title: 'AI检测 + 降重', desc: 'AI浓度超过20%自动改写' },
-  { id: 'emotion_polish', title: '感情文章润色', desc: '自然、人性化表达' },
+  { id: 'paper_polish', title: '论文润色', desc: '优化语言表达，提升论文可读性', icon: Sparkles, tone: 'cyan' },
+  { id: 'paper_enhance', title: '论文增强', desc: '增强逻辑结构，提升论证深度', icon: TrendingUp, tone: 'navy' },
+  { id: 'paper_polish_enhance', title: '润色 + 增强', desc: '语言优化与内容增强双重提升', icon: Layers, tone: 'violet' },
+  { id: 'ai_detect_reduce', title: 'AI检测 + 降重', desc: '降低AI疑似率，减少重复率', icon: ShieldCheck, tone: 'blue' },
+  { id: 'emotion_polish', title: '感情文章润色', desc: '优化情感表达，提升文章温度', icon: Heart, tone: 'pink' },
 ];
+
+const DEFAULT_PROCESSING_MODE = 'paper_polish';
+const WORKSPACE_PROCESSING_MODE_STORAGE_KEY = 'gankaigc.workspace.processingMode';
+const PROCESSING_MODE_IDS = new Set(PROCESSING_MODE_OPTIONS.map((option) => option.id));
+
+const getInitialProcessingMode = () => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_PROCESSING_MODE;
+  }
+
+  try {
+    const savedMode = window.localStorage.getItem(WORKSPACE_PROCESSING_MODE_STORAGE_KEY);
+    return PROCESSING_MODE_IDS.has(savedMode) ? savedMode : DEFAULT_PROCESSING_MODE;
+  } catch {
+    return DEFAULT_PROCESSING_MODE;
+  }
+};
 
 const PROCESSING_MODE_DESCRIPTIONS = {
   paper_polish: '仅进行论文润色，提升文本的学术性和表达质量。',
@@ -34,6 +53,11 @@ const PROCESSING_MODE_DESCRIPTIONS = {
 };
 
 const ZHUQUE_PROCESS_STEPS = ['朱雀检测', '论文重构', '全文复检'];
+const ZHUQUE_STATUS_POLL_INTERVAL_MS = 1000;
+const ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 350;
+const ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 12000;
+const WORKSPACE_QUEUE_POLL_INTERVAL_MS = 15000;
+const ACTIVE_SESSION_POLL_INTERVAL_MS = 6000;
 
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
 
@@ -77,8 +101,62 @@ const formatZhuqueRemainingUses = (value) => {
   return `${numeric} 次`;
 };
 
+const PROCESSING_MODE_LABELS = PROCESSING_MODE_OPTIONS.reduce((acc, option) => {
+  acc[option.id] = option.title;
+  return acc;
+}, {});
+
+const getProcessingModeLabel = (mode) => PROCESSING_MODE_LABELS[mode] || '论文处理';
+
+const getSessionStatusLabel = (status) => {
+  const labels = {
+    completed: '已完成',
+    processing: '处理中',
+    queued: '排队中',
+    failed: '失败',
+    stopped: '已停止',
+  };
+  return labels[status] || '处理中';
+};
+
+const getSessionStatusClass = (status) => {
+  if (status === 'completed') return 'text-emerald-600';
+  if (status === 'processing' || status === 'queued') return 'text-[#2563eb]';
+  if (status === 'failed') return 'text-rose-600';
+  if (status === 'stopped') return 'text-orange-600';
+  return 'text-slate-500';
+};
+
+const HISTORY_STATUS_FILTERS = [
+  { id: 'all', label: '全部状态' },
+  { id: 'completed', label: '已完成' },
+  { id: 'processing', label: '处理中' },
+  { id: 'queued', label: '排队中' },
+  { id: 'failed', label: '失败' },
+  { id: 'stopped', label: '已停止' },
+];
+
+const getModeToneClass = (tone) => {
+  const tones = {
+    cyan: 'aurora-icon-cyan',
+    navy: 'aurora-icon-navy',
+    violet: 'aurora-icon-violet',
+    blue: 'aurora-icon-blue',
+    pink: 'aurora-icon-pink',
+  };
+  return tones[tone] || tones.blue;
+};
+
+const formatSessionWordCount = (count) => {
+  const numeric = Number(count);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '字数 --';
+  }
+  return `字数 ${numeric.toLocaleString('zh-CN')}`;
+};
+
 // 会话列表项组件 - 使用 memo 避免不必要重渲染
-const SessionItem = memo(({ session, activeSession, onView, onDelete, onRetry }) => {
+const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSessionId, onToggleProjectMenu, onView, onDelete, onRetry, onMoveToProject }) => {
   const handleDelete = useCallback((e) => {
     e.stopPropagation();
     onDelete(session);
@@ -95,96 +173,148 @@ const SessionItem = memo(({ session, activeSession, onView, onDelete, onRetry })
     onView(session.session_id);
   }, [session.session_id, onView]);
 
+  const handleProjectMenuToggle = useCallback((event) => {
+    event.stopPropagation();
+    onToggleProjectMenu(openProjectMenuSessionId === session.session_id ? null : session.session_id);
+  }, [onToggleProjectMenu, openProjectMenuSessionId, session.session_id]);
+
+  const handleMoveToProject = useCallback((event, projectId) => {
+    event.stopPropagation();
+    onMoveToProject(session, projectId);
+  }, [onMoveToProject, session]);
+
+  const statusLabel = getSessionStatusLabel(session.status);
+  const statusClass = getSessionStatusClass(session.status);
+  const modeLabel = getProcessingModeLabel(session.processing_mode);
+  const isActive = activeSession === session.session_id;
+  const isProjectMenuOpen = openProjectMenuSessionId === session.session_id;
+  const projectActionLabel = session.project_id ? '移动项目' : '归入项目';
+  const targetProjects = projects.filter((project) => project.id !== session.project_id);
+  const hasMoveTargets = targetProjects.length > 0 || Boolean(session.project_id);
+
   return (
-    <div
+    <article
       onClick={handleView}
-      className="group p-3 rounded-xl hover:bg-gray-50 transition-all cursor-pointer border border-transparent hover:border-gray-100 relative"
+      className={`aurora-history-item group ${isActive ? 'aurora-history-item-active' : ''} ${isProjectMenuOpen ? 'aurora-history-item-menu-open' : ''}`}
     >
-      <div className="flex items-start justify-between mb-1.5 gap-2">
-        <div className="flex items-center gap-1.5">
-          {session.status === 'completed' && (
-            <CheckCircle className="w-4 h-4 text-ios-green" />
-          )}
-          {session.status === 'processing' && (
-            <div className="w-4 h-4 border-2 border-ios-blue border-t-transparent rounded-full animate-spin" />
-          )}
-          {session.status === 'failed' && (
-            <AlertCircle className="w-4 h-4 text-ios-red" />
-          )}
-          {session.status === 'stopped' && (
-            <AlertCircle className="w-4 h-4 text-orange-500" />
-          )}
-          <span className={`text-[13px] font-medium ${
-            session.status === 'completed' ? 'text-black' :
-            session.status === 'processing' ? 'text-ios-blue' :
-            session.status === 'failed' ? 'text-ios-red' :
-            session.status === 'stopped' ? 'text-orange-600' : 'text-ios-gray'
-          }`}>
-            {session.status === 'completed' && '已完成'}
-            {session.status === 'processing' && '处理中'}
-            {session.status === 'queued' && '排队中'}
-            {session.status === 'failed' && '失败'}
-            {session.status === 'stopped' && '已停止'}
+      <div className="aurora-history-icon">
+        {session.status === 'completed' && <FileText className="h-5 w-5" />}
+        {session.status === 'processing' && <div className="h-5 w-5 rounded-full border-2 border-[#3b82f6]/25 border-t-[#3b82f6] animate-spin" />}
+        {session.status === 'queued' && <Clock className="h-5 w-5" />}
+        {session.status === 'failed' && <AlertCircle className="h-5 w-5" />}
+        {session.status === 'stopped' && <AlertCircle className="h-5 w-5" />}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <h3 className="line-clamp-1 text-[14px] font-semibold tracking-[-0.01em] text-slate-900">
+            {session.task_title || session.project_title || session.preview_text || '未命名任务'}
+          </h3>
+          <span className="aurora-mode-badge shrink-0">
+            {modeLabel}
           </span>
         </div>
-
-        <span className="text-[11px] text-ios-gray/70 font-medium">
-          {formatChinaDate(session.created_at)}
-        </span>
-      </div>
-
-      {session.task_title && (
-        <p className="text-[13px] font-semibold text-black line-clamp-1 mb-1 pr-6">
-          {session.task_title}
-        </p>
-      )}
-
-      <p className="text-[13px] text-ios-gray leading-snug line-clamp-2 mb-2 pr-6">
-        {session.preview_text || session.project_title || '暂无预览'}
-      </p>
-
-      {session.status === 'processing' && (
-        <div className="w-full bg-gray-100 rounded-full h-1 mb-1">
-          <div
-            className="bg-ios-blue h-1 rounded-full"
-            style={{ width: `${session.progress}%` }}
-          />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] leading-5 text-slate-500">
+          <span>{formatChinaDate(session.created_at)}</span>
+          <span>{formatSessionWordCount(session.original_char_count)}</span>
+          <span className={`font-semibold ${statusClass}`}>{statusLabel} ●</span>
         </div>
-      )}
 
-      {/* 操作按钮 */}
-      <div className="flex items-center justify-between mt-1">
-        {session.status === 'failed' && (
-          <button
-            onClick={handleRetry}
-            className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
-          >
-            继续处理
-          </button>
+        {hasMoveTargets && (
+          <div className="aurora-session-project-move" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              onClick={handleProjectMenuToggle}
+              className={`aurora-session-project-trigger ${isProjectMenuOpen ? 'aurora-session-project-trigger-active' : ''}`}
+              aria-label={`${projectActionLabel}：${session.task_title || session.preview_text || '未命名任务'}`}
+              aria-haspopup="menu"
+              aria-expanded={isProjectMenuOpen}
+            >
+              <FolderInput className="h-3.5 w-3.5" />
+              <span>{projectActionLabel}</span>
+              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isProjectMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isProjectMenuOpen && (
+              <div className="aurora-session-project-menu" role="menu">
+                <div className="aurora-session-project-menu-title">选择目标项目</div>
+                {session.project_id && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => handleMoveToProject(event, null)}
+                    className="aurora-session-project-option"
+                  >
+                    <span className="aurora-session-project-option-icon">
+                      <Archive className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block font-semibold">移回未归档</span>
+                      <span className="block text-[11px] font-medium text-slate-500">从当前项目移出</span>
+                    </span>
+                  </button>
+                )}
+                {targetProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={(event) => handleMoveToProject(event, project.id)}
+                    className="aurora-session-project-option"
+                  >
+                    <span className="aurora-session-project-option-icon">
+                      <Folder className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">{project.title}</span>
+                      <span className="block text-[11px] font-medium text-slate-500">归入此项目</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
-        <button
-          onClick={handleDelete}
-          className="p-1.5 text-gray-300 hover:text-ios-red hover:bg-red-50 rounded-lg transition-colors ml-auto"
-          title="删除会话"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+
+        {session.status === 'processing' && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 transition-all duration-500 ease-out"
+              style={{ width: `${session.progress}%` }}
+            />
+          </div>
+        )}
+
+        {session.status === 'failed' && (
+          <div className="mt-2 flex items-start justify-between gap-2 rounded-xl bg-rose-50 px-2.5 py-2 text-[12px] text-rose-700">
+            <span className="line-clamp-2">{session.error_message || '网络超时，请稍后继续处理'}</span>
+            <button
+              onClick={handleRetry}
+              className="shrink-0 rounded-full bg-white px-2 py-1 font-semibold text-rose-600 shadow-sm hover:bg-rose-100"
+            >
+              继续
+            </button>
+          </div>
+        )}
       </div>
 
-      {session.status === 'failed' && session.current_position < session.total_segments && (
-        <div className="text-[11px] text-ios-red bg-red-50 px-2 py-1 rounded mt-1 line-clamp-2">
-          {session.error_message || '网络超时，请稍后继续处理'}
-        </div>
-      )}
-    </div>
+      <button
+        onClick={handleDelete}
+        className="aurora-delete-button"
+        title="删除会话"
+        aria-label="删除会话"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </article>
   );
 });
 
 SessionItem.displayName = 'SessionItem';
 
+
 const WorkspacePage = () => {
   const [text, setText] = useState('');
-  const [processingMode, setProcessingMode] = useState('paper_polish_enhance');
+  const [processingMode, setProcessingMode] = useState(getInitialProcessingMode);
   const [sessions, setSessions] = useState([]);
   const [queueStatus, setQueueStatus] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
@@ -203,30 +333,83 @@ const WorkspacePage = () => {
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [editProjectTitle, setEditProjectTitle] = useState('');
   const [editProjectDescription, setEditProjectDescription] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+  const [showHistoryFilters, setShowHistoryFilters] = useState(false);
+  const [movingSessionId, setMovingSessionId] = useState(null);
+  const [openProjectMenuSessionId, setOpenProjectMenuSessionId] = useState(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [announcements, setAnnouncements] = useState([]);
   const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
-  const [zhuqueLoginInfo, setZhuqueLoginInfo] = useState(null);
   const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
+  const [zhuqueFastPollUntil, setZhuqueFastPollUntil] = useState(0);
+  const activeProjectIdRef = useRef(null);
+  const isLoadingZhuqueStatusRef = useRef(false);
   const navigate = useNavigate();
 
-  const activeProject = projects.find((project) => project.id === activeProjectId);
+  const activeProject = useMemo(() => (
+    typeof activeProjectId === 'number' && activeProjectId > 0
+      ? projects.find((project) => project.id === activeProjectId) || null
+      : null
+  ), [activeProjectId, projects]);
+  const projectSelectValue = activeProjectId === null ? 'all' : String(activeProjectId ?? 0);
+  const historyScopeTitle = activeProject
+    ? activeProject.title
+    : activeProjectId === 0 ? '未归档历史' : '全部历史';
+  const historyScopeDescription = activeProject
+    ? '当前论文项目'
+    : activeProjectId === 0 ? '未归档任务' : '所有项目与未归档任务';
+  const activeHistoryStatusFilter = HISTORY_STATUS_FILTERS.find((filter) => filter.id === historyStatusFilter) || HISTORY_STATUS_FILTERS[0];
+  const filteredSessions = useMemo(() => {
+    if (historyStatusFilter === 'all') {
+      return sessions;
+    }
+    return sessions.filter((session) => session.status === historyStatusFilter);
+  }, [historyStatusFilter, sessions]);
   const billableCharacterCount = useMemo(() => countBillableCharacters(text), [text]);
   const estimatedCredits = useMemo(
     () => calculateEstimatedCredits(text, processingMode),
     [processingMode, text]
   );
+  const zhuqueConnected = Boolean(
+    zhuqueAuthStatus?.connected || zhuqueReadiness?.connected || zhuqueReadiness?.has_token
+  );
+  const zhuqueRemainingValue = [
+    zhuqueReadiness?.remaining_uses,
+    zhuqueAuthStatus?.remaining_uses,
+  ].find((value) => {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0;
+  });
+  const zhuqueHasKnownRemaining = zhuqueRemainingValue !== undefined;
+  const zhuqueRemainingLabel = zhuqueHasKnownRemaining
+    ? formatZhuqueRemainingUses(zhuqueRemainingValue)
+    : zhuqueConnected ? '检测后同步' : '免费次数';
+  const zhuqueAccountName = [
+    zhuqueReadiness?.user_name,
+    zhuqueAuthStatus?.user_name,
+    zhuqueReadiness?.userName,
+    zhuqueAuthStatus?.userName,
+  ].find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+  const zhuqueAccountLabel = zhuqueConnected ? (zhuqueAccountName || '未知用户') : '未登录';
+
+  const handleProcessingModeChange = useCallback((event) => {
+    const nextMode = event.target.value;
+    if (PROCESSING_MODE_IDS.has(nextMode)) {
+      setProcessingMode(nextMode);
+    }
+  }, []);
 
   // 使用显式项目 ID 避免切换项目时读取到旧闭包中的 activeProjectId
-  const loadSessions = useCallback(async (projectId = activeProjectId) => {
-    if (projectId === null) {
-      return;
-    }
+  const loadSessions = useCallback(async (projectId = activeProjectIdRef.current) => {
+    const resolvedProjectId = projectId === undefined ? activeProjectIdRef.current : projectId;
 
     try {
       setIsLoadingSessions(true);
-      const response = await optimizationAPI.listSessions(projectId);
+      const response = await optimizationAPI.listSessions(resolvedProjectId);
       setSessions(response.data);
 
       // 查找正在处理的会话
@@ -239,7 +422,7 @@ const WorkspacePage = () => {
     } finally {
       setIsLoadingSessions(false);
     }
-  }, [activeProjectId]);
+  }, []);
 
   // loadQueueStatus 不依赖 activeSession，避免 useEffect 重复触发
   const loadQueueStatus = useCallback(async () => {
@@ -249,18 +432,12 @@ const WorkspacePage = () => {
     } catch (error) {
       console.error('加载队列状态失败:', error);
     }
-  }, [activeProjectId]);
+  }, []);
 
   const loadProjects = useCallback(async () => {
     try {
       const response = await projectAPI.list();
       setProjects(response.data);
-      setActiveProjectId((current) => {
-        if (current !== null) {
-          return current;
-        }
-        return response.data.length > 0 ? response.data[0].id : 0;
-      });
     } catch (error) {
       console.error('加载论文项目失败:', error);
     }
@@ -288,29 +465,96 @@ const WorkspacePage = () => {
     }
   }, []);
 
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
+
+  const syncZhuqueLoggedOutSnapshot = useCallback((statusPayload = null) => {
+    const payload = statusPayload || {
+      connected: false,
+      ready: false,
+      page_found: false,
+      has_token: false,
+      remaining_uses: -1,
+      button_enabled: true,
+      user_name: '',
+      quota_text: '',
+      message: '朱雀网页显示未登录',
+    };
+    const rawRemaining = payload.remaining_uses;
+    const numericRemaining = Number(rawRemaining);
+    const hasLiveFreeQuota = rawRemaining !== null && rawRemaining !== undefined && Number.isFinite(numericRemaining) && numericRemaining >= 0;
+    setZhuqueAuthStatus((current) => ({
+      ...current,
+      ...payload,
+      status: payload.status || 'missing_credentials',
+      connected: false,
+      ready: false,
+      has_token: false,
+      remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+      user_name: '',
+      quota_text: payload.quota_text || '',
+    }));
+    setZhuqueReadiness((current) => ({
+      ...current,
+      ...payload,
+      ready: Boolean(current?.text_length_ok ?? true),
+      connected: false,
+      page_found: false,
+      has_token: false,
+      remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+      button_enabled: payload.button_enabled ?? true,
+      user_name: '',
+      quota_text: payload.quota_text || '',
+      actions: payload.actions || current?.actions || [],
+      message: payload.message || '朱雀未登录，可使用免费次数或扫码登录',
+    }));
+  }, []);
+
+  const mergeZhuqueAuthStatus = useCallback((payload) => {
+    setZhuqueAuthStatus(payload);
+    if (payload && payload.connected === false && payload.has_token === false) {
+      syncZhuqueLoggedOutSnapshot(payload);
+    }
+  }, [syncZhuqueLoggedOutSnapshot]);
+
+  const mergeZhuqueReadiness = useCallback((payload) => {
+    setZhuqueReadiness(payload);
+    if (payload && payload.connected === false && payload.has_token === false) {
+      const rawRemaining = payload.remaining_uses;
+      const numericRemaining = Number(rawRemaining);
+      const hasLiveFreeQuota = rawRemaining !== null && rawRemaining !== undefined && Number.isFinite(numericRemaining) && numericRemaining >= 0;
+      setZhuqueAuthStatus((current) => ({
+        ...current,
+        connected: false,
+        ready: false,
+        has_token: false,
+        remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+        user_name: '',
+        quota_text: payload.quota_text || '',
+      }));
+    }
+  }, []);
+
   const loadZhuqueAuthStatus = useCallback(async () => {
     try {
       const response = await optimizationAPI.getZhuqueAuthStatus();
-      setZhuqueAuthStatus(response.data);
-      if (!response.data.connected) {
-        setZhuqueLoginInfo(null);
-      }
+      mergeZhuqueAuthStatus(response.data);
     } catch (error) {
-      setZhuqueAuthStatus({
+      mergeZhuqueAuthStatus({
         status: 'disconnected',
         connected: false,
         message: '无法检测朱雀凭证状态',
       });
-      setZhuqueLoginInfo(null);
     }
-  }, []);
+  }, [mergeZhuqueAuthStatus]);
 
   const loadZhuqueReadiness = useCallback(async () => {
     try {
       const response = await optimizationAPI.getZhuqueReadiness();
-      setZhuqueReadiness(response.data);
+      mergeZhuqueReadiness(response.data);
     } catch (error) {
-      setZhuqueReadiness({
+      mergeZhuqueReadiness({
         ready: false,
         connected: false,
         page_found: false,
@@ -322,7 +566,23 @@ const WorkspacePage = () => {
         actions: ['微信扫码登录朱雀'],
       });
     }
-  }, []);
+  }, [mergeZhuqueReadiness]);
+
+  const loadZhuqueStatusPanel = useCallback(async () => {
+    if (isLoadingZhuqueStatusRef.current) {
+      return;
+    }
+
+    isLoadingZhuqueStatusRef.current = true;
+    try {
+      await Promise.all([
+        loadZhuqueAuthStatus(),
+        loadZhuqueReadiness(),
+      ]);
+    } finally {
+      isLoadingZhuqueStatusRef.current = false;
+    }
+  }, [loadZhuqueAuthStatus, loadZhuqueReadiness]);
 
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
@@ -365,15 +625,18 @@ const WorkspacePage = () => {
   }, [loadProjects, loadQueueStatus, loadAccountState, loadAnnouncements]);
 
   useEffect(() => {
-    if (activeProjectId !== null) {
-      setSessions([]);
-      loadSessions(activeProjectId);
-    }
+    setSessions([]);
+    loadSessions(activeProjectId);
   }, [activeProjectId, loadSessions]);
 
   // 队列状态轮询 - 独立的 useEffect，避免与初始加载混淆
   useEffect(() => {
-    const interval = setInterval(loadQueueStatus, 5000);
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      loadQueueStatus();
+    }, WORKSPACE_QUEUE_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loadQueueStatus]);
 
@@ -382,24 +645,36 @@ const WorkspacePage = () => {
     if (activeSession) {
       const interval = setInterval(() => {
         updateSessionProgress(activeSession);
-      }, 4000);
+      }, ACTIVE_SESSION_POLL_INTERVAL_MS);
       return () => clearInterval(interval);
     }
   }, [activeSession, updateSessionProgress]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WORKSPACE_PROCESSING_MODE_STORAGE_KEY, processingMode);
+    } catch {
+      // localStorage 可能被浏览器隐私策略禁用；此时保留本次页面内选择即可。
+    }
+  }, [processingMode]);
 
   useEffect(() => {
     if (processingMode !== 'ai_detect_reduce') {
       return;
     }
 
-    loadZhuqueAuthStatus();
-    loadZhuqueReadiness();
+    loadZhuqueStatusPanel();
+    const pollInterval = Date.now() < zhuqueFastPollUntil
+      ? ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS
+      : ZHUQUE_STATUS_POLL_INTERVAL_MS;
     const interval = setInterval(() => {
-      loadZhuqueAuthStatus();
-      loadZhuqueReadiness();
-    }, 5000);
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      loadZhuqueStatusPanel();
+    }, pollInterval);
     return () => clearInterval(interval);
-  }, [loadZhuqueAuthStatus, loadZhuqueReadiness, processingMode]);
+  }, [loadZhuqueStatusPanel, processingMode, zhuqueFastPollUntil]);
 
   const handleCreateProject = useCallback(async (e) => {
     e.preventDefault();
@@ -437,12 +712,11 @@ const WorkspacePage = () => {
       const remaining = projects.filter((item) => item.id !== project.id);
       setProjects(remaining);
       if (activeProjectId === project.id) {
-        const nextProjectId = remaining.length > 0 ? remaining[0].id : 0;
-        setActiveProjectId(nextProjectId);
-        setSessions([]);
-        await loadSessions(nextProjectId);
+        activeProjectIdRef.current = null;
+        setActiveProjectId(null);
+        await loadSessions(null);
       }
-      toast.success('论文项目已归档');
+      toast.success('论文项目已归档，历史记录仍可在全部历史查看');
     } catch (error) {
       toast.error(error.response?.data?.detail || '归档失败');
     }
@@ -485,6 +759,69 @@ const WorkspacePage = () => {
     }
   }, [editProjectDescription, editProjectTitle, editingProjectId, handleCancelEditProject]);
 
+  const handleProjectScopeChange = useCallback((event) => {
+    const value = event.target.value;
+    const nextProjectId = value === 'all' ? null : Number(value);
+    setEditingProjectId(null);
+    setEditProjectTitle('');
+    setEditProjectDescription('');
+    setShowHistoryFilters(false);
+    setOpenProjectMenuSessionId(null);
+    setActiveProjectId(nextProjectId);
+  }, []);
+
+  const handleHistoryStatusFilterChange = useCallback((statusId) => {
+    setHistoryStatusFilter(statusId);
+    setShowHistoryFilters(false);
+  }, []);
+
+  const handleToggleProjectMenu = useCallback((sessionId) => {
+    setShowHistoryFilters(false);
+    setOpenProjectMenuSessionId(sessionId);
+  }, []);
+
+  const handleMoveSessionToProject = useCallback(async (session, projectId) => {
+    if (movingSessionId) {
+      return;
+    }
+
+    const targetProject = projectId === null
+      ? null
+      : projects.find((project) => project.id === projectId);
+    const targetLabel = targetProject?.title || '未归档历史';
+
+    try {
+      setMovingSessionId(session.session_id);
+      setOpenProjectMenuSessionId(null);
+      const response = await optimizationAPI.updateSessionProject(session.session_id, {
+        project_id: projectId,
+      });
+      const updatedSession = response.data;
+      setSessions((current) => {
+        const shouldRemoveFromCurrentScope = (
+          activeProjectId === 0 && updatedSession.project_id !== null
+        ) || (
+          typeof activeProjectId === 'number'
+          && activeProjectId > 0
+          && updatedSession.project_id !== activeProjectId
+        );
+
+        if (shouldRemoveFromCurrentScope) {
+          return current.filter((item) => item.session_id !== session.session_id);
+        }
+
+        return current.map((item) => (
+          item.session_id === session.session_id ? { ...item, ...updatedSession } : item
+        ));
+      });
+      toast.success(`已归入「${targetLabel}」`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '归入项目失败');
+    } finally {
+      setMovingSessionId(null);
+    }
+  }, [activeProjectId, movingSessionId, projects]);
+
   const handleStartOptimization = useCallback(async () => {
     if (!text.trim()) {
       toast.error('请输入要优化的文本');
@@ -515,15 +852,16 @@ const WorkspacePage = () => {
           billing_mode: billingMode,
         });
         const preflight = preflightResponse.data;
-        setZhuqueReadiness(preflight);
+        mergeZhuqueReadiness(preflight);
         if (!preflight.ready) {
           toast.error(preflight.message || '朱雀尚未就绪');
           return;
         }
         if (preflight.estimated_max_round_credits > 0) {
-          toast(`朱雀无头 API 已就绪，预计最多消耗 ${preflight.estimated_max_round_credits} 啤酒（仅实际降重时扣）`);
+          const zhuqueReadyLabel = preflight.has_token ? '朱雀账号检测链路已就绪' : '朱雀免费检测次数可用';
+          toast(`${zhuqueReadyLabel}，预计最多消耗 ${preflight.estimated_max_round_credits} 啤酒（仅实际降重时扣）`);
         } else {
-          toast.success('朱雀无头 API 已就绪');
+          toast.success(preflight.has_token ? '朱雀账号检测链路已就绪' : '朱雀免费检测次数可用');
         }
       }
 
@@ -546,7 +884,7 @@ const WorkspacePage = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, navigate]);
+  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, mergeZhuqueReadiness, navigate]);
 
   const handleStartZhuqueLogin = useCallback(async () => {
     if (isStartingZhuqueLogin) {
@@ -555,17 +893,16 @@ const WorkspacePage = () => {
 
     try {
       setIsStartingZhuqueLogin(true);
-      const response = await optimizationAPI.startZhuqueLogin();
-      setZhuqueLoginInfo(response.data);
-      await loadZhuqueAuthStatus();
-      await loadZhuqueReadiness();
-      toast.success(response.data?.message || '已打开朱雀微信扫码授权页；扫码完成后检测走无头 API');
+      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true });
+      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+      await loadZhuqueStatusPanel();
+      toast.success(response.data?.message || '已打开朱雀真实网页状态同步窗口；请在朱雀网页内登录或退出');
     } catch (error) {
       toast.error(error.response?.data?.detail || '微信扫码登录朱雀失败');
     } finally {
       setIsStartingZhuqueLogin(false);
     }
-  }, [isStartingZhuqueLogin, loadZhuqueAuthStatus, loadZhuqueReadiness]);
+  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel]);
 
   const handleDeleteSession = useCallback(async (session) => {
     const confirmDelete = window.confirm('确认删除该会话及其结果吗?');
@@ -635,679 +972,531 @@ const WorkspacePage = () => {
 
 
   return (
-    <div className="gank-app-page">
+    <div className="gank-app-page aurora-app-page">
       <div className="gank-ambient-orb orb-one" />
       <div className="gank-ambient-orb orb-two" />
       <div className="gank-ambient-orb orb-three" />
 
       {/* 顶部导航栏 */}
       <header className="sticky top-0 z-50">
-        <nav className="apple-global-nav">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center min-h-[44px] gap-4">
-              <div className="flex items-center gap-3">
-                <BrandLogo size="sm" showText={false} />
-                <span className="text-[12px] font-medium tracking-[-0.01em] text-[#1d1d1f]">GankAIGC</span>
-                <span className="hidden sm:inline text-[#6e6e73]">论文重构工作台</span>
-              </div>
+        <nav className="apple-global-nav aurora-topbar">
+          <div className="mx-auto flex min-h-[68px] max-w-[1760px] items-center justify-between gap-4 px-5 sm:px-8 lg:px-12">
+            <div className="flex items-center gap-3">
+              <BrandLogo size="md" showText className="aurora-brand-logo" />
+              <span className="sr-only">AI PAPER RECONSTRUCTION</span>
+            </div>
 
-              <div className="flex items-center gap-3 overflow-x-auto">
-                {/* 队列状态 */}
-                {queueStatus && (
-                  <div className="hidden md:flex items-center gap-2 text-[12px]">
-                    <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]" />
-                      <span className="font-medium">
-                        在线 {queueStatus.online_users ?? 0}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
-                      <ListChecks className="w-3.5 h-3.5 text-[#6e6e73]" />
-                      <span className="font-medium">
-                        处理中 {queueStatus.current_users}/{queueStatus.max_users}
-                      </span>
-                    </div>
-                    {queueStatus.queue_length > 0 && (
-                      <div className="flex items-center gap-1.5 rounded-full bg-[rgba(0,0,0,0.045)] px-2.5 py-1.5 text-[#1d1d1f]">
-                        <Clock className="w-3.5 h-3.5 text-[#6e6e73]" />
-                        <span className="font-medium">
-                          {queueStatus.queue_length} 排队
-                        </span>
-                      </div>
-                    )}
+            <div className="flex min-w-0 items-center gap-3 overflow-x-auto pb-1 sm:pb-0">
+              {queueStatus && (
+                <div className="hidden items-center gap-3 text-[14px] md:flex">
+                  <div className="aurora-nav-pill">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.13)]" />
+                    <span className="font-semibold">在线 {queueStatus.online_users ?? 0}</span>
                   </div>
-                )}
+                  <div className="aurora-nav-pill aurora-nav-pill-blue">
+                    <ListChecks className="h-4 w-4" />
+                    <span className="font-semibold">处理中 {queueStatus.current_users}/{queueStatus.max_users}</span>
+                  </div>
+                  {queueStatus.queue_length > 0 && (
+                    <div className="aurora-nav-pill">
+                      <Clock className="h-4 w-4 text-slate-500" />
+                      <span className="font-semibold">{queueStatus.queue_length} 排队</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                <UserMenu credits={credits} />
-              </div>
+              <UserMenu credits={credits} />
             </div>
           </div>
         </nav>
-        <div className="apple-subnav">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex min-h-[52px] items-center justify-between gap-4">
-              <div>
-                <p className="text-[17px] font-semibold tracking-[-0.022em] text-[#1d1d1f]">论文重构</p>
-                <p className="hidden text-[12px] text-[#6e6e73] sm:block">朱雀检测 · 论文重构 · 全文复检</p>
-              </div>
-              <a href="#new-task" className="hidden sm:inline-flex apple-action-pill min-h-0 px-4 py-2 text-[14px]">
-                开始优化
-              </a>
-            </div>
-          </div>
+        <div className="apple-subnav aurora-contract-strip" aria-hidden="true">
+          <span>朱雀检测</span>
+          <span>论文重构</span>
+          <span>全文复检</span>
         </div>
       </header>
 
-      <div className="relative z-[1] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7">
+      <main className="aurora-page-shell relative z-[1] mx-auto max-w-[1760px] px-5 pb-10 pt-8 sm:px-8 lg:px-12">
         {announcements.length > 0 && (
           <div className="mb-6 space-y-3">
             {announcements.slice(0, 3).map((announcement) => (
-              <div
-                key={announcement.id}
-                className="gank-liquid-section px-4 py-3"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-                  <span className={`inline-flex w-fit shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
-                    {getAnnouncementCategoryLabel(announcement.category)}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="break-words text-sm font-semibold text-slate-950">
-                      {announcement.title}
-                    </div>
-                    <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">
-                      {announcement.content}
-                    </div>
-                  </div>
+              <div key={announcement.id} className="aurora-announcement">
+                <span className={`inline-flex w-fit shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
+                  {getAnnouncementCategoryLabel(announcement.category)}
+                </span>
+                <div className="min-w-0">
+                  <div className="break-words text-sm font-semibold text-slate-950">{announcement.title}</div>
+                  <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{announcement.content}</div>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        <section className="apple-product-tile apple-paper-stage gank-tabbit-hero mb-7 px-5 py-12 text-center sm:px-8 lg:px-10">
-          <div className="mx-auto max-w-3xl">
-            <p className="gank-eyebrow mb-4">AI PAPER RECONSTRUCTION</p>
-            <h1 className="text-[46px] font-semibold leading-[1.07] tracking-[-0.02em] text-[#1d1d1f] sm:text-[64px]">
-              GankAIGC
-            </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-[21px] font-normal leading-[1.35] tracking-[-0.01em] text-[#6e6e73]">
-              论文降 AI、朱雀复检和自动重构放在一个安静的工作台里，尽量保留事实、引用和原文字数。
-            </p>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              {ZHUQUE_PROCESS_STEPS.map((step, index) => (
-                <span key={step} className="apple-config-chip gank-process-chip">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#1d1d1f] text-[11px] text-white">
-                    {index + 1}
-                  </span>
-                  {step}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="apple-paper-stage-preview gank-product-preview mx-auto mt-10 max-w-4xl p-3 sm:p-4">
-            <div className="flex items-center gap-2 border-b border-[#e0e0e0] px-2 pb-3">
-              <span className="h-3 w-3 rounded-full bg-red-300" />
-              <span className="h-3 w-3 rounded-full bg-[#d2d2d7]" />
-              <span className="h-3 w-3 rounded-full bg-emerald-300" />
-              <div className="ml-3 flex-1 rounded-full bg-white/80 px-4 py-2 text-left text-xs font-semibold text-slate-500">
-                paper.workspace/gankaigc
-              </div>
-            </div>
-            <div className="grid gap-4 p-3 text-left md:grid-cols-[1.15fr_0.85fr]">
-              <div className="gank-preview-window p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#0066cc]">Draft</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">论文段落重构</p>
-                  </div>
-                  <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold text-[#1d1d1f]">
-                    ±10% 长度控制
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  <div className="gank-preview-line w-11/12" />
-                  <div className="gank-preview-line w-10/12 opacity-80" />
-                  <div className="gank-preview-line w-8/12 opacity-60" />
-                  <div className="apple-utility-card mt-5 p-4">
-                    <p className="text-sm font-semibold text-slate-950">Agent 过程</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      检测全文风险，定位顽固段落，必要时进入论文重构并保留更低风险版本。
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="grid content-between gap-4">
-                <div className="apple-product-tile-dark rounded-[28px] p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#2997ff]">Zhuque</p>
-                  <div className="mt-3 flex items-end gap-2">
-                    <span className="text-4xl font-semibold tracking-tight text-white">20%</span>
-                    <span className="pb-1 text-sm font-medium text-white/70">目标阈值</span>
-                  </div>
-                </div>
-                <div className="apple-utility-card gank-preview-window p-4">
-                  <p className="text-sm font-semibold text-slate-950">保护规则</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {['术语', '数字', '引用', '结论'].map((item) => (
-                      <span key={item} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+        <section className="mb-7 flex flex-col gap-2 pl-1">
+          <div className="flex items-center gap-5">
+            <span className="h-11 w-1.5 rounded-full bg-gradient-to-b from-cyan-400 to-sky-500 shadow-[0_0_20px_rgba(34,211,238,0.42)]" />
+            <div>
+              <h1 className="text-[34px] font-semibold leading-tight tracking-[-0.045em] text-slate-950 sm:text-[38px]">论文重构</h1>
+              <p className="mt-2 text-[16px] leading-6 text-slate-500">
+                选择合适的模式，输入论文内容，AI 将帮助您重构与优化论文质量
+              </p>
             </div>
           </div>
         </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 左侧 - 输入区域 */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* 说明卡片 */}
-            <div className="gank-liquid-section overflow-hidden">
-              <div className="p-4 flex items-start gap-3 bg-white/35">
-                <Info className="w-5 h-5 text-ios-blue flex-shrink-0 mt-0.5" />
-                <div className="text-[15px] text-black">
-                  <p className="font-semibold mb-1 text-[#0066cc]">当前模式说明</p>
-                  <p className="text-gray-700 leading-relaxed">
-                    {PROCESSING_MODE_DESCRIPTIONS[processingMode]}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div id="new-task" className="apple-utility-card gank-liquid-panel p-5 scroll-mt-28">
-              <div className="h-[40px] flex items-center mb-2">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,2.6fr)_minmax(360px,1fr)]">
+          <section id="new-task" className="aurora-workbench-card apple-product-tile apple-paper-stage gank-tabbit-hero gank-liquid-panel scroll-mt-24">
+            <div className="grid min-h-[690px] gap-0 lg:grid-cols-[390px_minmax(0,1fr)]">
+              <aside className="aurora-control-column">
                 <div>
-                  <h2 className="text-[20px] font-bold text-black tracking-tight pl-1">
-                    新建任务
-                  </h2>
-                  <p className="text-xs text-ios-gray pl-1">
-                    当前论文：{activeProject ? activeProject.title : activeProjectId === 0 ? '未归档历史' : '加载中'}
-                  </p>
+                  <div className="aurora-section-heading">
+                    <ListChecks className="h-4 w-4 text-[#6680bf]" />
+                    <span>选择模式</span>
+                  </div>
+                  <div className="gank-segmented-control aurora-mode-list">
+                    {PROCESSING_MODE_OPTIONS.map((mode) => {
+                      const Icon = mode.icon;
+                      const selected = processingMode === mode.id;
+                      return (
+                        <label
+                          key={mode.id}
+                          className={`aurora-mode-card ${selected ? 'aurora-mode-card-active gank-glass-choice-active' : 'gank-glass-choice'}`}
+                        >
+                          <input
+                            type="radio"
+                            name="processingMode"
+                            value={mode.id}
+                            checked={selected}
+                            onChange={handleProcessingModeChange}
+                            className="hidden"
+                          />
+                          <span className={`aurora-mode-icon ${getModeToneClass(mode.tone)}`}>
+                            <Icon className="h-6 w-6" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{mode.title}</span>
+                            <span className="mt-1 block text-[13px] leading-5 text-slate-500">{mode.desc}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-              
-              {/* 处理模式选择 - iOS Segmented Control Style */}
-              <div className="mb-5">
-                <label className="block text-[13px] font-medium text-ios-gray mb-2 ml-1 uppercase tracking-wide">
-                  选择模式
-                </label>
-                <div className="gank-segmented-control space-y-2 rounded-2xl p-2">
-                  {PROCESSING_MODE_OPTIONS.map((mode) => (
-                    <label
-                      key={mode.id}
-                      className={`flex items-center p-3.5 rounded-xl cursor-pointer transition-all border ${
-                        processingMode === mode.id
-                          ? 'gank-glass-choice-active text-[#0066cc]'
-                          : 'gank-glass-choice hover:bg-white/55'
-                      }`}
-                    >
+
+                <div className="aurora-control-divider" />
+
+                <div>
+                  <div className="aurora-section-heading">
+                    <CircleDollarSign className="h-4 w-4 text-[#6680bf]" />
+                    <span>计费方式</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    <label className={`aurora-billing-card ${billingMode === 'platform' ? 'aurora-billing-card-active gank-glass-choice-warm' : 'gank-glass-choice'}`}>
                       <input
                         type="radio"
-                        name="processingMode"
-                        value={mode.id}
-                        checked={processingMode === mode.id}
-                        onChange={(e) => setProcessingMode(e.target.value)}
-                        className="mr-3 w-5 h-5 text-ios-blue focus:ring-ios-blue border-gray-300"
+                        name="billingMode"
+                        value="platform"
+                        checked={billingMode === 'platform'}
+                        onChange={(event) => setBillingMode(event.target.value)}
+                        className="sr-only"
                       />
-                      <div>
-                        <div className={`font-semibold text-[15px] ${processingMode === mode.id ? 'text-[#0066cc]' : 'text-black'}`}>
-                          {mode.title}
-                        </div>
-                        <div className="text-[13px] text-ios-gray mt-0.5">
-                          {mode.desc}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mb-5">
-                <label className="block text-[13px] font-medium text-ios-gray mb-2 ml-1 uppercase tracking-wide">
-                  计费方式
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label
-                    className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
-                      billingMode === 'platform'
-                        ? 'gank-glass-choice-warm'
-                        : 'gank-glass-choice hover:bg-white/55'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="billingMode"
-                      value="platform"
-                      checked={billingMode === 'platform'}
-                      onChange={(event) => setBillingMode(event.target.value)}
-                      className="mr-2 text-ios-blue"
-                    />
-                    <span className="font-semibold text-black">平台模式</span>
-                    <p className="text-xs text-gray-500 mt-1">
-                      剩余 {credits?.is_unlimited ? '无限啤酒' : `${credits?.credit_balance ?? '-'} 啤酒`}
-                      {text.trim() && processingMode !== 'ai_detect_reduce' && (
-                        <span className="block mt-0.5 text-[#0066cc]">
-                          预计消耗 {estimatedCredits} 啤酒
-                        </span>
-                      )}
-                      {processingMode === 'ai_detect_reduce' && (
-                        <span className="block mt-0.5 text-[#0066cc]">
-                          检测不扣啤酒；仅高AI段落降重时按次扣费
-                        </span>
-                      )}
-                      <span className="block mt-0.5 text-gray-400">
-                        {processingMode === 'ai_detect_reduce'
-                          ? '可在下方微信扫码登录朱雀，之后直接走无头 API 检测'
-                          : '1 啤酒 = 1000 非空白字符，综合模式按两阶段计费'}
+                      <span className="aurora-mode-icon aurora-icon-blue">
+                        <Layers className="h-6 w-6" />
                       </span>
-                    </p>
-                  </label>
-                  <label
-                    className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
-                      billingMode === 'byok'
-                        ? 'gank-glass-choice-active'
-                        : 'gank-glass-choice hover:bg-white/55'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="billingMode"
-                      value="byok"
-                      checked={billingMode === 'byok'}
-                      onChange={(event) => setBillingMode(event.target.value)}
-                      className="mr-2 text-ios-blue"
-                    />
-                    <span className="font-semibold text-black">自带 API 模式</span>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {hasProviderConfig ? '已保存配置，不消耗啤酒' : '需要先保存 API 配置'}
-                    </p>
-                  </label>
-                </div>
-              </div>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[16px] font-semibold text-slate-950">平台模式</span>
+                        <span className="mt-1 block text-[13px] leading-5 text-slate-500">
+                          使用平台模型，1 啤酒 = 1000 非空白字符
+                        </span>
+                        <span className="mt-1 block text-[12px] text-slate-400">
+                          剩余 {credits?.is_unlimited ? '无限啤酒' : `${credits?.credit_balance ?? '-'} 啤酒`}
+                          {text.trim() && processingMode !== 'ai_detect_reduce' ? <> · 预计消耗 {estimatedCredits} 啤酒</> : ''}
+                          {processingMode === 'ai_detect_reduce' ? ' · 检测不扣啤酒' : ''}
+                        </span>
+                      </span>
+                      <span className="aurora-check-dot">✓</span>
+                    </label>
 
-              {processingMode === 'ai_detect_reduce' && (
-                <div className="gank-liquid-section mb-5 p-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <ExternalLink className="h-4 w-4 text-[#0066cc]" />
-                        <p className="text-[15px] font-semibold text-black">朱雀无头检测 API</p>
+                    <label className={`aurora-billing-card ${billingMode === 'byok' ? 'aurora-billing-card-active gank-glass-choice-active' : 'gank-glass-choice'}`}>
+                      <input
+                        type="radio"
+                        name="billingMode"
+                        value="byok"
+                        checked={billingMode === 'byok'}
+                        onChange={(event) => setBillingMode(event.target.value)}
+                        className="sr-only"
+                      />
+                      <span className="aurora-mode-icon aurora-icon-navy">
+                        <LinkIcon className="h-6 w-6" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[16px] font-semibold text-slate-950">自带API模式</span>
+                        <span className="mt-1 block text-[13px] leading-5 text-slate-500">
+                          接入自有API Key，按实际用量
+                        </span>
+                        <span className="mt-1 block text-[12px] text-slate-400">
+                          {hasProviderConfig ? '已保存配置，不消耗啤酒' : '需要先保存 API 配置'}
+                        </span>
+                      </span>
+                      <span className="aurora-radio-dot" />
+                    </label>
+                  </div>
+                </div>
+              </aside>
+
+              <section className="aurora-editor-column">
+                {processingMode === 'ai_detect_reduce' && (
+                  <div className="aurora-zhuque-panel mb-6">
+                    <div className="aurora-zhuque-status-card">
+                      <div className="aurora-zhuque-title">
+                        {/* source aliases kept for static contracts: startZhuqueBrowser loadZhuqueBrowserStatus zhuqueBrowserStatus?.connected */}
+                        <div className="aurora-zhuque-title-copy">
+                          <p>朱雀 AI 检测</p>
+                          <span
+                            className={`aurora-zhuque-account ${zhuqueConnected ? 'is-connected' : ''}`}
+                            title={zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录'}
+                          >
+                            登录用户：{zhuqueAccountLabel}
+                          </span>
+                        </div>
                       </div>
-                      <p className="mt-1 text-[13px] leading-5 text-gray-600">
-                        点击后只会打开一次朱雀微信扫码授权页，用来保存登录凭证；后续检测直接走无头 WebSocket API，不走旧版页面控制链路，也不需要启动本地检测窗口。次数不足时请切换朱雀微信账号或等待恢复。
-                      </p>
-                      <p
-                        className={`mt-2 text-[12px] ${
-                          zhuqueAuthStatus?.connected ? 'text-ios-green' : 'text-[#0066cc]'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={handleStartZhuqueLogin}
+                        disabled={isStartingZhuqueLogin}
+                        className={`aurora-zhuque-login-button ${zhuqueConnected ? 'is-ready' : ''}`}
+                        aria-label={zhuqueConnected ? '朱雀已登录，点击打开朱雀网页同步登录状态' : '扫码登录朱雀'}
+                        title={zhuqueConnected ? '点击打开朱雀网页；只有在朱雀网页内退出后才会清除登录态' : '扫码登录朱雀'}
                       >
-                        {zhuqueAuthStatus?.connected ? (
+                        {isStartingZhuqueLogin ? (
                           <>
-                            凭证已就绪{zhuqueAuthStatus.user_name ? `：${zhuqueAuthStatus.user_name}` : ''}
-                            {zhuqueAuthStatus.credential_file ? `（${zhuqueAuthStatus.credential_file}）` : ''}
+                            <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                            打开中
+                          </>
+                        ) : zhuqueConnected ? (
+                          <>
+                            <CheckCircle className="h-6 w-6" />
+                            已登录
                           </>
                         ) : (
                           <>
-                            未找到有效朱雀微信凭证，请先扫码登录；检测本身将直接走无头 API
+                            <ExternalLink className="h-5 w-5" />
+                            扫码登录
                           </>
                         )}
-                      </p>
-                      {zhuqueLoginInfo && !zhuqueAuthStatus?.connected && (
-                        <p className="mt-1 text-[12px] text-gray-500">
-                          {zhuqueLoginInfo.message || '已尝试打开微信扫码授权页'}
-                          {zhuqueLoginInfo.command ? `；手动命令：${zhuqueLoginInfo.command}` : ''}
-                        </p>
-                      )}
-                      {zhuqueReadiness && (
-                        <div className="gank-glass-status-grid mt-3 grid grid-cols-2 gap-2 text-[12px] text-gray-600">
-                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">认证方式：</span>
-                            {zhuqueReadiness.auth_mode === 'headless_api' ? '无头 API' : '微信扫码'}
-                          </div>
-                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">剩余次数：</span>
-                            {formatZhuqueRemainingUses(zhuqueReadiness.remaining_uses)}
-                          </div>
-                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">文本长度：</span>
-                            {zhuqueReadiness.text_length == null
-                              ? '输入后检查'
-                              : zhuqueReadiness.text_length_ok === false ? '不足 350 字' : '满足检测要求'}
-                          </div>
-                          <div className="rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">凭证状态：</span>
-                            {zhuqueReadiness.ready ? '朱雀无头 API 已就绪' : (zhuqueReadiness.message || '等待就绪')}
-                          </div>
-                          <div className="col-span-2 rounded-lg bg-white/70 px-2.5 py-2">
-                            <span className="font-semibold text-gray-800">凭证文件：</span>
-                            {zhuqueReadiness.credential_file || '等待微信扫码生成 creds_latest.json'}
-                          </div>
-                          {zhuqueReadiness.estimated_max_round_credits > 0 && (
-                            <div className="col-span-2 rounded-lg bg-blue-50 px-2.5 py-2 text-blue-700">
-                              预计最多消耗 {zhuqueReadiness.estimated_max_round_credits} 啤酒；检测不扣啤酒，仅实际高 AI 段落降重时扣。
-                            </div>
-                          )}
-                          {zhuqueReadiness.actions?.length > 0 && (
-                            <div className="col-span-2 rounded-lg bg-blue-50 px-2.5 py-2 text-blue-700">
-                              建议：{zhuqueReadiness.actions.join('、')}
-                            </div>
-                          )}
+                      </button>
+                      <div className="aurora-zhuque-metrics gank-glass-status-grid">
+                        <div className="aurora-zhuque-metric">
+                          <span>连接状态</span>
+                          <strong className={zhuqueConnected ? 'is-connected' : 'is-disconnected'}>
+                            <i />
+                            {zhuqueConnected ? '已连接' : '未连接'}
+                          </strong>
                         </div>
-                      )}
+                        <div className="aurora-zhuque-metric">
+                          <span>剩余次数</span>
+                          <strong>{zhuqueRemainingLabel}</strong>
+                        </div>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleStartZhuqueLogin}
-                      disabled={isStartingZhuqueLogin}
-                      className={`apple-action-pill gank-pill-button shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[14px] font-semibold transition-all disabled:bg-gray-300 disabled:cursor-not-allowed ${
-                        zhuqueAuthStatus?.connected
-                          ? 'bg-ios-green'
-                          : ''
-                      }`}
-                    >
-                      {isStartingZhuqueLogin ? (
-                        <>
-                          <div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                          打开授权页
-                        </>
-                      ) : zhuqueAuthStatus?.connected ? (
-                        <>
-                          <CheckCircle className="h-4 w-4" />
-                          凭证已就绪
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink className="h-4 w-4" />
-                          微信扫码登录朱雀
-                        </>
-                      )}
-                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-6">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <label htmlFor="task-title" className="text-[16px] font-semibold text-slate-950">任务标题</label>
+                      <span className="text-[14px] text-slate-400">{taskTitle.length}/100</span>
+                    </div>
+                    <input
+                      id="task-title"
+                      type="text"
+                      maxLength={100}
+                      value={taskTitle}
+                      onChange={(e) => setTaskTitle(e.target.value)}
+                      placeholder="请输入任务标题（选填）"
+                      className="aurora-input"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="paper-content" className="mb-3 block text-[16px] font-semibold text-slate-950">论文内容</label>
+                    <textarea
+                      id="paper-content"
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder="请输入或粘贴论文内容，支持中英文..."
+                      className="aurora-textarea"
+                    />
                   </div>
                 </div>
-              )}
-              
-              <div className="mb-4">
-                <label className="block text-[13px] font-medium text-ios-gray mb-2 ml-1 uppercase tracking-wide">
-                  本次处理标题
-                </label>
-                <input
-                  type="text"
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  placeholder="例如：摘要降 AI、二稿润色、投稿前终版"
-                  className="gank-input rounded-xl px-4 py-3 text-[15px] placeholder-gray-400"
-                />
-              </div>
 
-              <div className="relative">
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder="在此粘贴您的内容..."
-                  className="gank-input h-64 rounded-xl px-4 py-3 text-[16px] leading-relaxed placeholder-gray-400 resize-none"
-                />
-                <div className="absolute bottom-3 right-3 text-[12px] text-ios-gray bg-white/80 px-2 py-1 rounded-md backdrop-blur-sm">
-                  有效 {billableCharacterCount} 字符
+                <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-[14px] text-slate-500">{billableCharacterCount} 字符</span>
+                  <button
+                    onClick={handleStartOptimization}
+                    disabled={!text.trim() || activeSession || isSubmitting}
+                    className="aurora-primary-action apple-action-pill gank-pill-button disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        提交中...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="h-5 w-5" />
+                        开始优化
+                      </>
+                    )}
+                  </button>
                 </div>
-              </div>
-              
-              <div className="mt-5 flex justify-end">
+              </section>
+            </div>
+          </section>
+
+          <aside className="aurora-side-card apple-utility-card gank-liquid-panel">
+            <div className="aurora-side-top">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="aurora-section-heading mb-0">
+                  <Folder className="h-5 w-5 text-[#2563eb]" />
+                  <span>论文项目</span>
+                </div>
                 <button
-                  onClick={handleStartOptimization}
-                  disabled={!text.trim() || activeSession || isSubmitting}
-                  className="apple-action-pill gank-pill-button flex items-center gap-2 py-3 px-8 text-[17px] font-semibold transition-all active:scale-[0.95] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none"
+                  onClick={() => setShowProjectForm((value) => !value)}
+                  className="aurora-icon-button"
+                  aria-label={showProjectForm ? '取消新建论文' : '新建论文'}
+                  title={showProjectForm ? '取消新建论文' : '新建论文'}
                 >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      提交中...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-5 h-5 fill-current" />
-                      开始优化
-                    </>
-                  )}
+                  {showProjectForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                 </button>
               </div>
-            </div>
 
-            {/* 活跃会话进度 */}
-            {activeSession && currentActiveSessionData && (
-              <div className="gank-liquid-section p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-[17px] font-bold text-black flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-ios-blue animate-pulse" />
-                    正在处理
-                  </h2>
-                  <span className="text-[13px] font-medium px-2 py-1 bg-blue-50 text-ios-blue rounded-md">
-                    进行中
-                  </span>
-                </div>
-
-                {(() => {
-                  const session = currentActiveSessionData;
-                  const getStageName = (stage) => {
-                    if (stage === 'polish') return '论文润色';
-                    if (stage === 'emotion_polish') return '感情文章润色';
-                    if (stage === 'ai_detect_reduce') return 'AI检测 + 降重';
-                    if (stage === 'enhance') return '原创性增强';
-                    return stage;
-                  };
-                  return (
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between text-[13px] mb-2 font-medium">
-                          <span className="text-ios-gray">
-                            当前阶段: <span className="text-black">{getStageName(session.current_stage)}</span>
-                          </span>
-                          <span className="text-ios-blue">
-                            {session.progress.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2">
-                          <div
-                            className="bg-ios-blue h-2 rounded-full transition-all duration-500 ease-out shadow-[0_0_10px_rgba(0,122,255,0.3)]"
-                            style={{ width: `${session.progress}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center text-[13px]">
-                        <span className="text-ios-gray">
-                          进度: <span className="font-medium text-black">{session.current_position + 1}</span> / {session.total_segments} 段
-                        </span>
-
-                        {session.status === 'queued' && queueStatus?.your_position && (
-                          <div className="flex items-center gap-1.5 text-ios-orange">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>
-                              排队第 {queueStatus.your_position} 位
-                              (~{Math.ceil(queueStatus.estimated_wait_time / 60)}分)
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-
-          {/* 右侧 - 历史会话 */}
-          <div className="space-y-6">
-            <div className="apple-utility-card gank-liquid-panel overflow-hidden flex flex-col h-[calc(100vh-140px)] sticky top-28">
-              <div className="p-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm z-10">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-[#0066cc]" />
-                    <h2 className="text-[20px] font-bold text-black tracking-tight">
-                      论文项目
-                    </h2>
-                  </div>
-                  <button
-                    onClick={() => setShowProjectForm((value) => !value)}
-                    className="apple-action-pill min-h-0 px-3 py-1.5 text-xs font-semibold"
-                  >
-                    {showProjectForm ? '取消' : '新建论文'}
+              {showProjectForm && (
+                <form onSubmit={handleCreateProject} className="mb-4 space-y-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3">
+                  <input
+                    type="text"
+                    value={projectTitle}
+                    onChange={(e) => setProjectTitle(e.target.value)}
+                    placeholder="论文题目"
+                    className="aurora-input min-h-[42px] text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={projectDescription}
+                    onChange={(e) => setProjectDescription(e.target.value)}
+                    placeholder="备注，可选"
+                    className="aurora-input min-h-[42px] text-sm"
+                  />
+                  <button type="submit" className="aurora-secondary-action w-full justify-center">
+                    创建项目
                   </button>
-                </div>
+                </form>
+              )}
 
-                {showProjectForm && (
-                  <form onSubmit={handleCreateProject} className="space-y-2 mb-4">
-                    <input
-                      type="text"
-                      value={projectTitle}
-                      onChange={(e) => setProjectTitle(e.target.value)}
-                      placeholder="论文题目"
-                      className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm border-none outline-none focus:ring-2 focus:ring-ios-blue/20"
-                    />
-                    <input
-                      type="text"
-                      value={projectDescription}
-                      onChange={(e) => setProjectDescription(e.target.value)}
-                      placeholder="备注，可选"
-                      className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm border-none outline-none focus:ring-2 focus:ring-ios-blue/20"
-                    />
-                    <button
-                      type="submit"
-                      className="w-full py-2 bg-ios-blue text-white rounded-lg text-sm font-semibold hover:bg-blue-600"
-                    >
-                      创建项目
-                    </button>
-                  </form>
-                )}
-
-                <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
-                  <button
-                    onClick={() => setActiveProjectId(0)}
-                    className={`w-full text-left p-3 rounded-xl transition-all border ${
-                      activeProjectId === 0
-                        ? 'gank-glass-choice-warm'
-                        : 'gank-glass-choice hover:bg-white/55'
-                    }`}
-                  >
-                    <div className="text-sm font-semibold text-black">未归档历史</div>
-                    <div className="text-xs text-ios-gray mt-0.5">旧任务或未选择论文的任务</div>
-                  </button>
-
+              <div className="relative">
+                <select
+                  value={projectSelectValue}
+                  onChange={handleProjectScopeChange}
+                  className="aurora-select"
+                >
+                  <option value="all">全部历史</option>
+                  <option value="0">未归档历史</option>
                   {projects.map((project) => (
-                    <div
-                      key={project.id}
-                      className={`group rounded-xl border transition-all ${
-                        activeProjectId === project.id
-                          ? 'gank-glass-choice-warm'
-                          : 'gank-glass-choice hover:bg-white/55'
-                      }`}
-                    >
-                      {editingProjectId === project.id ? (
-                        <form onSubmit={handleUpdateProject} className="p-3 space-y-2">
-                          <input
-                            type="text"
-                            value={editProjectTitle}
-                            onChange={(e) => setEditProjectTitle(e.target.value)}
-                            placeholder="论文题目"
-                            className="w-full px-3 py-2 bg-white rounded-lg text-sm border border-blue-100 outline-none focus:ring-2 focus:ring-ios-blue/20"
-                            autoFocus
-                          />
-                          <input
-                            type="text"
-                            value={editProjectDescription}
-                            onChange={(e) => setEditProjectDescription(e.target.value)}
-                            placeholder="备注，可选"
-                            className="w-full px-3 py-2 bg-white rounded-lg text-sm border border-blue-100 outline-none focus:ring-2 focus:ring-ios-blue/20"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              type="submit"
-                              className="flex-1 py-2 bg-ios-blue text-white rounded-lg text-xs font-semibold hover:bg-blue-600"
-                            >
-                              保存
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCancelEditProject}
-                              className="flex-1 py-2 bg-gray-100 text-ios-gray rounded-lg text-xs font-semibold hover:bg-gray-200"
-                            >
-                              取消
-                            </button>
-                          </div>
-                        </form>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => setActiveProjectId(project.id)}
-                            className="w-full text-left p-3"
-                          >
-                            <div className="text-sm font-semibold text-black line-clamp-1">{project.title}</div>
-                            {project.description && (
-                              <div className="text-xs text-ios-gray mt-0.5 line-clamp-1">{project.description}</div>
-                            )}
-                          </button>
-                          <div className="hidden group-hover:flex mx-3 mb-2 gap-3">
-                            <button
-                              onClick={() => handleStartEditProject(project)}
-                              className="inline-flex items-center gap-1 text-xs text-ios-blue hover:underline"
-                            >
-                              <Pencil className="w-3 h-3" />
-                              编辑
-                            </button>
-                            <button
-                              onClick={() => handleArchiveProject(project)}
-                              className="text-xs text-ios-red hover:underline"
-                            >
-                              归档
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <option key={project.id} value={project.id}>{project.title}</option>
                   ))}
-                </div>
-              </div>
-              
-              <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-                <History className="w-4 h-4 text-ios-gray" />
-                <h3 className="text-[15px] font-bold text-black">
-                  {activeProject ? activeProject.title : '未归档历史'} · 处理记录
-                </h3>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar h-full">
-                {isLoadingSessions ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="w-6 h-6 border-2 border-ios-gray/30 border-t-ios-gray rounded-full animate-spin" />
-                  </div>
-                ) : sessions.length === 0 ? (
-                  <div className="text-center py-12 space-y-2">
-                    <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto text-gray-300">
-                      <History className="w-6 h-6" />
+              {activeProject && (
+                <div className="mt-3 flex items-center gap-3 text-[12px]">
+                  {editingProjectId === activeProject.id ? (
+                    <form onSubmit={handleUpdateProject} className="grid w-full gap-2">
+                      <input
+                        type="text"
+                        value={editProjectTitle}
+                        onChange={(e) => setEditProjectTitle(e.target.value)}
+                        placeholder="论文题目"
+                        className="aurora-input min-h-[38px] text-xs"
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        value={editProjectDescription}
+                        onChange={(e) => setEditProjectDescription(e.target.value)}
+                        placeholder="备注，可选"
+                        className="aurora-input min-h-[38px] text-xs"
+                      />
+                      <div className="flex gap-2">
+                        <button type="submit" className="aurora-secondary-action min-h-[34px] flex-1 justify-center text-xs">保存</button>
+                        <button type="button" onClick={handleCancelEditProject} className="aurora-plain-button flex-1 justify-center">取消</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="aurora-project-actions">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditProject(activeProject)}
+                        className="aurora-project-action-button"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        编辑当前项目
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveProject(activeProject)}
+                        className="aurora-project-action-button aurora-project-action-danger"
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                        归档当前项目
+                      </button>
                     </div>
-                    <p className="text-ios-gray text-sm">
-                      暂无会话记录
-                    </p>
+                  )}
+                </div>
+              )}
+              {!activeProject && (
+                <div className="aurora-project-hint">
+                  <Archive className="h-3.5 w-3.5" />
+                  <span>选择具体项目后可编辑或隐藏项目；未归档记录可在卡片上点“归入项目”放进对应项目。</span>
+                </div>
+              )}
+            </div>
+
+            <div className="aurora-history-head">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-[#3b82f6]" />
+                <div className="min-w-0">
+                  <h2 className="line-clamp-1 text-[19px] font-semibold tracking-[-0.02em] text-slate-950">
+                    {historyScopeTitle} · 处理记录
+                  </h2>
+                  <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                    {historyScopeDescription}
+                    {historyStatusFilter !== 'all' ? ` · ${activeHistoryStatusFilter.label}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenProjectMenuSessionId(null);
+                    setShowHistoryFilters((value) => !value);
+                  }}
+                  className={`aurora-history-filter-button ${showHistoryFilters || historyStatusFilter !== 'all' ? 'aurora-history-filter-button-active' : ''}`}
+                  aria-label="筛选历史状态"
+                  aria-expanded={showHistoryFilters}
+                >
+                  <Filter className="h-4 w-4" />
+                </button>
+                {showHistoryFilters && (
+                  <div className="aurora-history-filter-menu">
+                    {HISTORY_STATUS_FILTERS.map((filter) => (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => handleHistoryStatusFilterChange(filter.id)}
+                        className={`aurora-history-filter-option ${historyStatusFilter === filter.id ? 'aurora-history-filter-option-active' : ''}`}
+                      >
+                        <span>{filter.label}</span>
+                        {historyStatusFilter === filter.id && <CheckCircle className="h-3.5 w-3.5" />}
+                      </button>
+                    ))}
                   </div>
-                ) : (
-                  sessions.map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      activeSession={activeSession}
-                      onView={handleViewSession}
-                      onDelete={handleDeleteSession}
-                      onRetry={handleRetrySegment}
-                    />
-                  ))
                 )}
               </div>
             </div>
-          </div>
+
+            <div className="aurora-history-list custom-scrollbar">
+              {isLoadingSessions ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="h-6 w-6 rounded-full border-2 border-slate-200 border-t-[#3b82f6] animate-spin" />
+                </div>
+              ) : sessions.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-50 text-slate-300">
+                    <History className="h-7 w-7" />
+                  </div>
+                  <p className="mt-3 text-sm text-slate-500">暂无会话记录</p>
+                </div>
+              ) : filteredSessions.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-[#2563eb]">
+                    <Filter className="h-7 w-7" />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-700">当前筛选暂无记录</p>
+                  <button
+                    type="button"
+                    onClick={() => handleHistoryStatusFilterChange('all')}
+                    className="aurora-plain-button mt-3"
+                  >
+                    清除筛选
+                  </button>
+                </div>
+              ) : (
+                filteredSessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    activeSession={activeSession}
+                    projects={projects}
+                    openProjectMenuSessionId={openProjectMenuSessionId}
+                    onToggleProjectMenu={handleToggleProjectMenu}
+                    onView={handleViewSession}
+                    onDelete={handleDeleteSession}
+                    onRetry={handleRetrySegment}
+                    onMoveToProject={handleMoveSessionToProject}
+                  />
+                ))
+              )}
+            </div>
+          </aside>
         </div>
-      </div>
+
+        {activeSession && currentActiveSessionData && (
+          <section className="aurora-progress-card mt-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-[17px] font-semibold text-slate-950">
+                <span className="h-2.5 w-2.5 rounded-full bg-[#3b82f6] animate-pulse" />
+                正在处理
+              </h2>
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-[13px] font-semibold text-[#2563eb]">进行中</span>
+            </div>
+            {(() => {
+              const session = currentActiveSessionData;
+              const getStageName = (stage) => {
+                if (stage === 'polish') return '论文润色';
+                if (stage === 'emotion_polish') return '感情文章润色';
+                if (stage === 'ai_detect_reduce') return 'AI检测 + 降重';
+                if (stage === 'enhance') return '原创性增强';
+                return stage;
+              };
+              return (
+                <div>
+                  <div className="mb-2 flex justify-between text-[13px] font-medium">
+                    <span className="text-slate-500">当前阶段：<span className="text-slate-950">{getStageName(session.current_stage)}</span></span>
+                    <span className="text-[#2563eb]">{session.progress.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-500 transition-all duration-500 ease-out shadow-[0_0_14px_rgba(59,130,246,0.28)]"
+                      style={{ width: `${session.progress}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex justify-between text-[13px] text-slate-500">
+                    <span>进度：<span className="font-semibold text-slate-950">{session.current_position + 1}</span> / {session.total_segments} 段</span>
+                    {session.status === 'queued' && queueStatus?.your_position && (
+                      <span className="text-orange-500">排队第 {queueStatus.your_position} 位 (~{Math.ceil(queueStatus.estimated_wait_time / 60)}分)</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </section>
+        )}
+      </main>
 
       {retryDialogSession && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">

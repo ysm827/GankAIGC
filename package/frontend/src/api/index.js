@@ -100,6 +100,10 @@ export const optimizationAPI = {
     api.get(`/optimization/sessions/${sessionId}/progress`, {
       timeout: 10000, // 10秒超时
     }),
+  updateSessionProject: (sessionId, data) =>
+    api.patch(`/optimization/sessions/${sessionId}/project`, data, {
+      timeout: 10000, // 10秒超时
+    }),
   getSessionChanges: (sessionId) =>
     api.get(`/optimization/sessions/${sessionId}/changes`, {
       timeout: 20000, // 20秒超时
@@ -120,13 +124,23 @@ export const optimizationAPI = {
     api.post(`/optimization/sessions/${sessionId}/retry`, data, {
       timeout: 15000, // 15秒超时
     }),
-  startZhuqueLogin: () =>
+  startZhuqueLogin: ({ syncSession = true } = {}) =>
     api.post('/optimization/zhuque/browser/start', null, {
-      timeout: 10000, // 10秒超时；兼容旧路径，实际启动微信扫码凭证捕获
+      params: { sync_session: syncSession },
+      timeout: 10000, // 10秒超时；打开朱雀真实网页状态同步窗口
+    }),
+  startZhuqueBrowser: ({ syncSession = true } = {}) =>
+    api.post('/optimization/zhuque/browser/start', null, {
+      params: { sync_session: syncSession },
+      timeout: 10000, // 10秒超时；兼容旧命名，实际打开朱雀真实网页状态同步窗口
     }),
   getZhuqueAuthStatus: () =>
     api.get('/optimization/zhuque/browser/status', {
       timeout: 5000, // 5秒超时；兼容旧路径，实际读取无头 API 凭证状态
+    }),
+  getZhuqueBrowserStatus: () =>
+    api.get('/optimization/zhuque/browser/status', {
+      timeout: 5000, // 5秒超时；兼容旧命名，实际读取无头 API 凭证状态
     }),
   getZhuqueReadiness: () =>
     api.get('/optimization/zhuque/readiness', {

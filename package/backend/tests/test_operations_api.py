@@ -56,9 +56,25 @@ def test_admin_operations_status_reports_database_worker_backup_and_update(clien
 
     assert response.status_code == 200
     data = response.json()
+    assert "collected_at" in data
+    assert data["system"]["cpu"]["logical_cpus"] >= 1
+    assert "percent" in data["system"]["cpu"]
+    assert "memory" in data["system"]
+    assert "disk" in data["system"]
+    assert "network" in data["system"]
+    assert "load" in data["system"]
     assert data["database"]["ok"] is True
+    assert data["database"]["average_latency_ms"] is not None
+    assert len(data["database"]["latency_samples_ms"]) >= 1
+    assert "slow_query_count" in data["database"]
     assert data["worker"]["processing_count"] == 1
+    assert data["worker"]["capacity"] >= 1
+    assert "available_slots" in data["worker"]
     assert data["worker"]["last_worker_id"] == "worker-1"
+    assert len(data["models"]["items"]) == 4
+    assert {item["stage"] for item in data["models"]["items"]} == {"polish", "enhance", "emotion", "compression"}
+    assert "scheduled_count" in data["jobs"]
+    assert isinstance(data["events"], list)
     assert data["backup"]["enabled"] is True
     assert data["backup"]["total_files"] == 1
     assert data["backup"]["latest"]["filename"] == backup_file.name
@@ -140,6 +156,52 @@ def test_admin_operations_status_is_clear_when_backup_directory_is_missing(clien
     assert backup["enabled"] is False
     assert backup["total_files"] == 0
     assert "未检测到备份目录" in backup["message"]
+
+
+def test_operations_status_helpers_return_unavailable_when_database_queries_fail(tmp_path):
+    class BrokenQuery:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def limit(self, *args, **kwargs):
+            return self
+
+        def count(self):
+            raise RuntimeError("database down")
+
+        def first(self):
+            raise RuntimeError("database down")
+
+        def all(self):
+            raise RuntimeError("database down")
+
+    class BrokenSession:
+        def query(self, *args, **kwargs):
+            return BrokenQuery()
+
+        def rollback(self):
+            self.rolled_back = True
+
+    session = BrokenSession()
+    backup_status = {
+        "enabled": False,
+        "total_files": 0,
+        "latest": None,
+    }
+    database_status = {"ok": False, "message": "database down"}
+    worker_status = operations_service.get_worker_status(session)
+    jobs = operations_service.get_job_status(session, backup_status, worker_status)
+    events = operations_service.get_operations_events(session, database_status, worker_status, backup_status)
+    onboarding = operations_service.get_onboarding_status(session, backup_status)
+
+    assert worker_status["ok"] is False
+    assert "无法读取任务队列状态" in worker_status["message"]
+    assert jobs["completed_count"] is None
+    assert events[0]["badge"] == "异常"
+    assert onboarding["ready"] is False
 
 
 def test_admin_can_download_backup_file(client, monkeypatch, tmp_path):

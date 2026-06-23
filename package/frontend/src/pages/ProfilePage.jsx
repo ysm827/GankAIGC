@@ -141,198 +141,229 @@ const ProfilePage = () => {
   };
 
   return (
-    <div className="gank-app-page">
-      <header className="gank-glass-toolbar sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <BrandLogo size="sm" />
-          <Link to="/workspace" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium">
-            <ArrowLeft className="w-4 h-4" />
-            返回工作台
-          </Link>
-        </div>
+    <div className="gank-app-page aurora-app-page aurora-account-page">
+      <div className="gank-ambient-orb orb-one" />
+      <div className="gank-ambient-orb orb-two" />
+      <div className="gank-ambient-orb orb-three" />
+
+      <header className="sticky top-0 z-50">
+        <nav className="apple-global-nav aurora-topbar">
+          <div className="mx-auto flex min-h-[68px] max-w-[1280px] items-center justify-between gap-4 px-5 sm:px-8 lg:px-10">
+            <BrandLogo size="md" showText className="aurora-brand-logo" />
+            <Link to="/workspace" className="aurora-account-back-link">
+              <ArrowLeft className="h-4 w-4" />
+              <span>返回工作台</span>
+            </Link>
+          </div>
+        </nav>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="mb-6">
-          <p className="text-sm font-semibold text-teal-600">个人信息</p>
-          <h1 className="text-3xl font-bold text-slate-950 mt-1">账号资料</h1>
-        </div>
+      <main className="aurora-page-shell aurora-account-shell relative z-[1] mx-auto max-w-[1280px] px-5 pb-12 pt-8 sm:px-8 lg:px-10">
+        <section className="aurora-account-hero">
+          <div>
+            <p className="gank-eyebrow">ACCOUNT CONTROL</p>
+            <h1>账号资料</h1>
+            <p>统一管理昵称、安全凭据、邀请码与啤酒余额，保持和工作台一致的轻量主题界面。</p>
+          </div>
+          <div className="aurora-account-chip-strip" aria-label="账号资料范围">
+            <span className="apple-config-chip">Profile</span>
+            <span className="apple-config-chip">Security</span>
+            <span className="apple-config-chip">Invite</span>
+          </div>
+        </section>
+
         {loading ? (
-          <div className="gank-card rounded-2xl p-10 flex items-center justify-center text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            加载中...
+          <div className="apple-utility-card aurora-account-card aurora-loading-card">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <span>加载账号资料...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6">
-            <section className="gank-glass-card rounded-[2rem] p-6">
-              <div className="gank-icon-tile w-14 h-14 rounded-2xl flex items-center justify-center mb-5">
-                <UserCircle className="w-8 h-8" />
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[0.92fr_1.45fr]">
+            <section className="apple-utility-card aurora-account-card aurora-profile-card">
+              <div className="aurora-profile-avatar" aria-hidden="true">
+                <UserCircle className="h-10 w-10" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-950">{profile?.nickname || profile?.username}</h1>
-              <p className="text-sm text-gray-500 mt-1">@{profile?.username}</p>
+              <p className="text-sm font-semibold text-blue-600">当前账号</p>
+              <h2 className="mt-2 break-words text-[30px] font-semibold leading-tight tracking-[-0.04em] text-slate-950">
+                {profile?.nickname || profile?.username}
+              </h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">@{profile?.username}</p>
 
-              <div className="mt-6 space-y-3 text-sm">
-                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-                  <span className="text-gray-500">用户 ID</span>
-                  <span className="font-mono text-gray-900">#{profile?.id}</span>
+              <div className="aurora-profile-meta">
+                <div className="aurora-profile-row">
+                  <span>用户 ID</span>
+                  <strong>#{profile?.id}</strong>
                 </div>
-                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-                  <span className="text-gray-500">注册时间</span>
-                  <span className="text-gray-900">
-                    {formatChinaDateTime(profile?.created_at)}
-                  </span>
+                <div className="aurora-profile-row">
+                  <span>注册时间</span>
+                  <strong>{formatChinaDateTime(profile?.created_at)}</strong>
                 </div>
-                <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-                  <span className="text-gray-500">最近登录</span>
-                  <span className="text-gray-900">
-                    {formatChinaDateTime(profile?.last_login_at)}
-                  </span>
+                <div className="aurora-profile-row">
+                  <span>最近登录</span>
+                  <strong>{formatChinaDateTime(profile?.last_login_at)}</strong>
                 </div>
               </div>
             </section>
 
-            <section className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="gank-card rounded-2xl p-5">
-                  <div className="flex items-center gap-2 text-teal-700 mb-3">
-                    <BeerIcon className="w-5 h-5" />
-                    <span className="font-semibold">剩余啤酒</span>
+            <section className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="apple-metric-card aurora-account-metric">
+                  <div className="aurora-metric-icon aurora-icon-blue">
+                    <BeerIcon className="h-6 w-6" />
                   </div>
-                  <p className="text-3xl font-bold text-gray-950">
-                    {profile?.is_unlimited ? '无限啤酒' : profile?.credit_balance ?? 0}
-                  </p>
+                  <div>
+                    <p>剩余啤酒</p>
+                    <strong>{profile?.is_unlimited ? '无限啤酒' : profile?.credit_balance ?? 0}</strong>
+                  </div>
                 </div>
-                <div className="gank-card rounded-2xl p-5">
-                  <div className="flex items-center gap-2 text-emerald-700 mb-3">
-                    <ShieldCheck className="w-5 h-5" />
-                    <span className="font-semibold">账号状态</span>
+                <div className="apple-metric-card aurora-account-metric">
+                  <div className="aurora-metric-icon aurora-icon-cyan">
+                    <ShieldCheck className="h-6 w-6" />
                   </div>
-                  <p className="text-3xl font-bold text-gray-950">{profile?.is_active ? '正常' : '禁用'}</p>
+                  <div>
+                    <p>账号状态</p>
+                    <strong>{profile?.is_active ? '正常' : '禁用'}</strong>
+                  </div>
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="gank-card rounded-2xl p-6">
-                <h2 className="text-lg font-bold text-gray-950 mb-4">修改昵称</h2>
-                <label className="block text-sm font-medium text-gray-600 mb-2">昵称</label>
+              <form onSubmit={handleSubmit} className="apple-utility-card aurora-account-card aurora-account-form">
+                <div className="aurora-account-form-head">
+                  <div>
+                    <p className="gank-eyebrow">DISPLAY NAME</p>
+                    <h2>修改昵称</h2>
+                  </div>
+                </div>
+                <label className="aurora-field-label" htmlFor="profile-nickname">昵称</label>
                 <input
+                  id="profile-nickname"
                   type="text"
                   value={nickname}
                   onChange={(event) => setNickname(event.target.value)}
                   maxLength={32}
-                  className="gank-input px-4 py-3 rounded-xl"
+                  className="aurora-input"
                   placeholder="输入昵称"
                 />
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-xs text-gray-500">最多 32 个字符。</p>
+                <div className="aurora-form-footer">
+                  <p>最多 32 个字符，保存后会同步到工作台用户菜单。</p>
                   <button
                     type="submit"
                     disabled={saving}
-                    className="gank-primary-button inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl disabled:opacity-60 text-white font-semibold transition-colors"
+                    className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     保存昵称
                   </button>
                 </div>
               </form>
 
-              <form onSubmit={handlePasswordSubmit} className="gank-card rounded-2xl p-6">
-                <div className="flex items-center gap-2 text-amber-700 mb-4">
-                  <KeyRound className="w-5 h-5" />
-                  <h2 className="text-lg font-bold text-gray-950">修改密码</h2>
+              <form onSubmit={handlePasswordSubmit} className="apple-utility-card aurora-account-card aurora-account-form">
+                <div className="aurora-account-form-head">
+                  <div className="aurora-form-title-with-icon">
+                    <span className="aurora-metric-icon aurora-icon-navy">
+                      <KeyRound className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="gank-eyebrow">SECURITY</p>
+                      <h2>修改密码</h2>
+                    </div>
+                  </div>
+                  <span className="aurora-subtle-badge">重新登录生效</span>
                 </div>
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">当前密码</label>
+                    <label className="aurora-field-label" htmlFor="current-password">当前密码</label>
                     <input
+                      id="current-password"
                       type="password"
                       value={passwordForm.currentPassword}
                       onChange={(event) => handlePasswordChange('currentPassword', event.target.value)}
-                      className="gank-input px-4 py-3 rounded-xl"
+                      className="aurora-input"
                       placeholder="输入当前密码"
                       autoComplete="current-password"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">新密码</label>
+                    <label className="aurora-field-label" htmlFor="new-password">新密码</label>
                     <input
+                      id="new-password"
                       type="password"
                       value={passwordForm.newPassword}
                       onChange={(event) => handlePasswordChange('newPassword', event.target.value)}
                       minLength={8}
                       maxLength={128}
-                      className="gank-input px-4 py-3 rounded-xl"
+                      className="aurora-input"
                       placeholder="至少 8 位"
                       autoComplete="new-password"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-2">确认新密码</label>
+                    <label className="aurora-field-label" htmlFor="confirm-password">确认新密码</label>
                     <input
+                      id="confirm-password"
                       type="password"
                       value={passwordForm.confirmPassword}
                       onChange={(event) => handlePasswordChange('confirmPassword', event.target.value)}
                       minLength={8}
                       maxLength={128}
-                      className="gank-input px-4 py-3 rounded-xl"
+                      className="aurora-input"
                       placeholder="再次输入新密码"
                       autoComplete="new-password"
                     />
                   </div>
                 </div>
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-xs text-gray-500">修改后下次登录请使用新密码。</p>
+                <div className="aurora-form-footer">
+                  <p>新密码不能和当前密码相同，修改后会自动跳转登录页。</p>
                   <button
                     type="submit"
                     disabled={changingPassword}
-                    className="gank-primary-button inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl disabled:opacity-60 text-white font-semibold transition-colors"
+                    className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {changingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                    {changingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                     保存密码
                   </button>
                 </div>
               </form>
 
-              <div className="gank-card rounded-2xl p-6">
-                <div className="flex items-start justify-between gap-4 mb-5">
-                  <div>
-                    <div className="flex items-center gap-2 text-teal-700 mb-2">
-                      <UserPlus className="w-5 h-5" />
-                      <span className="font-semibold">我的邀请码</span>
+              <div className="apple-utility-card aurora-account-card aurora-account-form">
+                <div className="aurora-account-form-head">
+                  <div className="aurora-form-title-with-icon">
+                    <span className="aurora-metric-icon aurora-icon-cyan">
+                      <UserPlus className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="gank-eyebrow">INVITE CODE</p>
+                      <h2>我的邀请码</h2>
                     </div>
-                    <p className="text-sm text-gray-500">每个账号仅可生成 1 个邀请码。</p>
                   </div>
+                  {invite?.code && (
+                    <span className={`aurora-subtle-badge ${invite.is_active ? 'aurora-badge-success' : ''}`}>
+                      {invite.is_active ? '可使用' : '已使用'}
+                    </span>
+                  )}
                 </div>
+                <p className="mb-4 text-sm leading-6 text-slate-500">每个账号仅可生成 1 个邀请码，用于邀请新用户加入。</p>
 
                 {invite?.code ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-gray-600">邀请码状态</span>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${invite.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {invite.is_active ? '可使用' : '已使用'}
-                      </span>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <div className="gank-input flex-1 rounded-xl px-4 py-3 font-mono text-sm text-gray-950 break-all">
-                        {invite.code}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleCopyInvite}
-                        className="gank-secondary-button inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold transition-colors"
-                      >
-                        <Copy className="w-4 h-4" />
-                        复制邀请码
-                      </button>
-                    </div>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="aurora-invite-code flex-1">{invite.code}</div>
+                    <button
+                      type="button"
+                      onClick={handleCopyInvite}
+                      className="aurora-secondary-action min-h-[48px] justify-center px-5"
+                    >
+                      <Copy className="h-4 w-4" />
+                      复制邀请码
+                    </button>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={handleGenerateInvite}
                     disabled={generatingInvite}
-                    className="gank-primary-button inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl disabled:opacity-60 text-white font-semibold transition-colors"
+                    className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {generatingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    {generatingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
                     生成邀请码
                   </button>
                 )}

@@ -46,6 +46,7 @@ from app.schemas import (
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service, update_service
+from app.services.zhuque_service import zhuque_service
 from app.utils.auth import (
     create_access_token,
     verify_token,
@@ -456,6 +457,14 @@ async def test_admin_model_connection(
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
     return result
+
+
+@router.get("/zhuque/readiness")
+async def get_admin_zhuque_readiness(
+    _: str = Depends(get_admin_from_token),
+) -> Dict[str, Any]:
+    """后台系统配置页只读查看朱雀腾讯 AI 检测凭证状态。"""
+    return await zhuque_service.readiness()
 
 
 @router.post("/invites", response_model=InviteResponse)
@@ -1043,8 +1052,242 @@ async def delete_user(
     return {"message": "用户已删除", "id": user_id}
 
 
+ADMIN_STATISTICS_RANGE_LABELS = {
+    "today": "今日数据",
+    "7d": "最近 7 天",
+    "30d": "近 30 天",
+}
+
+ADMIN_STATISTICS_PROCESSING_MODES = (
+    ("paper_polish", "论文润色"),
+    ("paper_enhance", "论文增强"),
+    ("paper_polish_enhance", "润色 + 增强"),
+    ("emotion_polish", "感情文章润色"),
+    ("ai_detect_reduce", "AI检测+降重"),
+)
+
+
+def _percentage_change(current: float, previous: float) -> Optional[float]:
+    if previous == 0:
+        return None if current == 0 else 100.0
+    return round(((current - previous) / previous) * 100, 2)
+
+
+def _time_window_filter(query, column, start_at: datetime, end_at: datetime):
+    return query.filter(column >= start_at, column < end_at)
+
+
+def _get_statistics_window(range_key: str) -> Dict[str, Any]:
+    now = utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if range_key == "today":
+        start_at = today_start
+        previous_start_at = today_start - timedelta(days=1)
+    elif range_key == "30d":
+        start_at = today_start - timedelta(days=29)
+        previous_start_at = start_at - timedelta(days=30)
+    else:
+        start_at = today_start - timedelta(days=6)
+        previous_start_at = start_at - timedelta(days=7)
+
+    end_at = now + timedelta(microseconds=1)
+    previous_end_at = previous_start_at + (end_at - start_at)
+
+    return {
+        "key": range_key,
+        "label": ADMIN_STATISTICS_RANGE_LABELS[range_key],
+        "start_at": start_at,
+        "end_at": end_at,
+        "previous_start_at": previous_start_at,
+        "previous_end_at": previous_end_at,
+    }
+
+
+def _serialize_statistics_window(window: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "key": window["key"],
+        "label": window["label"],
+        "start_at": window["start_at"].isoformat(),
+        "end_at": window["end_at"].isoformat(),
+        "previous_start_at": window["previous_start_at"].isoformat(),
+        "previous_end_at": window["previous_end_at"].isoformat(),
+    }
+
+
+def _build_time_buckets(range_key: str, start_at: datetime, end_at: datetime) -> List[Dict[str, Any]]:
+    buckets: List[Dict[str, Any]] = []
+    if range_key == "today":
+        cursor = start_at
+        while cursor < end_at:
+            next_at = min(cursor + timedelta(hours=1), end_at)
+            buckets.append({
+                "label": cursor.strftime("%H:%M"),
+                "start_at": cursor,
+                "end_at": next_at,
+            })
+            cursor = next_at
+        return buckets or [{"label": start_at.strftime("%H:%M"), "start_at": start_at, "end_at": end_at}]
+
+    day_count = 30 if range_key == "30d" else 7
+    for offset in range(day_count):
+        cursor = start_at + timedelta(days=offset)
+        next_at = min(cursor + timedelta(days=1), end_at)
+        buckets.append({
+            "label": cursor.strftime("%m/%d"),
+            "start_at": cursor,
+            "end_at": next_at,
+        })
+    return buckets
+
+
+def _bucket_index(timestamp: Optional[datetime], buckets: List[Dict[str, Any]]) -> Optional[int]:
+    if not timestamp:
+        return None
+    for index, bucket in enumerate(buckets):
+        if bucket["start_at"] <= timestamp < bucket["end_at"]:
+            return index
+    return None
+
+
+def _series_from_bucket_values(buckets: List[Dict[str, Any]], values: List[float]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "label": bucket["label"],
+            "start_at": bucket["start_at"].isoformat(),
+            "end_at": bucket["end_at"].isoformat(),
+            "value": round(values[index], 2),
+        }
+        for index, bucket in enumerate(buckets)
+    ]
+
+
+def _count_session_series(
+    sessions: List[OptimizationSession],
+    buckets: List[Dict[str, Any]],
+    *,
+    status: Optional[str] = None,
+    processing_mode: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    values = [0.0 for _ in buckets]
+    for session in sessions:
+        if status and session.status != status:
+            continue
+        if processing_mode and session.processing_mode != processing_mode:
+            continue
+        index = _bucket_index(session.created_at, buckets)
+        if index is not None:
+            values[index] += 1
+    return _series_from_bucket_values(buckets, values)
+
+
+def _sum_session_text_series(
+    sessions: List[OptimizationSession],
+    buckets: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    values = [0.0 for _ in buckets]
+    for session in sessions:
+        if session.status != "completed":
+            continue
+        index = _bucket_index(session.created_at, buckets)
+        if index is not None:
+            values[index] += len(session.original_text or "")
+    return _series_from_bucket_values(buckets, values)
+
+
+def _average_session_value_series(
+    sessions: List[OptimizationSession],
+    buckets: List[Dict[str, Any]],
+    value_getter,
+) -> List[Dict[str, Any]]:
+    totals = [0.0 for _ in buckets]
+    counts = [0 for _ in buckets]
+    for session in sessions:
+        value = value_getter(session)
+        if value is None:
+            continue
+        index = _bucket_index(session.created_at, buckets)
+        if index is not None:
+            totals[index] += float(value)
+            counts[index] += 1
+    values = [
+        (totals[index] / counts[index]) if counts[index] else 0.0
+        for index in range(len(buckets))
+    ]
+    return _series_from_bucket_values(buckets, values)
+
+
+def _distinct_active_user_series(
+    sessions: List[OptimizationSession],
+    users: List[User],
+    buckets: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    user_sets = [set() for _ in buckets]
+    for session in sessions:
+        if not session.user_id:
+            continue
+        index = _bucket_index(session.created_at, buckets)
+        if index is not None:
+            user_sets[index].add(session.user_id)
+    for user in users:
+        index = _bucket_index(user.last_used, buckets)
+        if index is not None:
+            user_sets[index].add(user.id)
+    return _series_from_bucket_values(buckets, [len(user_ids) for user_ids in user_sets])
+
+
+def _success_rate_series(sessions: List[OptimizationSession], buckets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    totals = [0 for _ in buckets]
+    completed = [0 for _ in buckets]
+    for session in sessions:
+        index = _bucket_index(session.created_at, buckets)
+        if index is None:
+            continue
+        totals[index] += 1
+        if session.status == "completed":
+            completed[index] += 1
+
+    values = [
+        (completed[index] / totals[index] * 100) if totals[index] else 0.0
+        for index in range(len(buckets))
+    ]
+    return _series_from_bucket_values(buckets, values)
+
+
+def _processing_seconds(session: OptimizationSession) -> Optional[float]:
+    if session.status != "completed" or not session.completed_at or not session.created_at:
+        return None
+    return max((session.completed_at - session.created_at).total_seconds(), 0.0)
+
+
+def _average_processing_seconds(sessions: List[OptimizationSession]) -> float:
+    values = [
+        value
+        for session in sessions
+        if (value := _processing_seconds(session)) is not None
+    ]
+    return round(sum(values) / len(values), 2) if values else 0.0
+
+
+def _average_input_chars(sessions: List[OptimizationSession]) -> float:
+    if not sessions:
+        return 0.0
+    return round(sum(len(session.original_text or "") for session in sessions) / len(sessions), 2)
+
+
 @router.get("/statistics")
-async def get_statistics(_: str = Depends(get_admin_from_token), db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def get_statistics(
+    _: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+    range_key: str = Query("7d", alias="range", pattern="^(today|7d|30d)$"),
+) -> Dict[str, Any]:
+    window = _get_statistics_window(range_key)
+    current_start = window["start_at"]
+    current_end = window["end_at"]
+    previous_start = window["previous_start_at"]
+    previous_end = window["previous_end_at"]
+    buckets = _build_time_buckets(range_key, current_start, current_end)
+
     total_users = db.query(User).count() or 0
     active_users = db.query(User).filter(User.is_active.is_(True)).count() or 0
     inactive_users = total_users - active_users
@@ -1066,47 +1309,135 @@ async def get_statistics(_: str = Depends(get_admin_from_token), db: Session = D
     today_new_users = db.query(User).filter(User.created_at >= today_start).count() or 0
     today_active_users = db.query(User).filter(User.last_used >= today_start).count() or 0
     today_sessions = db.query(OptimizationSession).filter(OptimizationSession.created_at >= today_start).count() or 0
-    
-    # 统计文本处理字数
-    all_sessions = db.query(OptimizationSession).filter(
-        OptimizationSession.status == "completed"
-    ).all()
-    
-    total_original_chars = sum(len(s.original_text) for s in all_sessions if s.original_text)
-    
-    # 统计各处理模式的使用量
-    paper_polish_count = db.query(OptimizationSession).filter(
-        OptimizationSession.processing_mode == "paper_polish"
-    ).count() or 0
 
-    paper_enhance_count = db.query(OptimizationSession).filter(
-        OptimizationSession.processing_mode == "paper_enhance"
-    ).count() or 0
-    
-    paper_polish_enhance_count = db.query(OptimizationSession).filter(
-        OptimizationSession.processing_mode == "paper_polish_enhance"
-    ).count() or 0
-    
-    emotion_polish_count = db.query(OptimizationSession).filter(
-        OptimizationSession.processing_mode == "emotion_polish"
-    ).count() or 0
-    
-    # 统计平均处理时间
-    completed_with_time = db.query(OptimizationSession).filter(
-        OptimizationSession.status == "completed",
-        OptimizationSession.completed_at.isnot(None),
-        OptimizationSession.created_at.isnot(None)
-    ).all()
-    
-    avg_processing_time = 0
-    if completed_with_time:
-        total_time = sum(
-            (s.completed_at - s.created_at).total_seconds() 
-            for s in completed_with_time
-        )
-        avg_processing_time = total_time / len(completed_with_time)
+    current_sessions = (
+        _time_window_filter(db.query(OptimizationSession), OptimizationSession.created_at, current_start, current_end)
+        .all()
+    )
+    previous_sessions = (
+        _time_window_filter(db.query(OptimizationSession), OptimizationSession.created_at, previous_start, previous_end)
+        .all()
+    )
+    users_active_for_series = (
+        _time_window_filter(db.query(User), User.last_used, current_start, current_end)
+        .all()
+    )
+
+    current_session_count = len(current_sessions)
+    previous_session_count = len(previous_sessions)
+    current_completed_sessions = sum(1 for session in current_sessions if session.status == "completed")
+    previous_completed_sessions = sum(1 for session in previous_sessions if session.status == "completed")
+    current_processing_sessions = sum(1 for session in current_sessions if session.status == "processing")
+    current_queued_sessions = sum(1 for session in current_sessions if session.status == "queued")
+    current_failed_sessions = sum(1 for session in current_sessions if session.status == "failed")
+    previous_failed_sessions = sum(1 for session in previous_sessions if session.status == "failed")
+
+    success_rate_in_range = round((current_completed_sessions / current_session_count) * 100, 2) if current_session_count else 0.0
+    previous_success_rate = round((previous_completed_sessions / previous_session_count) * 100, 2) if previous_session_count else 0.0
+
+    new_users_in_range = (
+        _time_window_filter(db.query(User), User.created_at, current_start, current_end)
+        .count()
+        or 0
+    )
+    previous_new_users = (
+        _time_window_filter(db.query(User), User.created_at, previous_start, previous_end)
+        .count()
+        or 0
+    )
+    active_users_in_range = (
+        _time_window_filter(db.query(User), User.last_used, current_start, current_end)
+        .count()
+        or 0
+    )
+    previous_active_users = (
+        _time_window_filter(db.query(User), User.last_used, previous_start, previous_end)
+        .count()
+        or 0
+    )
+
+    current_segment_query = (
+        db.query(OptimizationSegment)
+        .join(OptimizationSession, OptimizationSegment.session_id == OptimizationSession.id)
+        .filter(OptimizationSession.created_at >= current_start, OptimizationSession.created_at < current_end)
+    )
+    previous_segment_query = (
+        db.query(OptimizationSegment)
+        .join(OptimizationSession, OptimizationSegment.session_id == OptimizationSession.id)
+        .filter(OptimizationSession.created_at >= previous_start, OptimizationSession.created_at < previous_end)
+    )
+    total_segments_in_range = current_segment_query.count() or 0
+    completed_segments_in_range = current_segment_query.filter(OptimizationSegment.status == "completed").count() or 0
+    previous_segments_in_range = previous_segment_query.count() or 0
+
+    total_original_chars = (
+        db.query(func.coalesce(func.sum(func.length(OptimizationSession.original_text)), 0))
+        .filter(OptimizationSession.status == "completed")
+        .scalar()
+        or 0
+    )
+    total_original_chars = int(total_original_chars)
+    total_chars_processed_in_range = sum(
+        len(session.original_text or "")
+        for session in current_sessions
+        if session.status == "completed"
+    )
+    previous_chars_processed = sum(
+        len(session.original_text or "")
+        for session in previous_sessions
+        if session.status == "completed"
+    )
+
+    mode_total_counts = {
+        mode: count
+        for mode, count in db.query(
+            OptimizationSession.processing_mode,
+            func.count(OptimizationSession.id),
+        ).group_by(OptimizationSession.processing_mode).all()
+    }
+    mode_current_completed_counts = {
+        mode: sum(1 for session in current_sessions if session.processing_mode == mode and session.status == "completed")
+        for mode, _label in ADMIN_STATISTICS_PROCESSING_MODES
+    }
+    mode_previous_completed_counts = {
+        mode: sum(1 for session in previous_sessions if session.processing_mode == mode and session.status == "completed")
+        for mode, _label in ADMIN_STATISTICS_PROCESSING_MODES
+    }
+    mode_total_in_range = sum(mode_current_completed_counts.values())
+
+    mode_rows = []
+    for mode, label in ADMIN_STATISTICS_PROCESSING_MODES:
+        current_count = mode_current_completed_counts.get(mode, 0)
+        previous_count = mode_previous_completed_counts.get(mode, 0)
+        mode_rows.append({
+            "id": mode,
+            "label": label,
+            "count": current_count,
+            "total_count": int(mode_total_counts.get(mode, 0) or 0),
+            "percent": round((current_count / mode_total_in_range) * 100, 2) if mode_total_in_range else 0.0,
+            "trend_percent": _percentage_change(current_count, previous_count),
+            "series": _count_session_series(
+                current_sessions,
+                buckets,
+                status="completed",
+                processing_mode=mode,
+            ),
+        })
+
+    avg_processing_time_all = _average_processing_seconds(
+        db.query(OptimizationSession).filter(
+            OptimizationSession.status == "completed",
+            OptimizationSession.completed_at.isnot(None),
+            OptimizationSession.created_at.isnot(None),
+        ).all()
+    )
+    avg_processing_time_in_range = _average_processing_seconds(current_sessions)
+    previous_avg_processing_time = _average_processing_seconds(previous_sessions)
+    avg_input_chars_in_range = _average_input_chars(current_sessions)
+    previous_avg_input_chars = _average_input_chars(previous_sessions)
 
     statistics = {
+        "range": _serialize_statistics_window(window),
         "users": {
             "total": total_users,
             "active": active_users,
@@ -1116,6 +1447,12 @@ async def get_statistics(_: str = Depends(get_admin_from_token), db: Session = D
             "today_new": today_new_users,
             "today_active": today_active_users,
             "recent_active_7days": recent_active_users,
+            "new_in_range": new_users_in_range,
+            "active_in_range": active_users_in_range,
+            "previous_new_in_range": previous_new_users,
+            "previous_active_in_range": previous_active_users,
+            "trend_percent": _percentage_change(active_users_in_range, previous_active_users),
+            "new_trend_percent": _percentage_change(new_users_in_range, previous_new_users),
         },
         "sessions": {
             "total": total_sessions,
@@ -1124,19 +1461,68 @@ async def get_statistics(_: str = Depends(get_admin_from_token), db: Session = D
             "queued": queued_sessions,
             "failed": failed_sessions,
             "today": today_sessions,
+            "in_range": current_session_count,
+            "previous_in_range": previous_session_count,
+            "completed_in_range": current_completed_sessions,
+            "previous_completed_in_range": previous_completed_sessions,
+            "processing_in_range": current_processing_sessions,
+            "queued_in_range": current_queued_sessions,
+            "failed_in_range": current_failed_sessions,
+            "previous_failed_in_range": previous_failed_sessions,
+            "success_rate": success_rate_in_range,
+            "previous_success_rate": previous_success_rate,
+            "trend_percent": _percentage_change(current_session_count, previous_session_count),
+            "completed_trend_percent": _percentage_change(current_completed_sessions, previous_completed_sessions),
+            "success_rate_trend_percent": _percentage_change(success_rate_in_range, previous_success_rate),
+        },
+        "requests": {
+            "total": total_sessions,
+            "in_range": current_session_count,
+            "previous_in_range": previous_session_count,
+            "trend_percent": _percentage_change(current_session_count, previous_session_count),
         },
         "segments": {
             "total": total_segments,
             "completed": completed_segments,
             "pending": total_segments - completed_segments,
+            "in_range": total_segments_in_range,
+            "completed_in_range": completed_segments_in_range,
+            "pending_in_range": total_segments_in_range - completed_segments_in_range,
+            "previous_in_range": previous_segments_in_range,
+            "trend_percent": _percentage_change(total_segments_in_range, previous_segments_in_range),
         },
         "processing": {
             "total_chars_processed": total_original_chars,
-            "avg_processing_time": round(avg_processing_time, 2),
-            "paper_polish_count": paper_polish_count,
-            "paper_enhance_count": paper_enhance_count,
-            "paper_polish_enhance_count": paper_polish_enhance_count,
-            "emotion_polish_count": emotion_polish_count,
+            "total_chars_processed_in_range": total_chars_processed_in_range,
+            "previous_chars_processed": previous_chars_processed,
+            "chars_trend_percent": _percentage_change(total_chars_processed_in_range, previous_chars_processed),
+            "avg_processing_time": avg_processing_time_all,
+            "avg_processing_time_in_range": avg_processing_time_in_range,
+            "previous_avg_processing_time": previous_avg_processing_time,
+            "avg_processing_time_trend_percent": _percentage_change(avg_processing_time_in_range, previous_avg_processing_time),
+            "avg_input_chars": avg_input_chars_in_range,
+            "previous_avg_input_chars": previous_avg_input_chars,
+            "avg_input_chars_trend_percent": _percentage_change(avg_input_chars_in_range, previous_avg_input_chars),
+            "paper_polish_count": int(mode_total_counts.get("paper_polish", 0) or 0),
+            "paper_enhance_count": int(mode_total_counts.get("paper_enhance", 0) or 0),
+            "paper_polish_enhance_count": int(mode_total_counts.get("paper_polish_enhance", 0) or 0),
+            "emotion_polish_count": int(mode_total_counts.get("emotion_polish", 0) or 0),
+            "ai_detect_reduce_count": int(mode_total_counts.get("ai_detect_reduce", 0) or 0),
+            "mode_total_in_range": mode_total_in_range,
+            "mode_rows": mode_rows,
+            "series": {
+                "sessions": _count_session_series(current_sessions, buckets),
+                "active_users": _distinct_active_user_series(current_sessions, users_active_for_series, buckets),
+                "completed_sessions": _count_session_series(current_sessions, buckets, status="completed"),
+                "success_rate": _success_rate_series(current_sessions, buckets),
+                "chars_processed": _sum_session_text_series(current_sessions, buckets),
+                "avg_processing_time": _average_session_value_series(current_sessions, buckets, _processing_seconds),
+                "avg_input_chars": _average_session_value_series(
+                    current_sessions,
+                    buckets,
+                    lambda session: len(session.original_text or ""),
+                ),
+            },
         },
     }
 
@@ -1504,6 +1890,12 @@ async def get_config(_: str = Depends(get_admin_from_token)) -> Dict[str, Any]:
         "thinking": {
             "enabled": settings.THINKING_MODE_ENABLED,
             "effort": settings.THINKING_MODE_EFFORT,
+        },
+        "security": {
+            "admin_token_expire_minutes": settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+            "user_token_expire_minutes": settings.USER_ACCESS_TOKEN_EXPIRE_MINUTES,
+            "auth_rate_limit_per_minute": settings.AUTH_RATE_LIMIT_PER_MINUTE,
+            "redeem_rate_limit_per_minute": settings.REDEEM_RATE_LIMIT_PER_MINUTE,
         },
         "system": {
             "max_concurrent_users": settings.MAX_CONCURRENT_USERS,

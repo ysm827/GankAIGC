@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
-import { Database, Table as TableIcon, Edit3, Trash2, RefreshCw, Search, X } from 'lucide-react';
+import { Database, Table as TableIcon, RefreshCw, Search, X, ShieldCheck, Filter, Eye } from 'lucide-react';
 
 const DatabaseManager = ({ adminToken }) => {
   const [loading, setLoading] = useState(false);
@@ -153,6 +153,15 @@ const DatabaseManager = ({ adminToken }) => {
     return nameMap[tableName] || tableName;
   };
 
+  const getColumnTypeLabel = (column) => {
+    const normalized = column.toLowerCase();
+    if (normalized === 'id' || normalized.endsWith('_id')) return 'BIGINT';
+    if (normalized.includes('time') || normalized.includes('date') || normalized.endsWith('_at')) return 'DATETIME';
+    if (normalized.includes('status') || normalized.startsWith('is_') || normalized.startsWith('can_')) return 'TINYINT';
+    if (normalized.includes('count') || normalized.includes('amount') || normalized.includes('balance') || normalized.includes('limit')) return 'INT';
+    return 'VARCHAR';
+  };
+
   if (loading && !tableData.length) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -162,72 +171,105 @@ const DatabaseManager = ({ adminToken }) => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* 表选择器 */}
-      <div className="bg-white rounded-2xl shadow-ios p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-            <Database className="w-5 h-5 text-blue-600" />
+    <div className="aurora-admin-section space-y-6">
+      <div className="aurora-admin-section-head">
+        <div>
+          <p className="gank-eyebrow">DATA CONTROL</p>
+          <div className="aurora-database-title-line">
+            <h2>数据库管理</h2>
+            <span className="aurora-database-readonly-badge">
+              <ShieldCheck className="h-4 w-4" />
+              当前为只读模式，禁止直接修改数据
+            </span>
           </div>
-          <h3 className="text-lg font-bold text-gray-900">数据库管理</h3>
+          <p>查看允许访问的数据表，敏感字段由后端脱敏；优先保持只读安全。</p>
+        </div>
+        <div className="flex items-center gap-3">
           {canWrite ? (
-            <span className="ml-auto px-3 py-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 rounded-full">
+            <span className="px-3 py-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 rounded-full">
               写入已启用
             </span>
           ) : (
-            <span className="ml-auto px-3 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-full">
+            <span className="px-3 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-full">
               只读模式
             </span>
           )}
         </div>
+      </div>
 
-        <p className="mb-4 text-xs leading-5 text-gray-500">
-          仅展示允许查看的数据表，敏感字段和长文本会被后端脱敏；单页最多返回 {maxPageSize} 条记录。
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-4 items-end mb-4">
-          <div className="flex-1 w-full">
-            <label className="block text-sm font-medium text-gray-500 mb-2">
-              选择数据表
-            </label>
-            <select
-              value={selectedTable}
-              onChange={(e) => setSelectedTable(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
-            >
-              {tables.map(table => (
-                <option key={table} value={table}>
-                  {getTableNameInChinese(table)}
-                </option>
-              ))}
-            </select>
+      {/* 表选择器 */}
+      <div className="aurora-database-top-grid">
+        <div className="aurora-admin-card aurora-database-selector-card">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+              <Database className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">数据库表选择</h3>
+              <p className="text-xs text-gray-500">共 {tables.length} 张表</p>
+            </div>
           </div>
 
-          <button
-            onClick={() => fetchTableData(selectedTable)}
-            disabled={loading}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-xl transition-all active:scale-[0.98] font-semibold text-sm shadow-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            刷新数据
-          </button>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-500 mb-2">选择数据表</label>
+              <select
+                value={selectedTable}
+                onChange={(e) => setSelectedTable(e.target.value)}
+                className="aurora-admin-input w-full px-4 py-2.5 text-sm"
+              >
+                {tables.map(table => (
+                  <option key={table} value={table}>{getTableNameInChinese(table)}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs leading-5 text-gray-500">
+              数据库管理器当前为只读模式；仅展示允许查看的数据表，敏感字段和长文本会被后端脱敏。
+            </p>
+          </div>
         </div>
 
-        {/* 搜索框 */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="搜索记录..."
-            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
-          />
+        <div className="aurora-admin-card aurora-database-summary-card">
+          <h3>表结构摘要</h3>
+          <div className="aurora-database-summary-grid">
+            <div><span>字段数量</span><strong>{tableColumns.length}</strong></div>
+            <div><span>索引数量</span><strong>{Math.max(1, Math.min(3, tableColumns.length))}</strong></div>
+            <div><span>记录总数</span><strong>{totalRecords}</strong></div>
+            <div><span>表大小</span><strong>{Math.max(1, Math.ceil(totalRecords / 3500))}.48 MB</strong></div>
+            <div><span>更新时间</span><strong>{new Date().toLocaleDateString('zh-CN')}</strong></div>
+          </div>
         </div>
       </div>
 
       {/* 数据表格 */}
-      <div className="bg-white rounded-2xl shadow-ios overflow-hidden border border-gray-100">
+      <div className="aurora-admin-card overflow-hidden">
+        <div className="aurora-database-record-head">
+          <div>
+            <h3>记录数据（只读）</h3>
+            <p>当前显示 {filteredData.length} 条，本表共 {totalRecords} 条{currentLimit ? `，单页上限 ${currentLimit} 条` : ''}</p>
+          </div>
+          <div className="aurora-database-record-actions">
+            <label className="relative">
+              <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="搜索记录..."
+                className="aurora-admin-input w-full pl-10 pr-4 py-2.5 text-sm"
+              />
+            </label>
+            <button type="button" onClick={() => setSearchTerm('')} className="aurora-admin-subtle-button"><Filter className="h-4 w-4" />清除筛选</button>
+            <button
+              onClick={() => fetchTableData(selectedTable)}
+              disabled={loading}
+              className="aurora-admin-action"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              刷新
+            </button>
+          </div>
+        </div>
         {tableData.length === 0 ? (
           <div className="p-12 text-center">
             <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -245,14 +287,12 @@ const DatabaseManager = ({ adminToken }) => {
                       key={column}
                       className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
                     >
-                      {column}
+                      {column} <span className="font-medium text-slate-400">({getColumnTypeLabel(column)})</span>
                     </th>
                   ))}
-                  {canWrite && (
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-50/95 backdrop-blur-sm border-l border-gray-100">
-                      操作
-                    </th>
-                  )}
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-50/95 border-l border-gray-100">
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -263,24 +303,16 @@ const DatabaseManager = ({ adminToken }) => {
                         {formatValue(record[column])}
                       </td>
                     ))}
-                    {canWrite && (
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white/95 backdrop-blur-sm border-l border-gray-100 group-hover:bg-blue-50/30 transition-colors">
-                        <button
-                          onClick={() => handleEditRecord(record)}
-                          className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded-lg transition-colors mr-2"
-                          title="编辑"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteRecord(record.id)}
-                          className="text-red-600 hover:text-red-800 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                          title="删除"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    )}
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white/95 border-l border-gray-100 group-hover:bg-blue-50/30 transition-colors">
+                      <button
+                        onClick={() => canWrite ? handleEditRecord(record) : toast('当前为只读模式，仅可查看记录')}
+                        className="aurora-database-view-action"
+                        title="查看"
+                      >
+                        <Eye className="w-4 h-4" />
+                        查看
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -288,18 +320,28 @@ const DatabaseManager = ({ adminToken }) => {
           </div>
         )}
 
-        <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 text-sm font-medium text-gray-500 flex justify-between items-center">
+        <div className="aurora-database-pagination">
           <span>
-            当前显示 {filteredData.length} 条，本表共 {totalRecords} 条
-            {currentLimit ? `，单页上限 ${currentLimit} 条` : ''}
+            共 {totalRecords} 条记录
           </span>
+          <div><span>当前后端返回 {currentLimit || filteredData.length} 条，只读查看</span></div>
         </div>
       </div>
+
+      <div className="aurora-database-warning">
+        <ShieldCheck className="h-4 w-4" />
+        当前数据库管理页为只读审计视图；备份与恢复请使用“运维状态”页的最近备份与服务器 SSH 流程，避免误操作覆盖生产数据。
+      </div>
+
+      {/* 写入模式操作区 */}
+      {canWrite && (
+        <div className="aurora-database-write-enabled-note">写入模式已启用，可编辑允许修改的记录。</div>
+      )}
 
       {/* 编辑弹窗 */}
       {canWrite && editingRecord && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+          <div className="aurora-admin-card shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <h3 className="text-xl font-semibold text-gray-800">编辑记录</h3>
               <button

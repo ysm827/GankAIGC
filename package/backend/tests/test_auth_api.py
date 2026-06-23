@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import timedelta
 
 import pytest
 from cryptography.fernet import Fernet
@@ -1317,8 +1318,10 @@ def test_admin_session_lists_include_user_identity(client):
 def test_admin_statistics_count_all_processing_modes(client):
     from app.database import SessionLocal
     from app.models.models import OptimizationSession, User
+    from app.utils.time import utcnow
 
     db = SessionLocal()
+    now = utcnow()
     try:
         user = User(
             username="mode_owner",
@@ -1336,6 +1339,8 @@ def test_admin_statistics_count_all_processing_modes(client):
                     status="completed",
                     processing_mode=mode,
                     total_segments=1,
+                    created_at=now,
+                    completed_at=now + timedelta(seconds=10),
                 )
             )
         db.commit()
@@ -1351,6 +1356,124 @@ def test_admin_statistics_count_all_processing_modes(client):
     assert processing["paper_enhance_count"] == 1
     assert processing["paper_polish_enhance_count"] == 1
     assert processing["emotion_polish_count"] == 1
+    assert {row["id"] for row in processing["mode_rows"]} >= {
+        "paper_polish",
+        "paper_enhance",
+        "paper_polish_enhance",
+        "emotion_polish",
+        "ai_detect_reduce",
+    }
+
+
+def test_admin_statistics_honors_date_range_filter_and_returns_real_series(client):
+    from app.database import SessionLocal
+    from app.models.models import OptimizationSegment, OptimizationSession, User
+    from app.utils.time import utcnow
+
+    now = utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_time = max(today_start, now - timedelta(seconds=1))
+    eight_days_ago = today_start - timedelta(days=8)
+    twenty_days_ago = today_start - timedelta(days=20)
+
+    db = SessionLocal()
+    try:
+        user = User(
+            username="range_owner",
+            nickname="Range Owner",
+            access_link="http://testserver/access/range-owner",
+            last_used=today_time,
+        )
+        db.add(user)
+        db.flush()
+
+        sessions = [
+            OptimizationSession(
+                user_id=user.id,
+                session_id="stats-today",
+                original_text="今日真实统计文本" * 2,
+                status="completed",
+                processing_mode="paper_polish",
+                total_segments=1,
+                created_at=today_time,
+                completed_at=today_time + timedelta(seconds=30),
+            ),
+            OptimizationSession(
+                user_id=user.id,
+                session_id="stats-eight-days-ago",
+                original_text="八天前真实统计文本",
+                status="completed",
+                processing_mode="paper_enhance",
+                total_segments=1,
+                created_at=eight_days_ago,
+                completed_at=eight_days_ago + timedelta(seconds=45),
+            ),
+            OptimizationSession(
+                user_id=user.id,
+                session_id="stats-twenty-days-ago",
+                original_text="二十天前真实统计文本",
+                status="failed",
+                processing_mode="emotion_polish",
+                total_segments=1,
+                created_at=twenty_days_ago,
+            ),
+        ]
+        db.add_all(sessions)
+        db.flush()
+        for session in sessions:
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=0,
+                    stage="polish",
+                    original_text=session.original_text,
+                    status="completed" if session.status == "completed" else "failed",
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    headers = _admin_auth_headers(client)
+    today_response = client.get("/api/admin/statistics", params={"range": "today"}, headers=headers)
+    seven_day_response = client.get("/api/admin/statistics", params={"range": "7d"}, headers=headers)
+    thirty_day_response = client.get("/api/admin/statistics", params={"range": "30d"}, headers=headers)
+
+    assert today_response.status_code == 200
+    assert seven_day_response.status_code == 200
+    assert thirty_day_response.status_code == 200
+
+    today_stats = today_response.json()
+    seven_day_stats = seven_day_response.json()
+    thirty_day_stats = thirty_day_response.json()
+
+    assert today_stats["range"]["key"] == "today"
+    assert seven_day_stats["range"]["key"] == "7d"
+    assert thirty_day_stats["range"]["key"] == "30d"
+    assert today_stats["sessions"]["in_range"] == 1
+    assert seven_day_stats["sessions"]["in_range"] == 1
+    assert thirty_day_stats["sessions"]["in_range"] == 3
+    assert today_stats["sessions"]["completed_in_range"] == 1
+    assert thirty_day_stats["sessions"]["completed_in_range"] == 2
+    assert today_stats["requests"]["in_range"] == 1
+    assert thirty_day_stats["requests"]["in_range"] == 3
+    assert today_stats["processing"]["total_chars_processed_in_range"] == len("今日真实统计文本" * 2)
+    assert thirty_day_stats["processing"]["mode_total_in_range"] == 2
+    assert "trend_percent" in seven_day_stats["sessions"]
+    assert "success_rate_trend_percent" in seven_day_stats["sessions"]
+    assert set(seven_day_stats["processing"]["series"]) >= {
+        "sessions",
+        "active_users",
+        "completed_sessions",
+        "success_rate",
+        "chars_processed",
+        "avg_processing_time",
+        "avg_input_chars",
+    }
+    assert len(today_stats["processing"]["series"]["sessions"]) >= 1
+    assert len(seven_day_stats["processing"]["series"]["sessions"]) == 7
+    assert len(thirty_day_stats["processing"]["series"]["sessions"]) == 30
+    assert all("trend_percent" in row and "series" in row for row in thirty_day_stats["processing"]["mode_rows"])
 
 
 def test_admin_statistics_omits_word_formatter_when_feature_disabled(client):

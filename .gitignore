@@ -85,3 +85,20 @@ package/postgres-portable/
 # Internal planning files
 docs/superpowers/
 
+
+# Local Zhuque browser/session artifacts
+zhuque_pkg/creds_*.json
+zhuque_pkg/creds_latest.json
+zhuque_pkg/browser_state.json
+zhuque_pkg/session_status.json
+zhuque_pkg/qrcode_latest.png
+zhuque_pkg/capture_latest.log
+
+# Local browser/test/cache artifacts
+package/.playwright-browsers/
+package/backend/tmp-pytest/
+.uv-cache/
+output/
+
+# Removed tool leftovers
+.ace-tool.removed.*/

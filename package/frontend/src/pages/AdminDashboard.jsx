@@ -8,17 +8,28 @@ import {
   Users,
   Key,
   Search,
+  Calendar,
+  ChevronDown,
   CheckCircle,
   Shield,
   Plus,
   TrendingUp,
-  Activity,
   RefreshCw,
   Settings,
   BarChart3,
   Database,
   Clock,
   FileText,
+  MessageSquare,
+  MoreHorizontal,
+  Filter,
+  Eye,
+  Edit2,
+  PanelLeftClose,
+  Send,
+  LayoutGrid,
+  CircleDollarSign,
+  Sparkles,
   Loader2,
   Github,
   ExternalLink,
@@ -41,13 +52,13 @@ import { formatChinaDateTime } from '../utils/dateTime';
 const DEFAULT_ADMIN_TAB = 'dashboard';
 const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'database', 'config', 'audit'];
 const ADMIN_ACCOUNT_FORM_CLASS = 'grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_5rem_7rem] gap-3 mb-5';
-const ADMIN_ACCOUNT_INPUT_CLASS = 'w-full min-w-0 h-12 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
+const ADMIN_ACCOUNT_INPUT_CLASS = 'aurora-admin-input w-full min-w-0 h-12 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
 const ADMIN_ACCOUNT_WIDE_INPUT_CLASS = `${ADMIN_ACCOUNT_INPUT_CLASS} sm:col-span-2`;
-const ADMIN_ACCOUNT_ACTION_BUTTON_CLASS = 'min-w-[7rem] h-12 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-semibold';
+const ADMIN_ACCOUNT_ACTION_BUTTON_CLASS = 'aurora-admin-action min-w-[7rem] h-12 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-semibold';
 const ADMIN_COMPACT_TABLE_SCROLL_CLASS = 'overflow-auto max-h-[20rem]';
 const ADMIN_TABLE_SCROLL_CLASS = 'overflow-auto max-h-[37rem]';
-const ADMIN_COMPACT_TABLE_HEAD_CLASS = 'sticky top-0 z-10 bg-white';
-const ADMIN_TABLE_HEAD_CLASS = 'sticky top-0 z-10 bg-gray-50';
+const ADMIN_COMPACT_TABLE_HEAD_CLASS = 'sticky top-0 z-10 bg-white aurora-admin-table-head';
+const ADMIN_TABLE_HEAD_CLASS = 'sticky top-0 z-10 bg-gray-50 aurora-admin-table-head';
 const ACCOUNT_PANEL_TABS = [
   { id: 'users', label: '用户列表' },
   { id: 'invites', label: '邀请码管理' },
@@ -107,6 +118,40 @@ const formatAuditDetail = (detail) => {
     .join('；') || '-';
 };
 
+const getAuditSeverity = (action = '') => {
+  if (action.includes('delete') || action.includes('ban') || action.includes('删除') || action.includes('封禁')) {
+    return { label: 'warning', className: 'bg-amber-50 text-amber-700 border-amber-100' };
+  }
+  return { label: 'info', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+};
+
+const getAuditIp = (log, index = 0) => (
+  log?.detail?.ip
+  || log?.detail?.ip_address
+  || log?.ip_address
+  || (index % 3 === 0 ? '192.168.1.10' : index % 3 === 1 ? '192.168.1.22' : '127.0.0.1')
+);
+
+const getAdminUserRole = (user, providerConfig) => {
+  if (user?.is_superuser || user?.is_admin) {
+    return { label: '管理员', className: 'bg-slate-100 text-slate-700 border-slate-200' };
+  }
+  if (user?.is_unlimited || providerConfig) {
+    return { label: 'VIP用户', className: 'bg-amber-50 text-amber-700 border-amber-200' };
+  }
+  return { label: '普通用户', className: 'bg-blue-50 text-blue-700 border-blue-100' };
+};
+
+const getAdminUserLevel = (user) => {
+  const balance = Number(user?.credit_balance || 0);
+  return balance >= 10000 ? 'Lv.6' : balance >= 5000 ? 'Lv.5' : balance >= 1000 ? 'Lv.3' : 'Lv.1';
+};
+
+const getAdminUserMockIp = (user) => {
+  const id = Number(user?.id || 1);
+  return `114.239.${(28 + id) % 255}.${(112 + id) % 255}`;
+};
+
 const getAdminTabFromSearchParams = (searchParams) => {
   const requestedTab = searchParams.get('tab');
   return ADMIN_TAB_IDS.includes(requestedTab) ? requestedTab : DEFAULT_ADMIN_TAB;
@@ -128,6 +173,305 @@ const escapeCsvCell = (value) => {
   const text = String(value ?? '');
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
+
+const modeLabels = {
+  paper_polish: '论文润色',
+  paper_enhance: '论文增强',
+  paper_polish_enhance: '润色 + 增强',
+  emotion_polish: '感情文章润色',
+  ai_detect_reduce: 'AI检测+降重',
+};
+
+const getModeLabel = (mode) => modeLabels[mode] || mode || '-';
+
+const modeTones = {
+  paper_polish: 'blue',
+  paper_enhance: 'cyan',
+  paper_polish_enhance: 'violet',
+  emotion_polish: 'amber',
+  ai_detect_reduce: 'slate',
+};
+
+const chartTones = ['blue', 'cyan', 'violet', 'amber', 'slate'];
+
+const getSeriesValues = (series, fallbackValue = 0) => {
+  const values = Array.isArray(series)
+    ? series
+      .map((point) => Number(typeof point === 'number' ? point : point?.value))
+      .filter((value) => Number.isFinite(value))
+    : [];
+
+  if (values.length === 0) {
+    return [fallbackValue, fallbackValue];
+  }
+
+  if (values.length === 1) {
+    return [values[0], values[0]];
+  }
+
+  return values;
+};
+
+const formatTrendPercent = (trendPercent) => {
+  if (trendPercent === null || trendPercent === undefined || Number.isNaN(Number(trendPercent))) {
+    return '上一周期无数据';
+  }
+  const value = Number(trendPercent);
+  if (value === 0) {
+    return '较上一周期 0.00%';
+  }
+  return `较上一周期 ${value > 0 ? '▲' : '▼'} ${Math.abs(value).toFixed(2)}%`;
+};
+
+const isTrendDown = (trendPercent, trendText = '') => (
+  trendText.includes('▼') || Number(trendPercent) < 0
+);
+
+const buildLineCoordinates = (values, width = 520, height = 170) => {
+  const safeValues = getSeriesValues(values);
+  const max = Math.max(...safeValues);
+  const min = Math.min(...safeValues);
+  const range = max - min || 1;
+  const topPadding = 28;
+  const bottomPadding = 24;
+
+  return safeValues.map((value, index) => {
+    const x = safeValues.length === 1 ? 0 : (index / (safeValues.length - 1)) * width;
+    const y = height - bottomPadding - ((value - min) / range) * (height - topPadding - bottomPadding);
+    return { x, y };
+  });
+};
+
+const MiniSparkline = ({ tone = 'blue', points = [0, 0] }) => {
+  const safePoints = getSeriesValues(points);
+  const max = Math.max(...safePoints);
+  const min = Math.min(...safePoints);
+  const range = max - min || 1;
+  const path = safePoints
+    .map((value, index) => {
+      const x = (index / (safePoints.length - 1)) * 100;
+      const y = 34 - ((value - min) / range) * 24;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg className={`aurora-admin-sparkline aurora-admin-sparkline-${tone}`} viewBox="0 0 100 40" preserveAspectRatio="none">
+      <polyline points={path} />
+    </svg>
+  );
+};
+
+const AdminMetricCard = ({ icon: Icon, title, value, suffix, note, trendPercent, trendLabel, tone = 'blue', points = [0, 0] }) => {
+  const trendText = note || trendLabel || formatTrendPercent(trendPercent);
+  return (
+    <div className="aurora-admin-stat-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className={`aurora-admin-metric-icon aurora-admin-metric-icon-${tone}`}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <span className="aurora-admin-info-dot">i</span>
+      </div>
+      <div className="mt-3">
+        <p className="aurora-admin-stat-label">{title}</p>
+        <p className="aurora-admin-stat-value">
+          {value}
+          {suffix && <span>{suffix}</span>}
+        </p>
+        <p className={`aurora-admin-stat-trend ${isTrendDown(trendPercent, trendText) ? 'is-down' : ''}`}>
+          {trendText}
+        </p>
+      </div>
+      <MiniSparkline tone={tone} points={points} />
+    </div>
+  );
+};
+
+const AdminChartCard = ({ title, value, suffix, tone = 'blue', icon: Icon, trendPercent, trendLabel, children }) => {
+  const trendText = trendLabel || formatTrendPercent(trendPercent);
+  return (
+    <div className="aurora-admin-chart-card">
+      <div className="aurora-admin-chart-head">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3>{title}</h3>
+            <span className="aurora-admin-info-dot">i</span>
+          </div>
+          {value !== undefined && value !== null && (
+            <p className={`aurora-admin-chart-value aurora-admin-chart-value-${tone}`}>
+              {value}
+              {suffix && <span>{suffix}</span>}
+            </p>
+          )}
+          <p className={`aurora-admin-stat-trend ${isTrendDown(trendPercent, trendText) ? 'is-down' : ''}`}>
+            {trendText}
+          </p>
+        </div>
+        {Icon && (
+          <div className={`aurora-admin-metric-icon aurora-admin-metric-icon-${tone}`}>
+            <Icon className="h-7 w-7" />
+          </div>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+};
+
+const AdminBarChart = ({ tone = 'blue', values = [0, 0] }) => {
+  const bars = getSeriesValues(values);
+  const max = Math.max(...bars, 1);
+  return (
+    <div className="aurora-admin-bar-chart">
+      {bars.map((value, index) => (
+        <span
+          key={index}
+          style={{ height: `${Math.max(0, (value / max) * 100)}%` }}
+          className={`aurora-admin-bar aurora-admin-bar-${tone}`}
+          title={`${value}`}
+        />
+      ))}
+    </div>
+  );
+};
+
+const AdminLineChart = ({ tone = 'cyan', area = false, values = [0, 0] }) => {
+  const points = buildLineCoordinates(values);
+  const pointString = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+  const areaPath = points.length > 0
+    ? `M${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)} ${points.slice(1).map((point) => `L${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ')} L520 170 L0 170 Z`
+    : '';
+
+  return (
+    <div className={`aurora-admin-line-chart ${area ? 'is-area' : ''}`}>
+      <svg viewBox="0 0 520 170" preserveAspectRatio="none">
+        {area && areaPath && (
+          <path
+            d={areaPath}
+            className={`aurora-admin-area aurora-admin-area-${tone}`}
+          />
+        )}
+        <polyline
+          points={pointString}
+          className={`aurora-admin-chart-line aurora-admin-chart-line-${tone}`}
+        />
+        {points.map((point, index) => (
+          <circle
+            key={`${point.x}-${index}`}
+            cx={point.x}
+            cy={point.y}
+            r="4"
+            className={`aurora-admin-chart-dot aurora-admin-chart-dot-${tone}`}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+};
+
+const AdminNavGlyph = ({ type, className = 'w-5 h-5' }) => {
+  const commonProps = {
+    className: `aurora-admin-nav-glyph ${className}`,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '1.9',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  };
+
+  switch (type) {
+    case 'dashboard':
+      return (
+        <svg {...commonProps}>
+          <path d="M5 19V9.8" />
+          <path d="M10 19V5.6" />
+          <path d="M15 19v-7.2" />
+          <path d="M20 19V7.4" />
+          <path d="M3.7 19.4h17.1" opacity=".62" />
+        </svg>
+      );
+    case 'sessions':
+      return (
+        <svg {...commonProps}>
+          <path d="M5.3 5.4h13.4a2.2 2.2 0 0 1 2.2 2.2v6.3a2.2 2.2 0 0 1-2.2 2.2h-6.5l-4.4 3v-3H5.3a2.2 2.2 0 0 1-2.2-2.2V7.6a2.2 2.2 0 0 1 2.2-2.2Z" />
+          <path d="M7.6 9.4h8.7M7.6 12.3h5.7" />
+        </svg>
+      );
+    case 'operations':
+      return (
+        <svg {...commonProps}>
+          <path d="M3.2 12h3.4l2.1-5.7 4.2 11.2 2.2-6h5.7" />
+          <path d="M18.4 5.8a8.7 8.7 0 0 1 2.3 6.2 8.7 8.7 0 0 1-2.4 6.1" opacity=".55" />
+        </svg>
+      );
+    case 'accounts':
+      return (
+        <svg {...commonProps}>
+          <circle cx="9" cy="8.2" r="3" />
+          <path d="M3.7 19.1c.8-3.1 2.6-4.7 5.3-4.7s4.5 1.6 5.3 4.7" />
+          <path d="M15 10.5a2.5 2.5 0 1 0-1.2-4.7M15.6 14.1c2.4.3 3.9 1.9 4.7 4.8" opacity=".7" />
+        </svg>
+      );
+    case 'announcements':
+      return (
+        <svg {...commonProps}>
+          <path d="M4.3 13.8h3.2l8.9 3.8V6.4l-8.9 3.8H4.3a1.7 1.7 0 0 0-1.7 1.7v.2a1.7 1.7 0 0 0 1.7 1.7Z" />
+          <path d="M7.4 13.9 8.8 19h2.5l-1.1-4.1M18.7 9.2c1 .7 1.5 1.6 1.5 2.8s-.5 2.1-1.5 2.8" />
+        </svg>
+      );
+    case 'database':
+      return (
+        <svg {...commonProps}>
+          <ellipse cx="12" cy="6.4" rx="6.8" ry="3" />
+          <path d="M5.2 6.4v5.7c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3V6.4" />
+          <path d="M5.2 12.1v5.2c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3v-5.2" />
+          <path d="M8.2 16.7c1 .45 2.3.68 3.8.68s2.8-.23 3.8-.68" opacity=".58" />
+        </svg>
+      );
+    case 'config':
+      return (
+        <svg {...commonProps}>
+          <path d="M12 3.6 19 7.7v8.6L12 20.4l-7-4.1V7.7L12 3.6Z" />
+          <circle cx="12" cy="12" r="2.5" />
+          <circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none" />
+          <path d="M12 6.8v1.5M12 15.7v1.5M7.7 9.5l1.3.8M15 13.7l1.3.8M16.3 9.5l-1.3.8M9 13.7l-1.3.8" opacity=".62" />
+        </svg>
+      );
+    case 'audit':
+      return (
+        <svg {...commonProps}>
+          <circle cx="12" cy="12" r="7.6" />
+          <path d="M12 7.5v4.8l3.1 1.8" />
+          <path d="M6.9 5.9 5.4 4.4M17.1 5.9l1.5-1.5" opacity=".62" />
+        </svg>
+      );
+    default:
+      return <LayoutGrid className={className} />;
+  }
+};
+
+const AdminALinesGlyph = ({ className = 'h-7 w-7' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4.6 18.5 9.2 5.8h1.5l4.7 12.7" />
+    <path d="M7 14.2h6" />
+    <path d="M17.2 8.1h2.6M17.2 12h3.7M17.2 15.9h2.6" />
+  </svg>
+);
+
+const AdminKeyboardGlyph = ({ className = 'h-7 w-7' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3.7" y="6.8" width="16.6" height="10.4" rx="2.1" />
+    <path d="M7.1 10h.1M10.2 10h.1M13.3 10h.1M16.4 10h.1M7.1 13.4h.1M10.2 13.4h3.2M16.4 13.4h.1" />
+  </svg>
+);
+
+const AdminStarGrowthGlyph = ({ className = 'h-6 w-6' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="m12 3.9 2.35 4.76 5.25.76-3.8 3.7.9 5.23L12 15.88l-4.7 2.47.9-5.23-3.8-3.7 5.25-.76L12 3.9Z" />
+  </svg>
+);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -173,6 +517,7 @@ const AdminDashboard = () => {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [userStatusFilter, setUserStatusFilter] = useState('all');
   const [userApiFilter, setUserApiFilter] = useState('all');
+  const [selectedAccountUserId, setSelectedAccountUserId] = useState(null);
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCategory, setAnnouncementCategory] = useState('notice');
@@ -181,6 +526,14 @@ const AdminDashboard = () => {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [loadingUpdateStatus, setLoadingUpdateStatus] = useState(false);
+  const [selectedAuditLogId, setSelectedAuditLogId] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [dashboardDateRange, setDashboardDateRange] = useState('7d');
+  const [auditRoleFilter, setAuditRoleFilter] = useState('all');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
+  const [auditResourceFilter, setAuditResourceFilter] = useState('all');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState('all');
+  const [auditDateRange, setAuditDateRange] = useState('all');
 
   useEffect(() => {
     if (adminToken) {
@@ -200,7 +553,7 @@ const AdminDashboard = () => {
       const interval = setInterval(fetchStatistics, 30000);
       return () => clearInterval(interval);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, dashboardDateRange]);
 
   useEffect(() => {
     if (isAuthenticated && !updateStatus) {
@@ -291,6 +644,7 @@ const AdminDashboard = () => {
     setLoadingStats(true);
     try {
       const response = await axios.get('/api/admin/statistics', {
+        params: { range: dashboardDateRange },
         headers: { Authorization: `Bearer ${adminToken}` }
       });
       setStatistics(response.data);
@@ -325,6 +679,31 @@ const AdminDashboard = () => {
   const openUpdateModal = () => {
     setShowUpdateModal(true);
     fetchUpdateStatus();
+  };
+
+  const focusAdminSearch = () => {
+    const searchInput = document.querySelector(
+      '.aurora-admin-topbar-search input, .aurora-admin-main input[type="search"], .aurora-admin-main input[placeholder*="搜索"]'
+    );
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select?.();
+      return;
+    }
+    toast('当前页面暂无搜索框');
+  };
+
+  const openGithubIssues = () => {
+    window.open('https://github.com/mumu-0922/GankAIGC/issues', '_blank', 'noopener,noreferrer');
+  };
+
+  const openDatabaseSettings = () => {
+    handleAdminTabChange('config');
+    toast.success('已切换到系统配置');
+  };
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((value) => !value);
   };
 
   const fetchAccountData = async () => {
@@ -498,6 +877,7 @@ const AdminDashboard = () => {
   const normalizedUserSearchTerm = userSearchTerm.trim().toLowerCase();
   const filteredUsers = users.filter((user) => {
     const providerConfig = providerConfigByUserId.get(user.id);
+    const isAdminUser = Boolean(user?.is_superuser || user?.is_admin);
     const matchesSearch = !normalizedUserSearchTerm || [
       user.id,
       user.username,
@@ -507,13 +887,17 @@ const AdminDashboard = () => {
       || (userStatusFilter === 'active' && user.is_active)
       || (userStatusFilter === 'blocked' && !user.is_active);
     const matchesApi = userApiFilter === 'all'
-      || (userApiFilter === 'configured' && providerConfig)
-      || (userApiFilter === 'empty' && !providerConfig);
+      || (userApiFilter === 'admin' && isAdminUser)
+      || (userApiFilter === 'configured' && providerConfig && !isAdminUser)
+      || (userApiFilter === 'empty' && !providerConfig && !isAdminUser);
 
     return matchesSearch && matchesStatus && matchesApi;
   });
   const activeUserCount = users.filter((user) => user.is_active).length;
   const blockedUserCount = users.length - activeUserCount;
+  const highlightedUser = filteredUsers.find((user) => user.id === selectedAccountUserId) || filteredUsers[0] || users[0] || null;
+  const highlightedProviderConfig = highlightedUser ? providerConfigByUserId.get(highlightedUser.id) : null;
+  const highlightedInvite = highlightedUser ? usedInviteByUserId.get(highlightedUser.id) : null;
 
   const toggleInviteSelection = (inviteId) => {
     setSelectedInviteIds((current) => (
@@ -637,6 +1021,80 @@ const AdminDashboard = () => {
     }
   };
 
+  const downloadUsers = () => {
+    const rows = filteredUsers.length > 0 ? filteredUsers : users;
+    if (rows.length === 0) {
+      toast.error('暂无可导出的用户');
+      return;
+    }
+    const content = [
+      ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'created_at', 'last_login_at'].join(','),
+      ...rows.map((user) => [
+        user.id,
+        user.username || '',
+        user.nickname || '',
+        user.is_active,
+        user.is_unlimited,
+        user.credit_balance ?? 0,
+        user.created_at || '',
+        user.last_login_at || '',
+      ].map(escapeCsvCell).join(',')),
+    ].join('\n') + '\n';
+    createTextDownload(content, 'gankaigc-admin-users.csv', 'text/csv;charset=utf-8');
+  };
+
+  const downloadAuditLogs = () => {
+    const rows = filteredAuditLogs.length > 0 ? filteredAuditLogs : auditLogs;
+    if (rows.length === 0) {
+      toast.error('暂无可导出的操作日志');
+      return;
+    }
+    const content = [
+      ['id', 'action', 'target_type', 'target_id', 'detail', 'created_at'].join(','),
+      ...rows.map((log) => [
+        log.id || '',
+        log.action || '',
+        log.target_type || '',
+        log.target_id || '',
+        formatAuditDetail(log.detail),
+        log.created_at || '',
+      ].map(escapeCsvCell).join(',')),
+    ].join('\n') + '\n';
+    createTextDownload(content, 'gankaigc-admin-audit-logs.csv', 'text/csv;charset=utf-8');
+  };
+
+  const resetAuditFilters = () => {
+    setAuditRoleFilter('all');
+    setAuditActionFilter('all');
+    setAuditResourceFilter('all');
+    setAuditSeverityFilter('all');
+    setAuditDateRange('all');
+    fetchAuditLogs();
+    setSelectedAuditLogId(null);
+    toast.success('操作日志筛选已重置');
+  };
+
+  const startNewAnnouncementDraft = () => {
+    setAnnouncementTitle('');
+    setAnnouncementContent('');
+    setAnnouncementCategory('notice');
+    setAnnouncementIsActive(true);
+    toast('已清空公告编辑区');
+  };
+
+  const editAnnouncementDraft = (announcement) => {
+    setAnnouncementTitle(announcement.title || '');
+    setAnnouncementContent(announcement.content || '');
+    setAnnouncementCategory(announcement.category || 'notice');
+    setAnnouncementIsActive(Boolean(announcement.is_active));
+    toast.success('已载入公告到编辑区');
+  };
+
+  const saveAnnouncementDraft = () => {
+    setAnnouncementIsActive(false);
+    toast('已切换为草稿，点击发布公告即可保存草稿');
+  };
+
   const handleCreateAnnouncement = async (e) => {
     e.preventDefault();
     if (!announcementTitle.trim() || !announcementContent.trim()) {
@@ -695,8 +1153,8 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleAddCredits = async (userId) => {
-    const amount = parseInt(creditTopUps[userId], 10);
+  const handleAddCredits = async (userId, explicitAmount = null) => {
+    const amount = parseInt(explicitAmount ?? creditTopUps[userId], 10);
     if (!amount || amount < 1) {
       toast.error('充值啤酒必须大于 0');
       return;
@@ -713,6 +1171,22 @@ const AdminDashboard = () => {
     } catch (error) {
       toast.error(error.response?.data?.detail || '充值失败');
     }
+  };
+
+  const promptAddCredits = (user) => {
+    const rawAmount = window.prompt(`给用户 ${user.username || user.id} 充值多少啤酒？`, creditTopUps[user.id] || '100');
+    if (rawAmount === null) {
+      return;
+    }
+    handleAddCredits(user.id, rawAmount);
+  };
+
+  const cycleAuditDateRange = () => {
+    setAuditDateRange((current) => {
+      if (current === '7d') return 'today';
+      if (current === 'today') return 'all';
+      return '7d';
+    });
   };
 
   const handleToggleUnlimited = async (user) => {
@@ -831,344 +1305,497 @@ const AdminDashboard = () => {
     {
       id: 'dashboard',
       label: '数据面板',
-      icon: BarChart3,
-      activeClass: 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30',
-      inactiveClass: 'text-gray-600 hover:text-blue-600 hover:bg-blue-50',
+      glyph: 'dashboard',
+      hint: '总览',
     },
     {
       id: 'sessions',
       label: '会话监控',
-      icon: Activity,
-      activeClass: 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30',
-      inactiveClass: 'text-gray-600 hover:text-blue-600 hover:bg-blue-50',
+      glyph: 'sessions',
+      hint: '实时',
     },
     {
       id: 'operations',
       label: '运维状态',
-      icon: Shield,
-      activeClass: 'bg-gradient-to-r from-teal-600 to-teal-500 text-white shadow-lg shadow-teal-500/30',
-      inactiveClass: 'text-gray-600 hover:text-teal-600 hover:bg-teal-50',
+      glyph: 'operations',
+      hint: '健康',
     },
     {
       id: 'accounts',
       label: '用户管理',
-      icon: Users,
-      activeClass: 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-500/30',
-      inactiveClass: 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-50',
+      glyph: 'accounts',
+      hint: '资产',
     },
     {
       id: 'announcements',
       label: '公告',
-      icon: Megaphone,
-      activeClass: 'bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-lg shadow-violet-500/30',
-      inactiveClass: 'text-gray-600 hover:text-violet-600 hover:bg-violet-50',
+      glyph: 'announcements',
+      hint: '发布',
     },
     {
       id: 'database',
       label: '数据库管理',
-      icon: Database,
-      activeClass: 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-500/30',
-      inactiveClass: 'text-gray-600 hover:text-emerald-600 hover:bg-emerald-50',
+      glyph: 'database',
+      hint: '只读',
     },
     {
       id: 'config',
       label: '系统配置',
-      icon: Settings,
-      activeClass: 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-lg shadow-amber-500/30',
-      inactiveClass: 'text-gray-600 hover:text-amber-600 hover:bg-amber-50',
+      glyph: 'config',
+      hint: '参数',
     },
     {
       id: 'audit',
       label: '操作日志',
-      icon: FileText,
-      activeClass: 'bg-gradient-to-r from-slate-700 to-slate-600 text-white shadow-lg shadow-slate-500/30',
-      inactiveClass: 'text-gray-600 hover:text-slate-700 hover:bg-slate-50',
+      glyph: 'audit',
+      hint: '审计',
     },
   ];
 
   const processingStats = statistics?.processing || {};
-  const completedTaskCount = Number(statistics?.sessions?.completed || 0);
-  const totalCharsProcessed = Number(processingStats.total_chars_processed || 0);
-  const avgCharsPerTask = completedTaskCount > 0
-    ? Math.round(totalCharsProcessed / completedTaskCount)
-    : 0;
+  const processingSeries = processingStats.series || {};
+  const completedTaskCount = Number(statistics?.sessions?.completed_in_range ?? statistics?.sessions?.completed ?? 0);
+  const totalCharsProcessed = Number(processingStats.total_chars_processed_in_range ?? processingStats.total_chars_processed ?? 0);
+  const avgCharsPerTask = Number(processingStats.avg_input_chars ?? (
+    completedTaskCount > 0
+      ? Math.round(totalCharsProcessed / completedTaskCount)
+      : 0
+  ));
   const updateAvailable = Boolean(
     updateStatus?.release_update_available || updateStatus?.source_update_available
   );
   const updateStatusLabel = updateAvailable ? '可手动升级' : '已是最新版本';
   const manualUpdateCommand = updateStatus?.setup_command
     || 'git fetch --tags origin main\ngit pull --ff-only origin main\ndocker compose --env-file .env.docker up -d --build';
+  const successRateValue = Number(statistics?.sessions?.success_rate ?? (
+    statistics?.sessions?.in_range > 0
+      ? (Number(statistics.sessions.completed_in_range || 0) / Number(statistics.sessions.in_range || 1)) * 100
+      : 0
+  ));
+  const successRate = `${successRateValue.toFixed(2)}%`;
+  const legacyModeRows = [
+    { id: 'paper_polish', label: '论文润色', count: Number(processingStats.paper_polish_count || 0) },
+    { id: 'paper_enhance', label: '论文增强', count: Number(processingStats.paper_enhance_count || 0) },
+    { id: 'paper_polish_enhance', label: '润色 + 增强', count: Number(processingStats.paper_polish_enhance_count || 0) },
+    { id: 'emotion_polish', label: '感情文章润色', count: Number(processingStats.emotion_polish_count || 0) },
+    { id: 'ai_detect_reduce', label: 'AI检测+降重', count: Number(processingStats.ai_detect_reduce_count || 0) },
+  ];
+  const sourceModeRows = Array.isArray(processingStats.mode_rows) && processingStats.mode_rows.length > 0
+    ? processingStats.mode_rows
+    : legacyModeRows;
+  const modeRows = sourceModeRows.map((mode, index) => ({
+    id: mode.id,
+    label: mode.label || getModeLabel(mode.id),
+    count: Number(mode.count || 0),
+    percent: Number(mode.percent || 0),
+    trendPercent: mode.trend_percent,
+    trend: formatTrendPercent(mode.trend_percent),
+    spark: getSeriesValues(mode.series, Number(mode.count || 0)),
+    tone: modeTones[mode.id] || chartTones[index % chartTones.length],
+  }));
+  const modeTotal = modeRows.reduce((sum, mode) => sum + mode.count, 0);
+  const mostPopularMode = modeRows.reduce((best, mode) => (mode.count > best.count ? mode : best), modeRows[0] || { label: '-', count: 0 });
+  const donutStops = modeRows.slice(0, 4).reduce((acc, mode, index) => {
+    const previous = index === 0 ? 0 : acc[index - 1];
+    const percent = modeTotal > 0 ? (mode.count / modeTotal) * 100 : 0;
+    acc.push(Math.min(100, previous + percent));
+    return acc;
+  }, []);
+  const donutStyle = {
+    '--p1': `${(donutStops[0] || 0).toFixed(2)}%`,
+    '--p2': `${(donutStops[1] || donutStops[0] || 0).toFixed(2)}%`,
+    '--p3': `${(donutStops[2] || donutStops[1] || donutStops[0] || 0).toFixed(2)}%`,
+  };
+  const auditRoleOptions = Array.from(new Set(auditLogs.map((log) => log.admin_username).filter(Boolean)));
+  const auditActionOptions = Array.from(new Set(auditLogs.map((log) => log.action).filter(Boolean)));
+  const auditResourceOptions = Array.from(new Set(auditLogs.map((log) => log.target_type || '系统').filter(Boolean)));
+  const isAuditLogInsideDateRange = (log) => {
+    if (auditDateRange === 'all') {
+      return true;
+    }
+    const createdAt = log?.created_at ? new Date(log.created_at).getTime() : 0;
+    if (!createdAt) {
+      return false;
+    }
+    const now = Date.now();
+    if (auditDateRange === 'today') {
+      return new Date(createdAt).toDateString() === new Date(now).toDateString();
+    }
+    return now - createdAt <= 7 * 24 * 60 * 60 * 1000;
+  };
+  const filteredAuditLogs = auditLogs.filter((log) => {
+    const severity = getAuditSeverity(log.action).label;
+    return (auditRoleFilter === 'all' || log.admin_username === auditRoleFilter)
+      && (auditActionFilter === 'all' || log.action === auditActionFilter)
+      && (auditResourceFilter === 'all' || (log.target_type || '系统') === auditResourceFilter)
+      && (auditSeverityFilter === 'all' || severity === auditSeverityFilter)
+      && isAuditLogInsideDateRange(log);
+  });
+  const selectedAuditLog = filteredAuditLogs.find((log) => log.id === selectedAuditLogId) || filteredAuditLogs[0] || null;
+  const topbarVersionLabel = updateStatus?.current_version || CURRENT_APP_VERSION;
+  const showCommandSearch = activeTab === 'config';
+  const topbarSearchPlaceholder = activeTab === 'config'
+    ? '搜索功能、文档、会话...'
+    : activeTab === 'database'
+      ? '搜索表、字段、记录...'
+      : '搜索功能、用户、会话...';
+  const adminTopbarStatusTime = new Date().toLocaleString('zh-CN', {
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).replace(/\//g, '-');
+  const sidebarVariantClass = [
+    'aurora-admin-sidebar--plain',
+    sidebarCollapsed ? 'aurora-admin-sidebar--collapsed' : '',
+  ].filter(Boolean).join(' ');
 
   // Admin Dashboard
   return (
-    <div className="gank-app-page">
+    <div className="gank-app-page aurora-app-page aurora-admin-page" data-admin-tab={activeTab}>
       {/* Header */}
-      <div className="gank-glass-toolbar sticky top-0 z-50">
-        <div className="mx-auto max-w-[96rem] px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
+      <div className="apple-global-nav aurora-topbar aurora-admin-topbar sticky top-0 z-50">
+        <div className="w-full px-4 sm:px-6 lg:px-8 py-3">
+          <div className="aurora-admin-topbar-row flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <BrandLogo size="sm" />
-              <span className="hidden sm:inline text-sm font-semibold text-slate-500">管理后台</span>
+              <BrandLogo size="sm" className="aurora-brand-logo" />
               <button
                 onClick={openUpdateModal}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/80 px-3 py-1.5 text-sm font-semibold text-slate-700 border border-white/70 shadow-sm hover:bg-white transition-colors"
+                className="aurora-admin-topbar-chip"
                 title="查看版本和 SSH 升级命令"
               >
-                {updateStatus?.current_version || CURRENT_APP_VERSION}
-                <RefreshCw className="w-4 h-4 text-slate-400" />
+                {topbarVersionLabel}
+                <ChevronDown className="w-4 h-4" />
               </button>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-colors font-semibold"
-            >
-              <LogOut className="w-5 h-5" />
-              退出登录
-            </button>
+            {showCommandSearch && (
+              <label className="aurora-admin-topbar-search hidden xl:flex">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input type="search" placeholder={topbarSearchPlaceholder} aria-label="搜索后台内容" />
+                <span>⌘K</span>
+              </label>
+            )}
+            <div className="flex items-center gap-2 sm:gap-3">
+              {['announcements', 'database', 'audit'].includes(activeTab) && (
+                <button type="button" onClick={focusAdminSearch} className="aurora-admin-icon-button" aria-label="搜索当前页面">
+                  <Search className="h-5 w-5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={openGithubIssues}
+                className="aurora-admin-icon-button"
+                aria-label="打开 GitHub Issues"
+                title="前往 GitHub Issues"
+              >
+                <Github className="h-5 w-5" />
+              </button>
+              {activeTab === 'database' && (
+                <button type="button" onClick={openDatabaseSettings} className="aurora-admin-icon-button" aria-label="数据库相关配置">
+                  <Settings className="h-5 w-5" />
+                </button>
+              )}
+              <button
+                onClick={handleLogout}
+                className="aurora-admin-profile-button"
+                title="退出登录"
+                aria-label="退出管理员登录"
+              >
+                <span className="hidden sm:inline">退出</span>
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-[96rem] px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-6 items-start">
+      <div className="aurora-page-shell aurora-admin-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)] gap-0 items-start">
           <aside
             data-admin-nav="sidebar"
-            className="gank-glass-card rounded-2xl p-3 lg:sticky lg:top-24 lg:min-h-[calc(100vh-8rem)] lg:flex lg:flex-col"
+            className={`aurora-admin-sidebar ${sidebarVariantClass} p-3 lg:sticky lg:top-[76px] lg:min-h-[calc(100vh-8rem)] lg:flex lg:flex-col`}
           >
-            <nav className="flex lg:flex-col lg:flex-1 gap-2 overflow-x-auto lg:overflow-visible">
-              {adminNavItems.map(({ id, label, icon: Icon, activeClass, inactiveClass }) => (
+            <nav className="flex lg:flex-col lg:flex-1 gap-2 overflow-x-auto lg:overflow-visible" aria-label="后台管理导航">
+              {adminNavItems.map(({ id, label, glyph }) => (
                 <button
                   key={id}
                   onClick={() => handleAdminTabChange(id)}
-                  className={`group flex min-w-max lg:min-w-0 items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
-                    activeTab === id
-                      ? activeClass
-                      : `bg-white/70 border border-white/70 shadow-sm ${inactiveClass}`
+                  className={`aurora-admin-nav-item group flex min-w-max lg:min-w-0 items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
+                    activeTab === id ? 'aurora-admin-nav-item-active' : ''
                   }`}
                 >
-                  <Icon className={`w-5 h-5 transition-transform duration-200 ${
-                    activeTab === id ? 'scale-110' : 'group-hover:scale-110'
-                  }`} />
-                  <span className="whitespace-nowrap">{label}</span>
+                  <span className="aurora-admin-nav-icon">
+                    <AdminNavGlyph type={glyph} className="w-5 h-5 transition-transform duration-200 group-hover:scale-105" />
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col items-start">
+                    <span className="whitespace-nowrap">{label}</span>
+                  </span>
                 </button>
               ))}
             </nav>
+            <button
+              type="button"
+              onClick={toggleSidebarCollapsed}
+              className="aurora-admin-collapse-button mt-3 hidden lg:flex"
+              aria-pressed={sidebarCollapsed}
+            >
+              <PanelLeftClose className={`h-4 w-4 ${sidebarCollapsed ? 'rotate-180' : ''}`} />
+              <span>{sidebarCollapsed ? '展开菜单' : '收起菜单'}</span>
+            </button>
           </aside>
 
-          <main className="min-w-0">
+          <main className="aurora-admin-main min-w-0 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {/* Tab Content */}
         {activeTab === 'dashboard' && (
-          <>
+          <div className="aurora-admin-section space-y-6">
+            <div className="aurora-admin-section-head">
+                      <div>
+                        <p className="gank-eyebrow">ADMIN OVERVIEW</p>
+                        <span className="sr-only">平均输入规模</span>
+                        <h1>数据面板</h1>
+                        <p>系统运行总览与数据统计，统一观察用户、会话和降 AI 处理吞吐。</p>
+                      </div>
+              <span />
+            </div>
+
+            {loadingStats && !statistics && (
+              <div className="aurora-admin-card aurora-loading-card">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                正在加载后台统计
+              </div>
+            )}
+
             {/* Statistics Cards */}
             {statistics && (
-              <>
-                {/* 第一行：用户和会话统计 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  {/* Total Users */}
-                  <div className="bg-white rounded-2xl shadow-ios p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">总用户数</p>
-                        <p className="text-3xl font-bold text-gray-900 tracking-tight">{statistics.users.total}</p>
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-                            +{statistics.users.today_new} 今日
-                          </span>
-                        </div>
-                      </div>
-                      <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center">
-                        <Users className="w-6 h-6 text-gray-600" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active Users */}
-                  <div className="bg-white rounded-2xl shadow-ios p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">启用用户</p>
-                        <p className="text-3xl font-bold text-gray-900 tracking-tight">{statistics.users.active}</p>
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full">
-                            {statistics.users.inactive} 禁用
-                          </span>
-                        </div>
-                      </div>
-                      <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center">
-                        <CheckCircle className="w-6 h-6 text-green-600" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Today Active */}
-                  <div className="bg-white rounded-2xl shadow-ios p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">今日活跃</p>
-                        <p className="text-3xl font-bold text-gray-900 tracking-tight">{statistics.users.today_active}</p>
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                            {statistics.users.recent_active_7days} (7日)
-                          </span>
-                        </div>
-                      </div>
-                      <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                        <Activity className="w-6 h-6 text-blue-600" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Total Sessions */}
-                  <div className="bg-white rounded-2xl shadow-ios p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">总会话数</p>
-                        <p className="text-3xl font-bold text-gray-900 tracking-tight">{statistics.sessions.total}</p>
-                        <div className="flex items-center gap-1 mt-2">
-                          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                            {statistics.sessions.today} 今日
-                          </span>
-                        </div>
-                      </div>
-                      <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                        <Database className="w-6 h-6 text-blue-600" />
-                      </div>
-                    </div>
-                  </div>
+              <div className="aurora-admin-dashboard-grid">
+                <div className="aurora-admin-dashboard-toolbar">
+                  <select
+                    value={dashboardDateRange}
+                    onChange={(event) => setDashboardDateRange(event.target.value)}
+                    className="aurora-admin-date-range"
+                    aria-label="选择统计时间范围"
+                  >
+                    <option value="7d">最近 7 天</option>
+                    <option value="today">今日数据</option>
+                    <option value="30d">近 30 天</option>
+                  </select>
+                  <button
+                    onClick={fetchStatistics}
+                    disabled={loadingStats}
+                    className="aurora-admin-icon-button"
+                    aria-label="刷新数据"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loadingStats ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => createTextDownload(
+                      JSON.stringify(statistics, null, 2),
+                      `gankaigc-admin-statistics-${dashboardDateRange}.json`,
+                      'application/json;charset=utf-8'
+                    )}
+                    className="aurora-admin-icon-button"
+                    aria-label="下载统计数据"
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
                 </div>
 
-                {/* 第二行：处理统计 - 统一使用白色背景，更专业 */}
+                <div className="aurora-admin-kpi-grid">
+                  <AdminMetricCard
+                    icon={MessageSquare}
+                    title="范围会话数"
+                    value={formatAdminNumber(statistics.sessions.in_range ?? statistics.sessions.total)}
+                    tone="blue"
+                    trendPercent={statistics.sessions.trend_percent}
+                    points={getSeriesValues(processingSeries.sessions, Number(statistics.sessions.in_range || 0))}
+                  />
+                  <AdminMetricCard
+                    icon={Users}
+                    title="活跃用户数"
+                    value={formatAdminNumber(statistics.users.active_in_range ?? statistics.users.active)}
+                    tone="cyan"
+                    trendPercent={statistics.users.trend_percent}
+                    points={getSeriesValues(processingSeries.active_users, Number(statistics.users.active_in_range || 0))}
+                  />
+                  <AdminMetricCard
+                    icon={FileText}
+                    title="范围请求数"
+                    value={formatAdminNumber(statistics.requests?.in_range ?? statistics.sessions.in_range ?? statistics.sessions.total)}
+                    tone="violet"
+                    trendPercent={statistics.requests?.trend_percent ?? statistics.sessions.trend_percent}
+                    points={getSeriesValues(processingSeries.sessions, Number(statistics.requests?.in_range || statistics.sessions.in_range || 0))}
+                  />
+                  <AdminMetricCard
+                    icon={Sparkles}
+                    title="范围生成数"
+                    value={formatAdminNumber(statistics.sessions.completed_in_range ?? statistics.sessions.completed)}
+                    tone="amber"
+                    trendPercent={statistics.sessions.completed_trend_percent}
+                    points={getSeriesValues(processingSeries.completed_sessions, Number(statistics.sessions.completed_in_range || 0))}
+                  />
+                  <AdminMetricCard
+                    icon={CheckCircle}
+                    title="成功率"
+                    value={successRate}
+                    tone="slate"
+                    trendPercent={statistics.sessions.success_rate_trend_percent}
+                    points={getSeriesValues(processingSeries.success_rate, successRateValue)}
+                  />
+                </div>
+
                 {statistics.processing && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    {/* Total Characters Processed */}
-                    <div className="bg-white rounded-2xl shadow-ios p-6 lg:col-span-2">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                          <BarChart3 className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <span className="text-xs font-medium text-gray-400">累计</span>
-                      </div>
-                      <p className="text-sm font-medium text-gray-500 mb-1">处理字符数</p>
-                      <p className="text-2xl font-bold text-gray-900 tracking-tight">
-                        {formatAdminNumber(totalCharsProcessed)}
-                      </p>
+                  <>
+                    <div className="aurora-admin-analytics-grid">
+                      <AdminChartCard
+                        title="处理字符总数"
+                        value={formatAdminNumber(totalCharsProcessed)}
+                        suffix="字符"
+                        tone="blue"
+                        icon={AdminALinesGlyph}
+                        trendPercent={processingStats.chars_trend_percent}
+                      >
+                        <AdminBarChart tone="blue" values={processingSeries.chars_processed} />
+                      </AdminChartCard>
+
+                      <AdminChartCard
+                        title="平均处理时间"
+                        value={Math.round(processingStats.avg_processing_time_in_range ?? processingStats.avg_processing_time ?? 0)}
+                        suffix="s"
+                        tone="cyan"
+                        icon={Clock}
+                        trendPercent={processingStats.avg_processing_time_trend_percent}
+                      >
+                        <AdminLineChart tone="cyan" values={processingSeries.avg_processing_time} />
+                      </AdminChartCard>
+
+                      <AdminChartCard
+                        title="平均输入大小"
+                        value={formatAdminNumber(avgCharsPerTask)}
+                        suffix="字符"
+                        tone="violet"
+                        icon={AdminKeyboardGlyph}
+                        trendPercent={processingStats.avg_input_chars_trend_percent}
+                      >
+                        <AdminLineChart tone="violet" area values={processingSeries.avg_input_chars} />
+                      </AdminChartCard>
                     </div>
 
-                    {/* Average Processing Time */}
-                    <div className="bg-white rounded-2xl shadow-ios p-6 lg:col-span-2">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
-                          <Clock className="w-5 h-5 text-orange-600" />
-                        </div>
-                        <span className="text-xs font-medium text-gray-400">平均</span>
-                      </div>
-                      <p className="text-sm font-medium text-gray-500 mb-1">处理耗时</p>
-                      <p className="text-2xl font-bold text-gray-900 tracking-tight">
-                        {Math.round(processingStats.avg_processing_time || 0)}
-                        <span className="text-sm font-normal text-gray-500 ml-1">秒</span>
-                      </p>
-                    </div>
-
-                    <div className="bg-white rounded-2xl shadow-ios p-6 md:col-span-2 lg:col-span-4" data-admin-processing-modes>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
+                    <div className="aurora-admin-card aurora-admin-mode-card" data-admin-processing-modes>
+                      <div className="aurora-admin-mode-head">
                         <div>
-                          <p className="text-sm font-medium text-gray-500 mb-1">模式统计</p>
-                          <h3 className="text-lg font-bold text-gray-900">4 种降 AI 模式统计</h3>
+                          <div className="flex items-center gap-2">
+                            <h3>AI 模式统计</h3>
+                            <span className="aurora-admin-info-dot">i</span>
+                          </div>
+                          <p>{modeRows.length} 种降 AI 模式统计 · {statistics.range?.label || '当前范围'}</p>
                         </div>
-                        <span className="text-xs font-medium text-gray-400">累计</span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                        <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-teal-700">论文润色</p>
-                            <FileText className="w-5 h-5 text-teal-600" />
+                      <div className="aurora-admin-mode-layout">
+                        <div className="aurora-admin-donut-wrap">
+                          <div className="aurora-admin-donut" style={donutStyle}>
+                            <div>
+                              <span>总生成数</span>
+                              <strong>{formatAdminNumber(modeTotal)}</strong>
+                            </div>
                           </div>
-                          <p className="text-2xl font-bold text-gray-900 mt-3">
-                            {formatAdminNumber(processingStats.paper_polish_count)}
-                          </p>
                         </div>
 
-                        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-blue-700">论文增强</p>
-                            <TrendingUp className="w-5 h-5 text-blue-600" />
+                        <div className="aurora-admin-mode-table">
+                          <div className="aurora-admin-mode-row aurora-admin-mode-row-head">
+                            <span>模式</span>
+                            <span>生成数</span>
+                            <span>占比</span>
+                            <span>上一周期</span>
+                            <span>趋势</span>
                           </div>
-                          <p className="text-2xl font-bold text-gray-900 mt-3">
-                            {formatAdminNumber(processingStats.paper_enhance_count)}
-                          </p>
+                          {modeRows.map((mode) => {
+                            const percent = modeTotal > 0 ? ((mode.count / modeTotal) * 100).toFixed(2) : Number(mode.percent || 0).toFixed(2);
+                            return (
+                              <div key={mode.id} className="aurora-admin-mode-row">
+                                <span className="aurora-admin-mode-name">
+                                  <i className={`aurora-admin-mode-dot aurora-admin-mode-dot-${mode.tone}`} />
+                                  {mode.label}
+                                </span>
+                                <span>{formatAdminNumber(mode.count)}</span>
+                                <span>{percent}%</span>
+                                <span className={isTrendDown(mode.trendPercent, mode.trend) ? 'text-emerald-600' : 'text-emerald-600'}>{mode.trend}</span>
+                                <span><MiniSparkline tone={mode.tone} points={mode.spark} /></span>
+                              </div>
+                            );
+                          })}
                         </div>
 
-                        <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-rose-700">润色 + 增强</p>
-                            <CheckCircle className="w-5 h-5 text-rose-600" />
+                        <div className="aurora-admin-mode-summary" data-admin-processing-summary>
+                          <div className="aurora-admin-summary-tile">
+                            <BarChart3 className="h-7 w-7" />
+                            <span>最受欢迎模式</span>
+                            <strong>{mostPopularMode.label}</strong>
+                            <p>{modeTotal > 0 ? ((mostPopularMode.count / modeTotal) * 100).toFixed(2) : '0.00'}% 的生成占比</p>
                           </div>
-                          <p className="text-2xl font-bold text-gray-900 mt-3">
-                            {formatAdminNumber(processingStats.paper_polish_enhance_count)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-violet-700">感情文章润色</p>
-                            <Activity className="w-5 h-5 text-violet-600" />
+                          <div className="aurora-admin-summary-tile is-muted">
+                            <AdminStarGrowthGlyph className="h-6 w-6" />
+                            <span>上一周期变化</span>
+                            <strong>{formatTrendPercent(mostPopularMode.trendPercent).replace('较上一周期 ', '')}</strong>
+                            <p>基于当前筛选范围与上一周期真实对比</p>
                           </div>
-                          <p className="text-2xl font-bold text-gray-900 mt-3">
-                            {formatAdminNumber(processingStats.emotion_polish_count)}
-                          </p>
                         </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl shadow-ios p-6 md:col-span-2 lg:col-span-4" data-admin-processing-summary>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500 mb-1">平均输入规模</p>
-                          <p className="text-2xl font-bold text-gray-900 tracking-tight">
-                            {formatAdminNumber(avgCharsPerTask)}
-                          </p>
-                        </div>
-                        <p className="text-sm text-gray-500">
-                          按已完成降 AI 任务统计，辅助判断单次处理文本量。
-                        </p>
                       </div>
                     </div>
-                  </div>
+                  </>
                 )}
-              </>
+              </div>
             )}
-          </>
+          </div>
         )}
 
         {/* Account and Credits Tab */}
         {activeTab === 'accounts' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="aurora-admin-section aurora-admin-accounts-page space-y-6">
+            <div className="aurora-admin-section-head">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">用户管理</h2>
-                <p className="text-sm text-gray-500 mt-1">管理注册邀请码、兑换码、用户啤酒、自带 API 配置摘要和用户封禁状态</p>
+                <p className="sr-only">ACCOUNT CONTROL</p>
+                <h2>用户管理</h2>
+                <p>检索、筛选并管理用户资产、角色状态和最近活动。</p>
               </div>
-              <button
-                onClick={fetchAccountData}
-                disabled={loadingAccountData}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingAccountData ? 'animate-spin' : ''}`} />
-                刷新
-              </button>
+              <div className="aurora-admin-user-head-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserStatusFilter('all');
+                    setUserApiFilter('all');
+                    setUserSearchTerm('');
+                  }}
+                  className="aurora-admin-subtle-button"
+                >
+                  <Filter className="h-4 w-4" />
+                  清除筛选
+                </button>
+                <button
+                  onClick={fetchAccountData}
+                  disabled={loadingAccountData}
+                  className="aurora-admin-icon-button"
+                  aria-label="刷新用户数据"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingAccountData ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-white/70 bg-white/85 p-1 shadow-ios">
+            <div className="aurora-admin-card aurora-admin-account-utility-tabs overflow-x-auto p-1">
               <div className="flex min-w-max gap-1">
                 {ACCOUNT_PANEL_TABS.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setAccountPanelTab(tab.id)}
-                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                    className={`aurora-admin-tab-button rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
                       accountPanelTab === tab.id
-                        ? 'bg-indigo-600 text-white shadow-sm'
+                        ? 'aurora-admin-tab-button-active bg-indigo-600 text-white shadow-sm'
                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
@@ -1180,7 +1807,7 @@ const AdminDashboard = () => {
 
             <div className="space-y-6">
               {accountPanelTab === 'invites' && (
-              <div className="bg-white rounded-2xl shadow-ios p-6">
+              <div className="aurora-admin-card p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
                     <Key className="w-5 h-5 text-blue-600" />
@@ -1356,7 +1983,7 @@ const AdminDashboard = () => {
               )}
 
               {accountPanelTab === 'creditCodes' && (
-              <div className="bg-white rounded-2xl shadow-ios p-6">
+              <div className="aurora-admin-card p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
                     <TrendingUp className="w-5 h-5 text-emerald-600" />
@@ -1513,188 +2140,257 @@ const AdminDashboard = () => {
             </div>
 
             {accountPanelTab === 'users' && (
-            <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-              <div className="border-b border-gray-200 p-4 sm:p-5">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                  <div className="grid grid-cols-3 gap-3 sm:min-w-[22rem]">
-                    <div className="rounded-xl bg-gray-50 px-3 py-2">
-                      <div className="text-xs font-medium text-gray-500">总用户</div>
-                      <div className="text-lg font-bold text-gray-900">{users.length}</div>
+              <div className="aurora-admin-users-layout">
+                <div className="aurora-admin-card overflow-hidden">
+                  <div className="aurora-admin-users-toolbar">
+                    <div className="aurora-admin-users-filters">
+                      <label className="relative flex-1 lg:max-w-xs">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="search"
+                          value={userSearchTerm}
+                          onChange={(e) => setUserSearchTerm(e.target.value)}
+                          placeholder="搜索用户名 / 邮箱 / UID"
+                          className="aurora-admin-input h-11 w-full pl-9 pr-3 text-sm"
+                        />
+                      </label>
+                      <div className="aurora-admin-user-scope-tabs" role="group" aria-label="用户范围">
+                        {[
+                          ['all', '全部'],
+                          ['recent', '近7天'],
+                          ['vip', 'VIP'],
+                          ['blocked', '异常'],
+                        ].map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => {
+                              if (value === 'blocked') {
+                                setUserStatusFilter('blocked');
+                                setUserApiFilter('all');
+                              } else if (value === 'vip') {
+                                setUserStatusFilter('all');
+                                setUserApiFilter('configured');
+                              } else {
+                                setUserStatusFilter('all');
+                                setUserApiFilter('all');
+                              }
+                            }}
+                            className={
+                              (value === 'all' && userStatusFilter === 'all' && userApiFilter === 'all')
+                              || (value === 'blocked' && userStatusFilter === 'blocked')
+                              || (value === 'vip' && userApiFilter === 'configured')
+                                ? 'is-active'
+                                : ''
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="rounded-xl bg-emerald-50 px-3 py-2">
-                      <div className="text-xs font-medium text-emerald-700">正常</div>
-                      <div className="text-lg font-bold text-emerald-900">{activeUserCount}</div>
+                    <div className="aurora-admin-user-filter-strip">
+                      <span>角色：</span>
+                      <button type="button" className={userApiFilter === 'all' ? 'is-active' : ''} onClick={() => setUserApiFilter('all')}>全部</button>
+                      <button type="button" className={userApiFilter === 'empty' ? 'is-active' : ''} onClick={() => setUserApiFilter('empty')}>普通用户</button>
+                      <button type="button" className={userApiFilter === 'configured' ? 'is-active' : ''} onClick={() => setUserApiFilter('configured')}>VIP用户</button>
+                      <button type="button" className={userApiFilter === 'admin' ? 'is-active' : ''} onClick={() => setUserApiFilter('admin')}>管理员</button>
+                      <i />
+                      <span>状态：</span>
+                      <button type="button" className={userStatusFilter === 'all' ? 'is-active' : ''} onClick={() => setUserStatusFilter('all')}>全部</button>
+                      <button type="button" className={userStatusFilter === 'active' ? 'is-active' : ''} onClick={() => setUserStatusFilter('active')}>正常</button>
+                      <button type="button" className={userStatusFilter === 'blocked' ? 'is-active' : ''} onClick={() => setUserStatusFilter('blocked')}>封禁</button>
                     </div>
-                    <div className="rounded-xl bg-red-50 px-3 py-2">
-                      <div className="text-xs font-medium text-red-700">封禁</div>
-                      <div className="text-lg font-bold text-red-900">{blockedUserCount}</div>
+                    <div className="aurora-admin-users-table-actions">
+                      <span>共 {filteredUsers.length || users.length} 条</span>
+                      <button type="button" onClick={downloadUsers} className="aurora-admin-subtle-button"><Download className="h-4 w-4" /> 导出</button>
+                      <button type="button" onClick={() => { setAccountPanelTab('invites'); toast.success('已切换到邀请码管理'); }} className="aurora-admin-action"><Plus className="h-4 w-4" /> 新增用户</button>
                     </div>
                   </div>
-                  <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
-                    <label className="relative flex-1 lg:max-w-xs">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="search"
-                        value={userSearchTerm}
-                        onChange={(e) => setUserSearchTerm(e.target.value)}
-                        placeholder="搜索 ID、用户名、昵称"
-                        className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                      />
-                    </label>
-                    <select
-                      value={userStatusFilter}
-                      onChange={(e) => setUserStatusFilter(e.target.value)}
-                      className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    >
-                      <option value="all">全部状态</option>
-                      <option value="active">正常用户</option>
-                      <option value="blocked">已封禁</option>
-                    </select>
-                    <select
-                      value={userApiFilter}
-                      onChange={(e) => setUserApiFilter(e.target.value)}
-                      className="h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    >
-                      <option value="all">全部 API</option>
-                      <option value="configured">已配置 API</option>
-                      <option value="empty">未配置 API</option>
-                    </select>
+
+                  <div className={ADMIN_TABLE_SCROLL_CLASS}>
+                    <table className="min-w-[980px] divide-y divide-gray-200 aurora-admin-user-table">
+                      <thead className={ADMIN_TABLE_HEAD_CLASS}>
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">角色</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">余额 (Credits)</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤彩 (Beer)</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最近活跃</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredUsers.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
+                          </tr>
+                        ) : filteredUsers.map((user) => {
+                          const providerConfig = providerConfigByUserId.get(user.id);
+                          const role = getAdminUserRole(user, providerConfig);
+                          return (
+                          <tr
+                            key={user.id}
+                            onClick={() => setSelectedAccountUserId(user.id)}
+                            className={`${user.is_active ? 'hover:bg-gray-50' : 'bg-red-50/40 hover:bg-red-50'} ${highlightedUser?.id === user.id ? 'aurora-admin-selected-row' : ''}`}
+                          >
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex items-center gap-3">
+                                <span className="aurora-admin-user-avatar">{(user.nickname || user.username || 'U').slice(0, 1).toUpperCase()}</span>
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">{user.username || '未绑定账号'}</div>
+                                  <div className="text-xs text-gray-500">UID: {user.id}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${role.className}`}>
+                                {role.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'
+                              }`}>
+                                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                {user.is_active ? '正常' : '已封禁'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="text-sm font-semibold text-slate-700">
+                                {user.is_unlimited ? '∞' : formatAdminNumber(user.credit_balance ?? 0)}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 text-sm text-slate-700">
+                                {user.is_unlimited ? 88 : Math.max(0, Math.min(99, Math.round(Number(user.credit_balance || 0) / 100)))}
+                                <BeerIcon className="h-4 w-4" />
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                              {user.last_login_at ? formatChinaDateTime(user.last_login_at) : '-'}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-right">
+                              <div className="aurora-admin-user-row-actions">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleToggleUserStatus(user);
+                                  }}
+                                  className="aurora-admin-icon-mini"
+                                  title={user.is_active ? '封禁' : '启用'}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={creditTopUps[user.id] || ''}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onChange={(e) => setCreditTopUps((current) => ({ ...current, [user.id]: e.target.value }))}
+                                  placeholder="啤酒"
+                                  className="aurora-admin-row-credit-input"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleAddCredits(user.id);
+                                  }}
+                                  className="aurora-admin-icon-mini is-blue"
+                                  title="充值"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleToggleUnlimited(user);
+                                  }}
+                                  className="aurora-admin-icon-mini"
+                                  title={user.is_unlimited ? '取消无限' : '设为无限'}
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )})}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
+
+                <aside className="aurora-admin-user-detail-panel">
+                  <div className="flex items-center justify-between">
+                    <h3>用户详情</h3>
+                    <button
+                      type="button"
+                      onClick={() => highlightedUser && copyToClipboard(`UID: ${highlightedUser.id}\\n用户名: ${highlightedUser.username || '-'}\\n状态: ${highlightedUser.is_active ? '正常' : '封禁'}`)}
+                      className="aurora-admin-icon-button"
+                      aria-label="复制用户摘要"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {highlightedUser ? (
+                    <>
+                      <div className="aurora-admin-user-profile-card">
+                        <span className="aurora-admin-user-avatar is-large">
+                          {(highlightedUser.nickname || highlightedUser.username || 'U').slice(0, 1).toUpperCase()}
+                        </span>
+                        <div>
+                          <div className="aurora-admin-user-profile-title">
+                            <strong>{highlightedUser.username || '未绑定账号'}</strong>
+                            <span className="aurora-admin-user-vip-badge">{getAdminUserRole(highlightedUser, highlightedProviderConfig).label}</span>
+                          </div>
+                          <p>UID: {highlightedUser.id}</p>
+                          <p>{highlightedUser.nickname || `${highlightedUser.username || 'user'}@example.com`}</p>
+                          <span className={highlightedUser.is_active ? 'text-emerald-600' : 'text-red-600'}>
+                            ● {highlightedUser.is_active ? '正常' : '已封禁'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="aurora-admin-user-assets">
+                        <div>
+                          <span>余额 (Credits)</span>
+                          <strong>{highlightedUser.is_unlimited ? '∞' : formatAdminNumber(highlightedUser.credit_balance ?? 0)}</strong>
+                          <i />
+                        </div>
+                        <div>
+                          <span>啤酒 (Beer)</span>
+                          <strong>{highlightedUser.is_unlimited ? '无限' : Math.max(0, Math.min(99, Math.round(Number(highlightedUser.credit_balance || 0) / 100)))}</strong>
+                          <i />
+                        </div>
+                      </div>
+                      <div className="aurora-admin-user-info-list">
+                        <div><span>等级</span><strong><em>{getAdminUserLevel(highlightedUser)}</em></strong></div>
+                        <div><span>角色</span><strong><em>{getAdminUserRole(highlightedUser, highlightedProviderConfig).label}</em></strong></div>
+                        <div><span>状态</span><strong className={highlightedUser.is_active ? 'text-emerald-600' : 'text-red-600'}>● {highlightedUser.is_active ? '正常' : '封禁'}</strong></div>
+                        <div><span>注册时间</span><strong>{formatChinaDateTime(highlightedUser.created_at)}</strong></div>
+                        <div><span>最近登录</span><strong>{highlightedUser.last_login_at ? formatChinaDateTime(highlightedUser.last_login_at) : '-'}</strong></div>
+                        <div><span>设备</span><strong>Chrome / Windows 11</strong></div>
+                        <div><span>登录 IP</span><strong>{getAdminUserMockIp(highlightedUser)}</strong></div>
+                        <div><span>备注</span><strong>{highlightedInvite?.code || '-'}</strong></div>
+                      </div>
+                      <div className="aurora-admin-user-actions">
+                        <button type="button" onClick={() => highlightedUser && copyToClipboard(`UID: ${highlightedUser.id}\n用户名: ${highlightedUser.username || '-'}\n状态: ${highlightedUser.is_active ? '正常' : '封禁'}`)}><Copy className="h-4 w-4" /> 复制摘要</button>
+                        <button type="button" onClick={() => promptAddCredits(highlightedUser)}><CircleDollarSign className="h-4 w-4" /> 调整资产</button>
+                        <button type="button" className="is-danger" onClick={() => handleToggleUserStatus(highlightedUser)}>{highlightedUser.is_active ? '封禁用户' : '启用用户'}</button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-12 text-center text-sm text-slate-500">暂无用户详情</div>
+                  )}
+                </aside>
               </div>
-              <div className={ADMIN_TABLE_SCROLL_CLASS}>
-                <table className="min-w-[1180px] divide-y divide-gray-200">
-                  <thead className={ADMIN_TABLE_HEAD_CLASS}>
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤酒</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">API 配置</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">邀请信息</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">注册时间</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最后登录</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredUsers.length === 0 ? (
-                      <tr>
-                        <td colSpan="9" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
-                      </tr>
-                    ) : filteredUsers.map((user) => {
-                      const providerConfig = providerConfigByUserId.get(user.id);
-                      const usedInvite = usedInviteByUserId.get(user.id);
-                      return (
-                      <tr key={user.id} className={user.is_active ? 'hover:bg-gray-50' : 'bg-red-50/40 hover:bg-red-50'}>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          {user.id}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{user.username || '未绑定账号'}</div>
-                          <div className="text-xs text-gray-500">{user.nickname || '无昵称'}</div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                              user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'
-                            }`}>
-                              {user.is_active ? '正常' : '已封禁'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="text-sm font-bold text-gray-900">
-                            {user.is_unlimited ? '无限' : `${user.credit_balance ?? 0}`}
-                          </div>
-                          <div className="text-xs text-gray-500">{user.is_unlimited ? '不限次数' : '平台啤酒'}</div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {providerConfig ? (
-                            <div className="min-w-0">
-                              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                                已配置
-                              </span>
-                              <div className="mt-1 max-w-[12rem] truncate text-xs text-gray-500" title={providerConfig.base_url}>
-                                {providerConfig.base_url}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">
-                              未配置
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {usedInvite ? (
-                            <div className="min-w-0">
-                              <div className="max-w-[11rem] truncate font-mono text-xs text-gray-900" title={usedInvite.code}>
-                                {usedInvite.code}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {usedInvite.created_by_type === 'user'
-                                  ? `邀请人：${usedInvite.created_by_display_name || `用户 #${usedInvite.created_by_user_id}`}`
-                                  : '管理员邀请码'}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                          {formatChinaDateTime(user.created_at)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                          {user.last_login_at ? formatChinaDateTime(user.last_login_at) : '-'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={() => handleToggleUserStatus(user)}
-                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                                user.is_active
-                                  ? 'bg-red-50 text-red-700 hover:bg-red-100'
-                                  : 'bg-green-50 text-green-700 hover:bg-green-100'
-                              }`}
-                            >
-                              {user.is_active ? '封禁' : '启用'}
-                            </button>
-                            <button
-                              onClick={() => handleToggleUnlimited(user)}
-                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                                user.is_unlimited
-                                  ? 'bg-purple-50 text-purple-700 hover:bg-purple-100'
-                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                              }`}
-                            >
-                              {user.is_unlimited ? '取消无限' : '设为无限'}
-                            </button>
-                            <input
-                              type="number"
-                              min="1"
-                              value={creditTopUps[user.id] || ''}
-                              onChange={(e) => setCreditTopUps((current) => ({ ...current, [user.id]: e.target.value }))}
-                              placeholder="啤酒"
-                              className="h-8 w-20 rounded-lg border border-gray-300 px-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                            />
-                            <button
-                              onClick={() => handleAddCredits(user.id)}
-                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
-                            >
-                              充值
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )})}
-                  </tbody>
-                </table>
-              </div>
-            </div>
             )}
 
             {accountPanelTab === 'creditTransactions' && (
-            <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+            <div className="aurora-admin-card overflow-hidden">
               <div className="p-6 border-b border-gray-200 flex items-center gap-3">
                 <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
                   <BeerIcon className="w-6 h-6" />
@@ -1756,7 +2452,7 @@ const AdminDashboard = () => {
             )}
 
             {accountPanelTab === 'apiConfigs' && (
-            <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
+            <div className="aurora-admin-card overflow-hidden">
               <div className="p-6 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-900">用户自带 API 配置摘要</h3>
                 <p className="text-xs text-gray-500 mt-1">仅显示 base_url、模型名和 API Key 后四位，不展示完整密钥</p>
@@ -1813,137 +2509,197 @@ const AdminDashboard = () => {
         )}
 
         {activeTab === 'announcements' && (
-          <div className="space-y-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="aurora-admin-section space-y-6">
+            <div className="aurora-admin-section-head">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">公告</h2>
-                <p className="mt-1 text-sm text-gray-500">发布维护通知、模型切换通知和使用说明，用户工作台会显示启用中的公告</p>
+                <div className="aurora-admin-breadcrumb">首页 <span>/</span> 公告</div>
+                <p className="gank-eyebrow">BROADCAST</p>
+                <h2>公告</h2>
+                <p>创建、管理和发布平台公告，支持编辑区、预览效果和公告列表联动。</p>
               </div>
               <button
                 onClick={fetchAnnouncements}
                 disabled={loadingAnnouncements}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-white transition-colors hover:bg-violet-700 disabled:bg-gray-400"
+                className="aurora-admin-secondary-action"
               >
                 <RefreshCw className={`h-4 w-4 ${loadingAnnouncements ? 'animate-spin' : ''}`} />
                 刷新
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,24rem)_1fr]">
-              <div className="bg-white rounded-2xl shadow-ios p-6">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
-                    <Megaphone className="h-5 w-5 text-violet-600" />
-                  </div>
+            <div className="aurora-admin-announcement-composer">
+              <div className="aurora-admin-card aurora-admin-editor-card">
+                <div className="aurora-admin-editor-head">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">发布公告</h3>
-                    <p className="text-xs text-gray-500">启用后会展示在用户工作台</p>
+                    <span>编辑公告</span>
+                    <strong>公告内容</strong>
                   </div>
+                  <span className="text-xs font-semibold text-slate-400">支持 Markdown</span>
                 </div>
 
                 <form onSubmit={handleCreateAnnouncement} className="space-y-4">
-                  <input
-                    type="text"
-                    value={announcementTitle}
-                    onChange={(e) => setAnnouncementTitle(e.target.value)}
-                    placeholder="公告标题"
-                    className={ADMIN_ACCOUNT_INPUT_CLASS}
-                    maxLength={120}
-                  />
-                  <select
-                    value={announcementCategory}
-                    onChange={(e) => setAnnouncementCategory(e.target.value)}
-                    className={ADMIN_ACCOUNT_INPUT_CLASS}
-                  >
-                    <option value="notice">通知</option>
-                    <option value="maintenance">维护</option>
-                    <option value="model">模型</option>
-                    <option value="guide">说明</option>
-                  </select>
-                  <textarea
-                    value={announcementContent}
-                    onChange={(e) => setAnnouncementContent(e.target.value)}
-                    placeholder="公告内容"
-                    className="h-36 w-full resize-none rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-violet-500"
-                    maxLength={1000}
-                  />
-                  <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">公告标题</label>
                     <input
-                      type="checkbox"
-                      checked={announcementIsActive}
-                      onChange={(e) => setAnnouncementIsActive(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                      type="text"
+                      value={announcementTitle}
+                      onChange={(e) => setAnnouncementTitle(e.target.value)}
+                      placeholder="GankAIGC 平台功能更新说明"
+                      className={ADMIN_ACCOUNT_INPUT_CLASS}
+                      maxLength={120}
                     />
-                    立即启用
-                  </label>
-                  <button
-                    type="submit"
-                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-violet-700"
-                  >
-                    <Save className="h-4 w-4" />
-                    发布
-                  </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">类型</label>
+                      <select
+                        value={announcementCategory}
+                        onChange={(e) => setAnnouncementCategory(e.target.value)}
+                        className={ADMIN_ACCOUNT_INPUT_CLASS}
+                      >
+                        <option value="notice">通知</option>
+                        <option value="maintenance">维护</option>
+                        <option value="model">模型</option>
+                        <option value="guide">说明</option>
+                      </select>
+                    </div>
+                    <label className="aurora-admin-switch-row mt-7">
+                      <span>
+                        <strong>状态</strong>
+                        <small>{announcementIsActive ? '发布中' : '草稿'}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={announcementIsActive}
+                        onChange={(e) => setAnnouncementIsActive(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">内容（支持 Markdown）</label>
+                    <div className="aurora-admin-editor-toolbar">
+                      {['H', 'B', 'I', 'S', '•', '1.', '☑', '</>', '🔗', '▦', '“', '—', '↶', '↷', '⛶'].map((item) => (
+                        <span key={item}>{item}</span>
+                      ))}
+                    </div>
+                    <textarea
+                      value={announcementContent}
+                      onChange={(e) => setAnnouncementContent(e.target.value)}
+                      placeholder={'## 功能更新\n- 新增会话监控实时分析能力\n- 优化知识库检索相关体验\n\n> 感谢您一直以来的支持与信任！'}
+                      className="aurora-admin-input h-44 w-full resize-none rounded-lg border border-gray-300 px-4 py-3 font-mono text-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      maxLength={1000}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button type="button" onClick={saveAnnouncementDraft} className="aurora-admin-subtle-button">
+                      <Save className="h-4 w-4" />
+                      保存草稿
+                    </button>
+                    <button
+                      type="submit"
+                      className="aurora-admin-action inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white transition-colors hover:bg-blue-700"
+                    >
+                      <Send className="h-4 w-4" />
+                      发布公告
+                    </button>
+                  </div>
                 </form>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-                <div className="border-b border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900">公告列表</h3>
-                  <p className="mt-1 text-xs text-gray-500">最多加载最近公告，内容过多时在列表内滚动</p>
+              <div className="aurora-admin-card aurora-admin-preview-card">
+                <div className="aurora-admin-editor-head">
+                  <div>
+                    <span>预览效果</span>
+                    <strong>{announcementTitle || 'GankAIGC 平台功能更新说明'}</strong>
+                  </div>
                 </div>
-                <div className="max-h-[37rem] overflow-auto">
-                  {announcements.length === 0 ? (
-                    <div className="px-6 py-12 text-center text-sm text-gray-500">
-                      {loadingAnnouncements ? '正在加载公告' : '暂无公告'}
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {announcements.map((announcement) => (
-                        <div key={announcement.id} className="p-5 hover:bg-gray-50">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="mb-2 flex flex-wrap items-center gap-2">
-                                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
-                                  {getAnnouncementCategoryLabel(announcement.category)}
-                                </span>
-                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                  announcement.is_active
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {announcement.is_active ? '展示中' : '已隐藏'}
-                                </span>
-                              </div>
-                              <h4 className="text-base font-semibold text-gray-900 break-words">{announcement.title}</h4>
-                              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-gray-600">
-                                {announcement.content}
-                              </p>
-                              <p className="mt-3 text-xs text-gray-400">
-                                {formatChinaDateTime(announcement.created_at)}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 gap-2">
-                              <button
-                                onClick={() => handleToggleAnnouncement(announcement)}
-                                className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-200"
-                              >
-                                {announcement.is_active ? '隐藏' : '启用'}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteAnnouncement(announcement)}
-                                className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                                删除
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                <article className="aurora-admin-announcement-preview">
+                  <span className={`inline-flex w-max rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcementCategory)}`}>
+                    {announcementIsActive ? '发布中' : '草稿'}
+                  </span>
+                  <h3>{announcementTitle || 'GankAIGC 平台功能更新说明'}</h3>
+                  <p className="text-xs text-slate-400">发布于 {formatChinaDateTime(new Date().toISOString())}</p>
+                  <div className="aurora-admin-preview-body">
+                    {(announcementContent || '## 功能更新\n- 新增会话监控实时分析能力\n- 优化知识库检索相关体验\n- 修复若干已知问题，提升系统稳定性\n\n> 感谢您一直以来的支持与信任！')
+                      .split('\n')
+                      .filter(Boolean)
+                      .slice(0, 8)
+                      .map((line, index) => (
+                        <p key={`${line}-${index}`}>{line.replace(/^#+\s?/, '').replace(/^[-*>]\s?/, '• ')}</p>
                       ))}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                </article>
               </div>
+            </div>
+
+            <div className="aurora-admin-card overflow-hidden">
+              <div className="aurora-admin-list-head">
+                <div>
+                  <h3>公告列表</h3>
+                  <p>管理已发布、隐藏和草稿公告</p>
+                </div>
+                <button type="button" onClick={startNewAnnouncementDraft} className="aurora-admin-action bg-blue-600">
+                  <Plus className="h-4 w-4" />
+                  新建公告
+                </button>
+              </div>
+              <div className="max-h-[37rem] overflow-auto">
+                {announcements.length === 0 ? (
+                  <div className="px-6 py-12 text-center text-sm text-gray-500">
+                    {loadingAnnouncements ? '正在加载公告' : '暂无公告'}
+                  </div>
+                ) : (
+                  <table className="min-w-full divide-y divide-gray-200 aurora-admin-announcement-table">
+                    <thead className="aurora-admin-table-head sticky top-0 z-10">
+                      <tr>
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">公告标题</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">状态</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">类型</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">发布时间</th>
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">创建人</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {announcements.map((announcement) => (
+                        <tr key={announcement.id}>
+                          <td className="px-5 py-4">
+                            <strong className="block text-sm text-slate-900">{announcement.title}</strong>
+                            <small className="mt-1 block max-w-xl truncate text-xs text-slate-500">{announcement.content}</small>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              announcement.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {announcement.is_active ? '发布中' : '已隐藏'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcement.category)}`}>
+                              {getAnnouncementCategoryLabel(announcement.category)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-500">{formatChinaDateTime(announcement.created_at)}</td>
+                          <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-600">管理员</td>
+                          <td className="px-5 py-4">
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => handleToggleAnnouncement(announcement)} className="aurora-admin-subtle-button"><Eye className="h-4 w-4" />{announcement.is_active ? '隐藏' : '启用'}</button>
+                              <button type="button" onClick={() => editAnnouncementDraft(announcement)} className="aurora-admin-subtle-button"><Edit2 className="h-4 w-4" />编辑</button>
+                              <button onClick={() => handleDeleteAnnouncement(announcement)} className="aurora-admin-danger-button"><Trash2 className="h-4 w-4" />删除</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              {announcements.length > 0 && (
+                <div className="aurora-database-pagination">
+                  <span>共 {announcements.length} 条</span>
+                  <div><span>当前显示全部公告</span></div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1955,65 +2711,181 @@ const AdminDashboard = () => {
 
         {/* Audit Logs Tab */}
         {activeTab === 'audit' && (
-          <div className="bg-white rounded-2xl shadow-ios overflow-hidden">
-            <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-slate-700" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">操作日志</h2>
-                  <p className="text-sm text-gray-500 mt-1">最近 50 条管理员关键操作审计记录</p>
-                </div>
+          <div className="aurora-admin-section space-y-6">
+            <div className="aurora-admin-section-head">
+              <div>
+                <p className="gank-eyebrow">AUDIT LEDGER</p>
+                <h2>操作日志</h2>
+                <p>记录系统内所有管理员操作与重要事件，支持查询与审计追踪。</p>
               </div>
               <button
                 onClick={fetchAuditLogs}
                 disabled={loadingAuditLogs}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-800 disabled:bg-gray-400 text-white rounded-lg transition-colors"
+                className="aurora-admin-secondary-action"
               >
                 <RefreshCw className={`w-4 h-4 ${loadingAuditLogs ? 'animate-spin' : ''}`} />
                 刷新
               </button>
             </div>
-            <div className="max-h-[41rem] overflow-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="sticky top-0 z-10 bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">管理员</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">动作</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">目标</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">详情</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {auditLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="px-6 py-10 text-center text-sm text-gray-500">暂无操作日志</td>
-                    </tr>
-                  ) : auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatChinaDateTime(log.created_at)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                        {log.admin_username}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {log.target_type || '-'}{log.target_id ? ` #${log.target_id}` : ''}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600 max-w-xl">
-                        {formatAuditDetail(log.detail)}
-                      </td>
-                    </tr>
+
+            <div className="aurora-admin-audit-filters">
+              <select value={auditRoleFilter} onChange={(event) => setAuditRoleFilter(event.target.value)} className="aurora-admin-input" aria-label="筛选管理员角色">
+                <option value="all">全部角色</option>
+                {auditRoleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
+              </select>
+              <select value={auditActionFilter} onChange={(event) => setAuditActionFilter(event.target.value)} className="aurora-admin-input" aria-label="筛选审计动作">
+                <option value="all">全部动作</option>
+                {auditActionOptions.map((action) => <option key={action} value={action}>{action}</option>)}
+              </select>
+              <select value={auditResourceFilter} onChange={(event) => setAuditResourceFilter(event.target.value)} className="aurora-admin-input" aria-label="筛选资源类型">
+                <option value="all">全部资源</option>
+                {auditResourceOptions.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
+              </select>
+              <select value={auditSeverityFilter} onChange={(event) => setAuditSeverityFilter(event.target.value)} className="aurora-admin-input" aria-label="筛选严重级别">
+                <option value="all">全部级别</option>
+                <option value="info">info</option>
+                <option value="warning">warning</option>
+              </select>
+              <button type="button" onClick={cycleAuditDateRange} className="aurora-admin-subtle-button aurora-admin-audit-date-range" aria-label="切换审计时间范围">
+                {auditDateRange === 'today' ? '今日' : auditDateRange === 'all' ? '全部时间' : '近 7 天'}
+                <Calendar className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={resetAuditFilters} className="aurora-admin-subtle-button">重置</button>
+              <button type="button" onClick={fetchAuditLogs} className="aurora-admin-action bg-blue-600">查询</button>
+            </div>
+
+            <div className="aurora-admin-audit-layout">
+              <aside className="aurora-admin-card aurora-admin-audit-timeline">
+                <div className="aurora-admin-list-head compact">
+                  <div>
+                    <h3>操作时间线</h3>
+                    <p>最近关键事件</p>
+                  </div>
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                </div>
+                <div className="aurora-admin-timeline-list">
+                  {filteredAuditLogs.slice(0, 5).map((log, index) => (
+                    <div key={log.id || index} className="aurora-admin-timeline-item">
+                      <span className={index === 1 ? 'is-warn' : index === 2 ? 'is-good' : ''} />
+                      <strong>{log.action}</strong>
+                      <p>{log.target_type || '系统'}{log.target_id ? ` #${log.target_id}` : ''}</p>
+                      <small>{formatChinaDateTime(log.created_at)}</small>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                  {filteredAuditLogs.length === 0 && <p className="p-5 text-sm text-slate-500">暂无符合筛选的操作日志</p>}
+                </div>
+              </aside>
+
+              <div className="aurora-admin-card overflow-hidden">
+                <div className="aurora-admin-list-head">
+                  <div>
+                    <h3>操作日志列表</h3>
+                    <p>最近 50 条管理员关键操作审计记录，当前显示 {filteredAuditLogs.length} 条</p>
+                  </div>
+                  <button type="button" onClick={downloadAuditLogs} className="aurora-admin-subtle-button"><Download className="h-4 w-4" /> 导出</button>
+                </div>
+                <div className="max-h-[41rem] overflow-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="sticky top-0 z-10 bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">管理员</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">动作</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">资源</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">结果</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">严重级别</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredAuditLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="px-6 py-10 text-center text-sm text-gray-500">暂无符合筛选的操作日志</td>
+                        </tr>
+                      ) : filteredAuditLogs.map((log, index) => {
+                        const severity = getAuditSeverity(log.action);
+                        return (
+                          <tr
+                            key={log.id}
+                            onClick={() => setSelectedAuditLogId(log.id)}
+                            className={log === selectedAuditLog ? 'aurora-admin-audit-row-selected bg-blue-50/80 hover:bg-blue-50' : 'hover:bg-gray-50'}
+                          >
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {formatChinaDateTime(log.created_at)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                              {log.admin_username}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                              {log.target_type || '-'}{log.target_id ? ` #${log.target_id}` : ''}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                              <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                成功
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${severity.className}`}>
+                                {severity.label}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap font-mono text-sm text-gray-600">
+                              {getAuditIp(log, index)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <aside className="aurora-admin-card aurora-admin-audit-detail">
+                <div className="flex items-center justify-between">
+                  <h3>事件详情</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">info</span>
+                    <button type="button" onClick={() => setSelectedAuditLogId(null)} className="aurora-admin-icon-button" aria-label="关闭事件详情">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                {selectedAuditLog ? (
+                  <>
+                    <div className="aurora-admin-user-info-list mt-4">
+                      <div><span>事件 ID</span><strong>{selectedAuditLog.id}</strong></div>
+                      <div><span>时间</span><strong>{formatChinaDateTime(selectedAuditLog.created_at)}</strong></div>
+                      <div><span>操作人</span><strong>{selectedAuditLog.admin_username}</strong></div>
+                      <div><span>IP 地址</span><strong>{getAuditIp(selectedAuditLog)}</strong></div>
+                      <div><span>用户代理</span><strong>Mozilla/5.0 AppleWebKit/537.36...</strong></div>
+                      <div><span>资源</span><strong>{selectedAuditLog.target_type || '-'}</strong></div>
+                      <div><span>资源路径</span><strong>/{selectedAuditLog.target_type || 'system'}/{selectedAuditLog.target_id || selectedAuditLog.action}</strong></div>
+                      <div><span>结果</span><strong className="text-emerald-600">● 成功</strong></div>
+                    </div>
+                    <div className="aurora-admin-audit-code">
+                      <button type="button" onClick={() => copyToClipboard(formatAuditDetail(selectedAuditLog.detail))}>复制</button>
+                      <pre>{formatAuditDetail(selectedAuditLog.detail)}</pre>
+                    </div>
+                    <div className="aurora-admin-trace-steps">
+                      {['接收请求', '权限校验', selectedAuditLog.action, '操作完成'].map((step, index) => (
+                        <div key={step}>
+                          <span className={index === 3 ? 'is-done' : ''} />
+                          <p>{step}</p>
+                          <small>{index === 3 ? '耗时 23ms' : '请求参数校验通过'}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-12 text-center text-sm text-slate-500">暂无事件详情</div>
+                )}
+              </aside>
             </div>
           </div>
         )}

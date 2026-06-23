@@ -91,6 +91,7 @@ Questions to answer:
 - Primary actions should use `.apple-action-pill` and active press `scale(0.95)`. Secondary actions should use `.apple-ghost-pill` or a low-chrome text/link treatment.
 - Utility/report cards should be low chrome: `18px` radius, hairline borders, minimal/no shadow. Heavy generic shadows and decorative gradients are not part of this direction except the single product-preview resting shadow.
 - Keep legacy `.gank-*` class strings where tests or existing pages depend on them, but the visual source of truth for new theme work is the `.apple-*` class set above.
+- Keep the Apple/glass visual language mostly through opaque gradients, borders, and light shadows at runtime. Heavy `.glass`, `.gank-liquid-panel`, `.apple-*`, and `.aurora-*` surfaces must be covered by a runtime performance guardrail that sets `backdrop-filter: none !important`; blurred ambient orbs should not use live `filter: blur(...)`.
 - Long reading surfaces, especially original/final paper text panels, must use `.gank-text-panel` plus `.apple-reading-panel` or an equally opaque background. Do not make paper body text translucent.
 - Long Agent histories must remain inside `.gank-agent-scroll` plus `custom-scrollbar` and `max-h-[560px]` so the result/original text panels stay reachable.
 - The app remains light-mode-first for readability; do not add automatic dark-mode overrides that make Tailwind `text-black`, `bg-white`, or `text-gray-*` content unreadable unless the pages are audited end-to-end.
@@ -105,6 +106,9 @@ Questions to answer:
 - Static bundle not synced after build -> the same test fails because it reads the CSS bundle referenced by `package/static/index.html`.
 - Browser lacks `backdrop-filter` -> UI must fall back to solid readable surfaces, not transparent unreadable panels.
 - User has reduced transparency enabled -> ambient orbs are hidden and surfaces become solid.
+- Workspace feels sluggish while typing or polling -> first check for large `backdrop-filter` surfaces, blurred ambient orbs, overlapping pollers, and effect dependencies that restart initial loaders after `activeProjectId` changes.
+- Static bundle grows or first route feels slow -> pages should be route-level lazy loaded with `React.lazy` + `Suspense`; static tests that inspect served JS must scan all lazy chunks, not only the entry `index-*.js`.
+- SSE streams feel jumpy or CPU-heavy -> batch content/zhuque live events before setting state; do not call `setState` for every single SSE token/event.
 - Warm Tabbit/orange remnants become primary visual language -> visual review fails even if static string tests pass.
 - Long Agent trace -> keep a bounded scroll container so final/original paper text remains reachable.
 
@@ -146,6 +150,89 @@ Questions to answer:
 </section>
 ```
 
+## Scenario: Workspace Project Archive and History Scope Controls
+
+### 1. Scope / Trigger
+
+- Trigger: any change to `package/frontend/src/pages/WorkspacePage.jsx` project selector, project archive/edit controls, per-session project assignment controls, or right-side processing history list.
+- The workspace history API already has a three-way scope contract; do not collapse it into a vague "全部项目" label.
+
+### 2. Signatures
+
+- `optimizationAPI.listSessions(projectId = null)`:
+  - `projectId === null` -> call `/optimization/sessions` with no `project_id` param, returning all sessions.
+  - `projectId === 0` -> call `/optimization/sessions?project_id=0`, returning only unfiled/no-project sessions.
+  - `projectId > 0` -> call `/optimization/sessions?project_id=<id>`, returning that paper project's sessions.
+- `optimizationAPI.updateSessionProject(sessionId, { project_id })` -> `PATCH /optimization/sessions/{session_id}/project`; assigns a single session to an active paper project, or moves it back to unfiled when `project_id=null`.
+- `projectAPI.archive(projectId)` -> `DELETE /user/projects/{project_id}`; archives the project but does not delete its session history.
+
+### 3. Contracts
+
+- `activeProjectId` must preserve these sentinel values:
+  - `null` = "全部历史".
+  - `0` = "未归档历史".
+  - positive number = selected paper project.
+- The project selector must expose both `全部历史` and `未归档历史`; avoid old `全部项目` wording because it hid the unfiled/all distinction.
+- Archive/edit controls are project-management actions and should only appear after selecting a concrete paper project. In all-history or unfiled scope, show a hint explaining that unfiled records are assigned from each session card via `归入项目`.
+- Moving an unfiled session into a project is not project archiving. Use a per-session themed action (`归入项目` / `移动项目`) that calls `updateSessionProject`; do not overload the project archive button for this and do not use the browser's native `<select>` menu for this action.
+- History filter icons must be actual controls with `button`, `aria-label`, and `aria-expanded`; static icons are forbidden.
+- `全部历史` must be selected from the project scope selector. Do not add a second bottom "查看/刷新全部历史" button that duplicates the same scope and confuses users.
+- History filter menus must render above history cards. If the side card or scroll list clips the menu, raise the menu/head z-index and keep the card overflow visible rather than letting options appear behind records.
+- Per-session move menus must use the same light Apple-style custom menu as the history filter: pill trigger, white rounded menu, blue hover states, `aria-haspopup="menu"`, `aria-expanded`, and `role="menu"/"menuitem"`.
+
+### 4. Validation & Error Matrix
+
+- `activeProjectId === null` -> no `project_id` query param; title renders "全部历史".
+- `activeProjectId === 0` -> query param `project_id=0`; title renders "未归档历史".
+- selected project archived -> remove it from the selector, switch to all history, and keep archived sessions reachable through all-history results.
+- session moved from unfiled to project -> remove it from the `project_id=0` current list immediately; project/all-history scopes should update the row in place or show it after refresh.
+- status filter yields no rows -> show an empty-filter state with a clear-filter action, not a blank list.
+
+### 5. Good/Base/Bad Cases
+
+- Good: selecting a concrete project shows pill-style `编辑当前项目` and `归档当前项目` buttons with icons.
+- Good: an unfiled session card exposes a themed `归入项目` menu, lets the user choose `test1` (or any active project), then removes that card from the unfiled list after the API confirms.
+- Good: the filter button opens a status menu (`全部状态`, `已完成`, `失败`, `处理中`, `排队中`, `已停止`) and filters client-side rows from the loaded scope.
+- Good: the project selector is the single source of truth for switching between `全部历史`, `未归档历史`, and concrete projects.
+- Base: no projects exist; selector still offers `全部历史` and `未归档历史`, and archive hint remains visible.
+- Bad: treating "归档到 test1" as project archive/hide; it should be session project assignment.
+- Bad: `loadSessions` returns early for `null`, because that breaks all-history loading.
+- Bad: a bare `<Filter />` icon or a down chevron implying a dropdown without behavior.
+- Bad: a filter dropdown with lower z-index than history cards, causing menu options to appear behind records.
+- Bad: native project-move `<select>` options with OS blue highlight and square borders; it visually breaks the workspace theme.
+
+### 6. Tests Required
+
+- Static frontend tests should assert `HISTORY_STATUS_FILTERS`, `historyStatusFilter`, `filteredSessions`, filter button ARIA, and clear-filter behavior.
+- Static frontend tests should assert selector options `value="all"` / `value="0"`, `handleProjectScopeChange`, `loadSessions(null)`, the absence of `全部项目`, and the absence of duplicate bottom `查看/刷新全部历史` buttons in `WorkspacePage.jsx`.
+- Static frontend tests should assert archive/edit visible strings, `projectAPI.archive(project.id)`, `updateSessionProject`, `handleMoveSessionToProject`, `归入项目`, custom menu roles/classes (`aurora-session-project-trigger`, `aurora-session-project-menu`, `role="menu"`), absence of `aurora-session-project-select`, and filter menu z-index/overflow CSS.
+- Backend/API tests should assert `PATCH /api/optimization/sessions/{session_id}/project` can move an unfiled session into an active project, removes it from `project_id=0`, and can move it back with `project_id=null`.
+- Build with `cd package/frontend; npm run build` and sync `package/frontend/dist` into `package/static`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+if (projectId === null || projectId === undefined) return;
+<option value={0}>全部项目</option>
+<Filter className="h-4 w-4" />
+<button onClick={() => loadSessions(activeProjectId)}>查看全部历史</button>
+```
+
+#### Correct
+
+```jsx
+const resolvedProjectId = projectId === undefined ? activeProjectIdRef.current : projectId;
+await optimizationAPI.listSessions(resolvedProjectId);
+
+<option value="all">全部历史</option>
+<option value="0">未归档历史</option>
+<button aria-label="筛选历史状态" aria-expanded={showHistoryFilters}>...</button>
+<button aria-haspopup="menu" aria-expanded={isProjectMenuOpen}>归入项目</button>
+<div role="menu">...</div>
+```
+
 ## Scenario: Zhuque AI Detect-Reduce UI Contract
 
 ### 1. Scope / Trigger
@@ -172,12 +259,17 @@ Questions to answer:
 - Workspace mode list must include `AI检测 + 降重`.
 - Platform billing copy for `ai_detect_reduce` must say detection does not consume beer and actual high-AI LLM rewrite is charged by reduce call. Estimated start cost should display as zero/skip.
 - When `processingMode === "ai_detect_reduce"`, show the Zhuque credential panel, call `getZhuqueAuthStatus()` immediately, then poll every 5 seconds while the mode remains selected.
-- The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, then display credential status, remaining uses, text-length readiness, readiness message, and actions.
-- If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state such as `检测后同步`; never show raw `-1` as a user-facing quota.
+- The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, but the workspace visible card is intentionally compact: render `朱雀 AI 检测`, Zhuque login user name under the title, the scan-login/logged-in button, connection status, and remaining uses. Do not render page status, text-length readiness, auth method, credential filename, readiness message, action suggestions, or estimated credit details inside the workspace card.
+- Zhuque status polling must be lightweight: do not overlap in-flight status/readiness requests and pause polling when `document.visibilityState !== "visible"`. The backend may refresh quota through a throttled no-text WebSocket auth peek because `creds_latest.json` quota is stale after detections; frontend must not add extra client-side probes or tighten the polling cadence to force refresh.
+- If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state such as `检测后同步` for connected credentials or `免费次数` for logged-out anonymous mode; never show raw `-1` as a user-facing quota. If the backend status/readiness payload carries a logged-out live anonymous quota (for example from `Detect now(16 left)`), render the numeric count (`16 次`) even when `connected=false` / `has_token=false`.
 - Before starting an `ai_detect_reduce` task, call `preflightZhuqueTask({original_text, processing_mode, billing_mode})`; if `ready=false`, show the backend message and do not call `startOptimization`.
-- If preflight returns `estimated_max_round_credits`, show it as a risk estimate only. Do not present it as a pre-held or guaranteed charge.
-- The login button calls `startZhuqueLogin()` and keeps status based on the status endpoint's `connected` field, not on the launch response alone.
-- UI copy must say the visible page is a one-time WeChat QR authorization/credential-capture step. It must not tell users to "start Zhuque browser" or imply detection depends on a local browser/debug port; after credentials are ready, detection is direct headless WebSocket API.
+- If preflight returns `estimated_max_round_credits`, it may be shown in a toast or start-flow feedback only. Do not put it back into the compact workspace credential card, and do not present it as a pre-held or guaranteed charge.
+- The login button calls `startZhuqueLogin({syncSession: true})` and keeps status based on the status/readiness endpoint's connected/token fields, not on the launch response alone. Its visible label is `扫码登录` before credentials are ready and `已登录` after credentials are ready. It must not be disabled merely because credentials are already connected; logged-in users can click the same button to reopen the real Zhuque page and sync login/logout/account-switch state. Only the in-flight launch state may disable it.
+- Clicking the logged-in Zhuque button must not pre-delete `creds_latest.json` or pass a destructive switch-account flow. The backend should open `capture_zhuque_creds.py --sync-session`; GankAIGC treats logout/account switch as real only after the Tencent Zhuque page itself is observed as logged out or logged in as a different account. Closing the Zhuque page alone preserves the last observed state.
+- The compact Zhuque card must not show a decorative icon to the left of `朱雀 AI 检测`; the card is narrow inside the editor column, so title, action button, connection-status metric, and remaining-uses metric must use a wrapping/flexible layout rather than fixed three-column sizing that can overlap. Desktop/tablet order must be exactly `朱雀 AI 检测` -> `扫码登录/已登录` -> `连接状态` -> `剩余次数`, staying on one row when the editor column has enough width. Metric labels, metric values, and button text should use the same 14px visual scale.
+- Do not let `.aurora-zhuque-metrics` behave as one large flex/grid item on desktop, because that makes `连接状态` and `剩余次数` drop together to the second row. Use `display: contents` or equivalent so both metric tiles participate directly in the parent row after the login button.
+- The title item must not use a growable `flex: 1` value on desktop, because it pushes the login button too far right. Use content-sized title width and a single shared gap token so `朱雀 AI 检测`, `已登录`, `连接状态`, and `剩余次数` have visually even spacing.
+- UI copy must not tell users to "start Zhuque browser" or imply detection depends on a local browser/debug port; after credentials are ready, detection is direct headless WebSocket API. The workspace card itself should stay terse rather than explaining the full QR-capture mechanism.
 - Session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
 - Zhuque report risk rate in UI must use `max(labels_ratio[0], labels_ratio[2]) * 100` when `labels_ratio` is present, matching backend threshold semantics. `zhuque_pkg` v2 maps `0=AI`, `1=human`, `2=suspicious/mixed`.
 - Session detail must parse `zhuque_agent_trace` defensively and render the "Agent 决策轨迹" panel when trace or live Zhuque SSE events exist. The trace list must live in a bounded-height scroll container so long multi-round histories do not push the final/original text panels off the page.
@@ -189,6 +281,7 @@ Questions to answer:
 - When trace or live `zhuque_reduce` events contain `rollback_applied=true`, render a "回滚保护" summary with `rollback_reason`, `rolled_back_from_rate`, `rolled_back_to_rate`, and `restored_segment_indices` so users can see that an equal-or-worse rewrite did not overwrite a better previous version.
 - When trace contains `type="plateau_exit"`, render it as "卡点退出" and explain that the best reduced text was preserved and the user should manually adjust stubborn paragraphs or change the threshold before retrying.
 - Session detail SSE must consume `zhuque_detect` and `zhuque_reduce` in addition to `content`; live state is supplemental and refresh must still recover from stored trace.
+- Session detail SSE must throttle/batch live updates (current contract: 100ms flush window) so long content streams do not force a full component tree render for every token.
 
 ### 4. Validation & Error Matrix
 
@@ -205,8 +298,10 @@ Questions to answer:
 ### 5. Good/Base/Bad Cases
 
 - Good: selecting `ai_detect_reduce` shows credential guidance, connected state updates from polling, and detail page shows final risk rate, detect count, reduce rounds, remaining uses, labels ratio, text length, and process timeline.
-- Good: readiness shows credential status, remaining uses, text length, action suggestions, and a "朱雀已就绪" state before task start.
-- Good: when the backend cannot know live quota yet, readiness shows `检测后同步` instead of `-1`, and switches to a numeric count once the live probe or a detection result returns `remaining_uses`.
+- Good: the workspace can remember `ai_detect_reduce` across refresh without making the page sluggish; idle status refresh uses the backend's throttled readiness/status state, only one status/readiness pair can be in flight, and hidden tabs stop polling.
+- Good: route chunks show Workspace/SessionDetail/AdminDashboard split from the initial entry bundle, and SessionDetail batches SSE content/zhuque events before state updates.
+- Good: the workspace Zhuque card uses `.aurora-zhuque-status-card`, `.aurora-zhuque-metric`, `.aurora-zhuque-account`, and `.aurora-zhuque-login-button`, showing `朱雀 AI 检测`, `登录用户`, `扫码登录`/`已登录`, `连接状态`, and `剩余次数` in that order.
+- Good: when the backend cannot know live quota yet, readiness shows `检测后同步`/`免费次数` instead of `-1`, and switches to a numeric count once the live probe, session-status sync, or a detection result returns `remaining_uses`; logged-out anonymous quota may show as `16 次` without implying `已登录`.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
 - Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Good: detail page shows Prompt Evolution learning rows explaining why the previous prompt failed and which safe patch was used next.
@@ -217,17 +312,21 @@ Questions to answer:
 - Good: a long Agent trace is scrollable inside the trace card, and `plateau_exit` appears as "卡点退出" with manual-review guidance.
 - Good: the export modal for completed `ai_detect_reduce` sessions offers `AIGC检测报告 (.docx)` and `AIGC检测报告 (.md)` in addition to final paper `Word文档` and `Markdown文件`, and copy explains the report lists every segment's AI rate.
 - Base: no report yet; result page still shows original/optimized text and a non-crashing empty report.
-- Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, marks credentials connected just because launch was attempted, or uses old browser-launch wording.
+- Bad: UI treats `labels_ratio[1]` as AI, shows a fixed "20%" threshold unrelated to backend config without matching tests, marks credentials connected just because launch was attempted, deletes credentials when the user merely clicks `已登录`, disables the logged-in QR/login button so it looks clickable but cannot reopen the Zhuque sync page, uses old browser-launch wording, or reintroduces workspace card fields such as `页面状态`, `文本长度`, `认证方式`, credential filename, long API explanations, or action-suggestion rows.
 - Bad: UI hides the normal final-paper export after adding AIGC report export, offers AIGC report options for non-Zhuque sessions, or labels the report export as if it were the final paper text.
 - Bad: UI displays `剩余次数：-1`, causing users to read an unknown quota as negative usage.
 - Bad: UI calls `startOptimization` after preflight returns `ready=false`, or displays estimated max credits as already charged beer.
+- Bad: Frontend tries to force quota freshness by adding an unthrottled client-side probe or shorter polling interval, restarts initial loaders because a callback depends on `activeProjectId`, or uses large live `backdrop-filter` surfaces that repaint on every status tick.
+- Bad: Synchronous page imports in `App.jsx` pull every route into the first bundle, or SessionDetail appends SSE events with one `setState` per event.
 
 ### 6. Tests Required
 
 - Static/frontend tests should assert mode option text, launcher/status endpoint strings, browser status polling state usage, report field rendering, and `zhuque_reduced_text` final-text priority.
 - Static/frontend tests should assert AIGC report export option strings (`aigc_report_docx`, `aigc_report_md`) are gated to `ai_detect_reduce` sessions and that the modal explains per-segment AI-rate reporting.
-- Static/frontend tests should assert readiness/preflight endpoint strings, readiness field rendering, preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
+- Static/frontend tests should assert readiness/preflight endpoint strings, compact workspace readiness rendering (`朱雀 AI 检测`, `连接状态`, `剩余次数`, `登录用户`, `扫码登录`/`已登录`, `.aurora-zhuque-status-card`, `.aurora-zhuque-account`, `.aurora-zhuque-login-button`), absence of the old complex workspace fields (`页面状态`, `文本长度`, `认证方式`, estimate/action rows), preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Static/frontend tests should assert negative/missing `remaining_uses` renders as an unknown/sync-pending label, not raw `-1`.
+- Static/frontend tests should assert Zhuque status polling has an in-flight guard, pauses when the document is hidden, and that workspace queue polling uses a named interval constant rather than an aggressive inline interval.
+- Static/frontend tests should assert route-level lazy loading, SSE batching refs/timer, and runtime CSS guardrails in both source CSS and the served static CSS bundle.
 - Static/frontend tests should assert Paper Reconstruction trace strings: `paper_reconstruction`, "论文重构", `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, and `fact_card_count`.
 - Static/frontend tests should assert rollback protection strings: `rollback_applied` and "回滚保护".
 - Build must pass with `npm.cmd run build` on Windows PowerShell environments where `npm.ps1` may be blocked by execution policy.
@@ -251,4 +350,225 @@ const finalText = segments.map(
 const aiRate = Number(result.labels_ratio?.[0] ?? result.labels_ratio?.["0"] ?? 0) * 100;
 const suspiciousRate = Number(result.labels_ratio?.[2] ?? result.labels_ratio?.["2"] ?? 0) * 100;
 const riskRate = Math.max(aiRate, suspiciousRate);
+```
+
+## Scenario: Aurora Account Utility Pages Theme
+
+### 1. Scope / Trigger
+
+- Trigger: any visual/layout change in `package/frontend/src/pages/ProfilePage.jsx`, `CreditsPage.jsx`, `ApiSettingsPage.jsx`, or their shared account-page styling in `package/frontend/src/index.css`.
+- Current direction: these secondary/account pages must visually belong to the same Apple/light workspace theme as `WorkspacePage.jsx`, not the old centered glass-card island layout.
+
+### 2. Signatures
+
+- Shared source classes:
+  - Page shell: `gank-app-page aurora-app-page aurora-account-page`.
+  - Top navigation: `apple-global-nav aurora-topbar`, `aurora-brand-logo`, `aurora-account-back-link`.
+  - Main shell: `aurora-page-shell aurora-account-shell`.
+  - Hero/metadata: `aurora-account-hero`, `apple-config-chip`.
+  - Cards/forms: `apple-utility-card aurora-account-card`, `apple-metric-card`, `aurora-input`, `aurora-account-primary apple-action-pill`, `aurora-secondary-action`.
+- Static bundle location remains `package/static`; after build, `package/static/index.html` must reference the current hashed CSS/JS assets.
+
+### 3. Contracts
+
+- Profile, Credits, and API Settings pages must keep the same light Apple/Aurora chrome as the workspace: translucent-looking but runtime-opaque topbar, soft blue/cyan accents, low-shadow utility cards, rounded product surfaces, and Action Blue primary buttons.
+- `返回工作台` must be a visible themed control with an icon and button frame, not a plain text link.
+- Do not reintroduce `gank-glass-toolbar`, `gank-glass-card`, or a single narrow `gank-card rounded-[2rem]` island as the dominant layout for these pages.
+- Use `aurora-input` for form fields so focus rings and spacing match the workspace controls.
+- Long ledgers/history-style lists, such as credit transactions, must be bounded and scrollable (`custom-scrollbar`) instead of pushing the page indefinitely.
+- Keep business behavior unchanged: profile nickname/password/invite actions, credit redeem/load transactions, API save/test flows must keep existing API calls and validation messages.
+
+### 4. Validation & Error Matrix
+
+- Page misses `aurora-account-page` or `apple-global-nav aurora-topbar` -> static theme test fails.
+- Page keeps old `gank-glass-toolbar`/dominant old `gank-glass-card` -> visual regression; static tests should assert absence where practical.
+- Build succeeds but `package/static` is not synced -> static bundle assertions for `ACCOUNT CONTROL`, `BEER BALANCE`, `MODEL PROVIDER`, or `aurora-account-page` fail.
+- Importing a Lucide icon not exported by the pinned `lucide-react` version -> `npm run build` fails; check local `node_modules/lucide-react/dist/esm/lucide-react.js` before choosing new icons.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `ProfilePage.jsx` uses an account hero, profile card, two metric cards, themed forms, and keeps nickname/password/invite flows intact.
+- Good: `CreditsPage.jsx` uses a large balance card plus bounded ledger card and keeps `formatChinaDateTime(transaction.created_at)`.
+- Good: `ApiSettingsPage.jsx` uses a provider summary card plus two-column config form and keeps encrypted-key copy.
+- Base: no transactions or no saved API key; page still shows a composed empty/notice state.
+- Bad: a plain max-width centered white card with default toolbar, old teal/orange primary accents, native-looking inputs, or unsynced static bundle.
+
+### 6. Tests Required
+
+- Static frontend tests should assert each page uses `gank-app-page aurora-app-page aurora-account-page`, `apple-global-nav aurora-topbar`, `aurora-account-back-link`, `aurora-account-hero`, `apple-config-chip`, `apple-utility-card aurora-account-card`, and `aurora-input`.
+- Static frontend tests should assert source CSS includes `.aurora-account-page`, `.aurora-account-hero`, `.aurora-account-card.apple-utility-card`, `.aurora-account-primary.apple-action-pill`, `.aurora-ledger-item`, and `.aurora-api-form`.
+- Static frontend tests should read all served JS chunks in `package/static/assets` because route-level lazy pages may not be in the entry chunk.
+- Run `cd package/frontend && npm run build`, sync `dist` into `../static`, remove stale hashed assets, and verify `package/static/index.html` asset references exist.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+<div className="gank-app-page">
+  <header className="gank-glass-toolbar">
+    <Link to="/workspace">返回工作台</Link>
+  </header>
+  <main className="max-w-3xl mx-auto">
+    <div className="gank-card rounded-[2rem] p-6">...</div>
+  </main>
+</div>
+```
+
+#### Correct
+
+```jsx
+<div className="gank-app-page aurora-app-page aurora-account-page">
+  <nav className="apple-global-nav aurora-topbar">
+    <BrandLogo size="md" showText className="aurora-brand-logo" />
+    <Link to="/workspace" className="aurora-account-back-link">返回工作台</Link>
+  </nav>
+  <main className="aurora-page-shell aurora-account-shell">
+    <section className="aurora-account-hero">...</section>
+    <section className="apple-utility-card aurora-account-card">...</section>
+  </main>
+</div>
+```
+
+## Scenario: Aurora Admin Dashboard Theme
+
+### 1. Scope / Trigger
+
+- Trigger: any visual/layout change in `package/frontend/src/pages/AdminDashboard.jsx`, `SessionMonitor.jsx`, `AdminOperationsPanel.jsx`, `DatabaseManager.jsx`, `ConfigManager.jsx`, or shared admin styling in `package/frontend/src/index.css`.
+- Current direction: admin management must use the same Apple-light Aurora product language as the workspace and account utility pages, with the first admin reference image as the sidebar/navigation baseline.
+
+### 2. Signatures
+
+- Admin page shell classes:
+  - Root: `gank-app-page aurora-app-page aurora-admin-page`.
+  - Topbar: `apple-global-nav aurora-topbar aurora-admin-topbar`.
+  - Topbar actions: keep one GitHub Issues icon button (`openGithubIssues` + `<Github />`) and one direct logout button whose visible label is only `退出`.
+  - Main shell: `aurora-page-shell aurora-admin-shell`.
+  - Sidebar: `data-admin-nav="sidebar"`, `aurora-admin-sidebar`, `aurora-admin-nav-item`, `aurora-admin-nav-item-active`. The old duplicate service-node card is intentionally removed.
+  - Content: `aurora-admin-main`, `aurora-admin-section`, `aurora-admin-section-head`, `aurora-admin-card`.
+- Shared admin controls:
+  - Inputs: `aurora-admin-input`.
+  - Primary action: `aurora-admin-action` using Action Blue `#0066cc`.
+  - Secondary action: `aurora-admin-secondary-action`.
+  - Segmented tab: `aurora-admin-tab-button`, `aurora-admin-tab-button-active`.
+- System config guide:
+  - `ConfigManager.jsx` must render `<ApiConfigGuide />` inside `.aurora-config-guide-shell`.
+  - `ApiConfigGuide.jsx` must keep `data-api-guide-multi-expand="true"` because tests and static bundle checks use it as the interaction anchor.
+- System config model/detector separation:
+  - The model configuration card represents the LLM gateway only: Sub API or any OpenAI-compatible proxy used by polish/enhance/emotion/compression.
+  - Zhuque is Tencent AI-rate detection, not a model provider. It must be rendered as a separate detector credential/readiness card and must not appear as a provider option, model name, or model API base URL.
+- Operations status panel:
+  - `AdminOperationsPanel.jsx` consumes `/api/admin/operations/status`.
+  - System health cards must read `status.system.cpu.percent`, `status.system.memory.percent`, `status.system.disk.percent`, `status.system.network.*_rate_label`, and `status.system.load.load1/load5`.
+  - Database latency must read `status.database.average_latency_ms`, `latency_samples_ms`, and `slow_query_count`.
+  - Model rows must render `status.models.items`; events must render `status.events`.
+  - The operations board may follow the Sub2API realtime monitoring composition (header status, refresh controls, score ring, metric tiles, trend card), but labels must match metrics GankAIGC actually collects. Do not add SLA, QPS, TPS, TTFT, or request counts unless the backend reports them.
+  - Auto refresh must use a bounded interval, avoid overlapping requests with an in-flight guard, and skip polling while `document.visibilityState !== 'visible'`.
+  - Latency window tabs (`1min`, `5min`, `30min`, `1h`) must stay actionable through `aria-pressed` and active styling, but must not render an extra “当前窗口 … 样本” chip or toast on every switch.
+- Static bundle remains `package/static`; production frontend changes must sync `package/frontend/dist` into `package/static` and remove stale hashed assets.
+
+### 3. Contracts
+
+- The admin left sidebar is the primary navigation. Do not reintroduce top-tab admin navigation or remove `data-admin-nav="sidebar"`.
+- The eight first-level tabs must stay available by id: `dashboard`, `sessions`, `operations`, `accounts`, `announcements`, `database`, `config`, `audit`. `ADMIN_TAB_IDS` still drives URL persistence; do not break `?tab=` handling.
+- All eight first-level sidebar items must share the same nav item height, icon box, padding, and active-state treatment. Do not enlarge `database` or `audit` with a separate boxed sidebar variant.
+- Do not render a separate “服务节点” card/link that jumps to the operations tab; the operations tab itself is the single entry point for runtime status.
+- Do not render a topbar notification/audit icon (`BellDot`, `openAdminNotifications`, notification count/dot CSS). The left sidebar `操作日志` item is the single audit entry point.
+- The topbar profile/logout control should not show role prefixes such as `Admin · 退出`, `admin · 退出`, or `管理员 · 退出`; use only `退出` next to the avatar and log-out icon.
+- Use Action Blue `#0066cc` as the only strong interactive color. Semantic green/amber/red chips are allowed for status, warning, and danger only.
+- Do not use multicolor active gradients (`activeClass`/`inactiveClass` style maps) for admin navigation. Active state is blue text/icon, pale-blue pill, and a left blue indicator.
+- Runtime-heavy glass must stay disabled. Admin surfaces may look translucent but CSS must rely on opaque/near-opaque white, hairline borders, and low shadows rather than stacked `backdrop-filter`.
+- The system configuration API tutorial is a functional onboarding component, not decorative chrome. Do not hide `.aurora-config-guide-shell` with `display: none`; restyle the existing `ApiConfigGuide` with Aurora-compatible CSS instead.
+- In `ConfigManager.jsx`, keep “模型中转站配置” and “腾讯朱雀 AI 率检测” conceptually separate. Do not label the provider as `ZhuQue（朱雀）`, use `zhuque-70b-chat` as a default model, or show `https://api.zhuque-ai.com/v1` as the LLM API URL. Use the admin Zhuque readiness endpoint for detection status instead of fake model-health rows.
+- Operations health values must not be invented in React. Do not hardcode CPU/memory/disk/network/load/database-latency/model/provider rows such as `18%`, `3.6 GB / 7.8 GB`, `↑ 1.2 MB/s ↓ 2.4 MB/s`, `2.42 ms`, `OpenAI (gpt-4o)`, or fake recovery events. If a metric is unavailable, render the backend's `不可用`/false status instead.
+- Preserve business behavior and source anchors: update modal, account management handlers/API calls, `ADMIN_ACCOUNT_*` constants, `data-admin-processing-modes`, `data-admin-processing-summary`, `data-admin-operations-panel="true"`, audit formatting, and existing Chinese labels used by tests/E2E.
+
+### 4. Validation & Error Matrix
+
+- Page misses `aurora-admin-page` or `aurora-admin-topbar` -> static theme test fails.
+- Sidebar misses `aurora-admin-nav-item-active`, reintroduces duplicate service-node card, or gives `database`/`audit` larger nav items than other tabs -> visual regression against reference image.
+- Source contains old admin nav `activeClass`/`inactiveClass` gradient mapping -> static test fails.
+- A tab component drops `aurora-admin-section-head` -> inconsistent functional page chrome.
+- `.aurora-config-guide-shell` is present but `display: none` in source or served CSS -> system config tutorial disappears even though the component remains mounted.
+- Config page treats Zhuque as a model provider or shows fake Zhuque model counts/rate-limit status -> semantic bug; Zhuque is detector-only and should read `zhuque_service.readiness()`.
+- Operations panel contains hardcoded monitoring numbers/provider rows/events instead of backend `status.system`, `status.database`, `status.models`, `status.jobs`, and `status.events` fields -> user sees fake health data.
+- Operations panel borrows Sub2API-only metrics such as SLA/QPS/TTFT without backend fields -> UI fabricates monitoring data.
+- Operations latency tabs show redundant current-window chips or switch toast spam -> visual noise returns; static tests should reject `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
+- Topbar reintroduces notification/audit bell -> duplicates the `操作日志` sidebar entry and should fail static review.
+- Build succeeds but `package/static` is not synced -> static bundle assertions and served app UI drift.
+- New Lucide icon import not exported by pinned `lucide-react` -> `npm run build` fails; check local `node_modules/lucide-react/dist/esm/lucide-react.js` first.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `AdminDashboard.jsx` has a white Aurora topbar, left sidebar with 8 uniform pill nav items, no duplicate service-node card, dashboard stat cards, and URL tab persistence.
+- Good: topbar actions are compact and non-duplicative: optional search/config actions, GitHub Issues icon, and direct `退出`.
+- Good: `SessionMonitor`, `AdminOperationsPanel`, `DatabaseManager`, and `ConfigManager` each start with `aurora-admin-section-head` and keep their original API calls and operations.
+- Good: `AdminOperationsPanel` displays real backend-collected CPU, memory, disk, network, load, database latency samples, model configuration status, worker capacity, job counts, and recent events in a Sub2API-inspired realtime layout with manual refresh and guarded auto refresh.
+- Good: latency window buttons visibly switch active state without adding explanatory chips or toasts.
+- Good: `ConfigManager` renders `ApiConfigGuide`, `.aurora-config-guide-shell` is `display: block`, and the guide card is restyled with Aurora borders/radius/shadows rather than removed.
+- Good: `ConfigManager` shows Sub/OpenAI-compatible gateway fields for LLM calls and a separate Tencent Zhuque AI-rate detector card sourced from `/api/admin/zhuque/readiness`.
+- Good: account secondary tabs use a themed segmented control, while invite/credit forms still use `ADMIN_ACCOUNT_FORM_CLASS`, `ADMIN_ACCOUNT_INPUT_CLASS`, and `ADMIN_ACCOUNT_ACTION_BUTTON_CLASS`.
+- Base: a subcomponent retains some Tailwind utility classes internally, but lives inside `aurora-admin-section` and `aurora-admin-card`, and functions/tests still pass.
+- Bad: old `gank-glass-toolbar`/`gank-glass-card` dominates the admin layout, nav active state uses teal/indigo/violet/amber gradients, or a visual refactor changes API endpoints/handlers.
+- Bad: keeping `ApiConfigGuide` in JSX but hiding `.aurora-config-guide-shell`; static source tests can pass while users lose the tutorial.
+- Bad: using `ZhuQue（朱雀）` in the provider select, `zhuque-70b-chat` as a model, `api.zhuque-ai.com` as an LLM API URL, or hardcoded “可用模型数 8 个” for Zhuque.
+- Bad: operations page keeps a pretty UI by fabricating fixed health values when the backend did not provide them.
+- Bad: a notification bell opens `操作日志`, because that duplicates the sidebar item and crowds the topbar.
+- Bad: logout text includes role labels (`Admin · 退出`), because the button title/aria already carries context and the UI should stay concise.
+
+### 6. Tests Required
+
+- Static frontend tests should assert admin root/topbar/sidebar/content classes, Action Blue CSS token, active nav class, no duplicate service-node card, uniform sidebar nav sizing, section head classes in all admin subcomponents, and absence of old `activeClass`/`inactiveClass` gradient nav mapping.
+- Static frontend tests should assert `ConfigManager.jsx` still renders `ApiConfigGuide`, `ApiConfigGuide.jsx` still has `data-api-guide-multi-expand="true"`, source CSS has `.aurora-config-guide-shell { display: block; }`, and served CSS does not contain `.aurora-config-guide-shell{display:none}`.
+- Static frontend tests should assert `ConfigManager.jsx` separates `模型中转站配置` from `腾讯朱雀 AI 率检测`, contains `/api/admin/zhuque/readiness`, and rejects `ZhuQue（朱雀）</option>`, `zhuque-70b-chat`, `api.zhuque-ai.com`, and fake Zhuque model-count/rate-limit labels.
+- Static frontend tests should assert operations panel reads `status.system.*`, `status.database.average_latency_ms`, `status.database.latency_samples_ms`, `status.models.items`, and `status.events`; tests should also assert fake values/provider rows/events are absent, auto-refresh has a visibility/in-flight guard, and Sub2API-only SLA/QPS/TTFT labels are absent unless backed by API fields.
+- Static frontend tests should assert latency tabs keep `handleLatencyWindowChange`, `fetchStatus({ silent: true, force: true })`, and `aria-pressed`, while rejecting `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
+- Static frontend tests should assert the admin topbar rejects `BellDot`, `openAdminNotifications`, `auditNotificationLabel`, `aurora-admin-notification-*`, and `{topbarAdminLabel} · 退出`, while keeping the GitHub Issues button and direct `退出` label.
+- Existing static tests must continue to assert account management strings, processing mode statistics anchors, left sidebar navigation, operations panel anchors, and admin tab URL persistence.
+- Run `cd package/frontend && npm run build`, sync `dist` into `../static`, remove stale hashed assets, and verify `package/static/index.html` asset references exist.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+<div className="gank-app-page">
+  <div className="gank-glass-toolbar">...</div>
+  <aside className="gank-glass-card">
+    <button className={activeTab === id ? activeClass : inactiveClass}>...</button>
+  </aside>
+</div>
+```
+
+#### Correct
+
+```jsx
+<div className="gank-app-page aurora-app-page aurora-admin-page">
+  <div className="apple-global-nav aurora-topbar aurora-admin-topbar">...</div>
+  <aside data-admin-nav="sidebar" className="aurora-admin-sidebar">
+    <button className={`aurora-admin-nav-item ${activeTab === id ? 'aurora-admin-nav-item-active' : ''}`}>...</button>
+  </aside>
+</div>
+```
+
+#### Wrong
+
+```css
+.aurora-config-guide-shell {
+  display: none;
+}
+```
+
+#### Correct
+
+```css
+.aurora-config-guide-shell {
+  display: block;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] {
+  border: 1px solid rgba(191, 219, 254, 0.78);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.94);
+}
 ```

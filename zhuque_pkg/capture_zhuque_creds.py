@@ -15,15 +15,16 @@
 
 用法:
     python capture_zhuque_creds.py                        # 可见浏览器，扫码后自动保存
+    python capture_zhuque_creds.py --sync-session         # 打开朱雀页，按网页内真实登录/退出状态同步凭证
     python capture_zhuque_creds.py --load                 # 加载 creds_latest.json 查看
     python capture_zhuque_creds.py --load creds_20250616_120000.json
     python capture_zhuque_creds.py --export-shell          # 导出为 shell 环境变量
     python capture_zhuque_creds.py --export-json-creds     # 导出为 zhuque_api_headless.py 可用的 creds JSON
 
 输出:
-    temp/creds_<timestamp>.json   # 完整凭证（含所有 localStorage + cookies）
-    temp/creds_latest.json        # 最新凭证
-    temp/qrcode_<timestamp>.png   # 二维码截图（供调试）
+    creds_<timestamp>.json   # 完整凭证（含所有 localStorage + cookies）
+    creds_latest.json        # 最新凭证
+    qrcode_latest.png        # 二维码截图（供调试）
 """
 import asyncio, json, sys, time, os, re
 from pathlib import Path
@@ -32,8 +33,10 @@ from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 TEMP = Path(__file__).parent.resolve()
 MATRIX_URL = "https://matrix.tencent.com/ai-detect/"
 WAIT_TIMEOUT = 180  # 等待扫码的秒数（超时则退出）
-POLL_INTERVAL = 1
+POLL_INTERVAL = 0.35
 STORAGE_STATE_FILE = TEMP / "browser_state.json"  # 持久化 browser context（cookies+localStorage）
+LATEST_CREDENTIALS_FILE = TEMP / "creds_latest.json"
+SESSION_STATUS_FILE = TEMP / "session_status.json"
 
 
 def _pick_local_storage_token(local_storage: dict) -> tuple[str, str]:
@@ -77,6 +80,30 @@ def _parse_remaining_uses(text: str) -> int:
     return int(match.group(1)) if match else -1
 
 
+def _normalise_login_text(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "").strip()).lower()
+
+
+def _is_login_prompt_text(text: str) -> bool:
+    """Return True for Zhuque's logged-out account label.
+
+    The live page renders the top-right login entry as `.user-name = Login`.
+    Treating that label as a real username caused GankAIGC to save anonymous
+    quota text like "Detect now(16 left)" as if it belonged to a logged-in
+    account. Only a non-login account label, token, or auth cookie is login.
+    """
+    normalised = _normalise_login_text(text)
+    return normalised in {
+        "login",
+        "log in",
+        "signin",
+        "sign in",
+        "登录",
+        "微信登录",
+        "扫码登录",
+    }
+
+
 def _pick_cookie_value(cookies: list, names: tuple[str, ...]) -> tuple[str, str]:
     """Return (cookie value, cookie name) from Playwright cookie dicts."""
     wanted = {name.lower() for name in names}
@@ -97,9 +124,17 @@ async def inspect_auth_state(page) -> dict:
                 localStorageValues[k] = localStorage.getItem(k);
             }
             const un = document.querySelector('.user-name');
+            const ui = document.querySelector('.user-info');
             let quotaEl = null, bestLen = Infinity;
             const submitBtn = document.querySelector('.submit-btn')
                 || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+            const loginPromptVisible = [...document.querySelectorAll('.user-name, .user-info, button, a')]
+                .some(el => {
+                    const rects = el.getClientRects ? el.getClientRects() : [];
+                    const visible = rects && rects.length > 0;
+                    const txt = (el.textContent || '').trim();
+                    return visible && /^(Login|Log in|Sign in|登录|扫码登录|微信登录)$/i.test(txt);
+                });
             for (const el of document.querySelectorAll('*')) {
                 const txt = (el.textContent || '').trim();
                 if (/(今日剩余|剩余.*次|可用.*次|\\d+\\s*left)/i.test(txt) && txt.length < bestLen && txt.length < 100) {
@@ -109,6 +144,8 @@ async def inspect_auth_state(page) -> dict:
             return {
                 localStorage: localStorageValues,
                 userName: un ? un.textContent.trim() : '',
+                userInfoText: ui ? ui.textContent.trim() : '',
+                loginPromptVisible,
                 quotaText: quotaEl ? quotaEl.textContent.trim() : '',
                 submitButtonText: submitBtn ? submitBtn.textContent.trim() : '',
                 url: location.href
@@ -121,6 +158,9 @@ async def inspect_auth_state(page) -> dict:
     cookie_token, cookie_token_source = _pick_cookie_value(cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
     fp = local_storage.get("fp") or ""
     user_name = (browser_state.get("userName") or "").strip()
+    login_prompt_visible = bool(browser_state.get("loginPromptVisible")) or _is_login_prompt_text(user_name)
+    if login_prompt_visible:
+        user_name = ""
     quota_text = (browser_state.get("quotaText") or browser_state.get("submitButtonText") or "").strip()
     ready = bool(token or cookie_token or (user_name and (fp or cookies)))
     return {
@@ -131,6 +171,7 @@ async def inspect_auth_state(page) -> dict:
         "fp": fp,
         "ready": ready,
         "userName": user_name,
+        "loginPromptVisible": login_prompt_visible,
         "quotaText": quota_text,
         "remainingUses": _parse_remaining_uses(quota_text),
     }
@@ -209,6 +250,217 @@ async def extract_credentials(page) -> dict:
         creds["fp"] = creds["localStorage"]["fp"]
     creds["remainingUses"] = _parse_remaining_uses(creds.get("quotaText") or creds.get("submitButtonText") or "")
     return creds
+
+
+def write_session_status(status: dict) -> None:
+    """Write live Zhuque page state for the backend status endpoint.
+
+    This file is intentionally non-secret: it contains UI state only, never raw
+    tokens/cookies. It lets GankAIGC refresh login/logout state without waiting
+    for the heavier credential parser/cache path.
+    """
+    payload = {
+        "connected": bool(status.get("connected")),
+        "ready": bool(status.get("ready")),
+        "has_token": bool(status.get("has_token")),
+        "remaining_uses": status.get("remaining_uses", -1),
+        "user_name": status.get("user_name") or "",
+        "quota_text": status.get("quota_text") or "",
+        "message": status.get("message") or "",
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    tmp_file = SESSION_STATUS_FILE.with_suffix(".tmp")
+    with open(tmp_file, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    tmp_file.replace(SESSION_STATUS_FILE)
+
+
+def _auth_state_status(auth_state: dict, *, message: str = "") -> dict:
+    return {
+        "connected": bool(auth_state.get("ready")),
+        "ready": bool(auth_state.get("ready")),
+        "has_token": bool(auth_state.get("token")),
+        "remaining_uses": auth_state.get("remainingUses", -1),
+        "user_name": (auth_state.get("userName") or "").strip(),
+        "quota_text": (auth_state.get("quotaText") or auth_state.get("submitButtonText") or "").strip(),
+        "message": message,
+    }
+
+
+def _logged_out_status_from_auth_state(auth_state: dict = None, *, message: str) -> dict:
+    """Build a non-secret logged-out status while preserving live free quota.
+
+    The anonymous Zhuque page can still expose a usable quota such as
+    ``Detect now(16 left)``. Keep that real-time page value in
+    ``session_status.json`` so the workspace can show it, but never treat it as
+    a logged-in credential or persist it into ``creds_latest.json``.
+    """
+    quota_text = ""
+    remaining_uses = -1
+    if auth_state:
+        quota_text = (auth_state.get("quotaText") or auth_state.get("submitButtonText") or "").strip()
+        try:
+            remaining_uses = int(auth_state.get("remainingUses", -1))
+        except (TypeError, ValueError):
+            remaining_uses = -1
+        if remaining_uses < 0:
+            remaining_uses = _parse_remaining_uses(quota_text)
+
+    return {
+        "connected": False,
+        "ready": False,
+        "has_token": False,
+        "remaining_uses": remaining_uses if remaining_uses >= 0 else -1,
+        "user_name": "",
+        "quota_text": quota_text,
+        "message": message,
+    }
+
+
+def write_logged_out_status(message: str = "朱雀网页显示未登录", auth_state: dict = None) -> None:
+    write_session_status(_logged_out_status_from_auth_state(auth_state, message=message))
+
+
+def save_credentials(creds: dict) -> tuple[Path, Path]:
+    """保存当前朱雀登录凭证；退出登录时才会删除 latest。"""
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    creds_file = TEMP / f"creds_{timestamp}.json"
+    with open(creds_file, 'w', encoding='utf-8') as f:
+        json.dump(creds, f, ensure_ascii=False, indent=2)
+    with open(LATEST_CREDENTIALS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(creds, f, ensure_ascii=False, indent=2)
+    return creds_file, LATEST_CREDENTIALS_FILE
+
+
+async def save_browser_state(ctx) -> None:
+    """持久化浏览器会话。登录态和退出态都要保存，避免下次恢复旧状态。"""
+    state = await ctx.storage_state()
+    with open(STORAGE_STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False)
+    print(f"  [save] 浏览器会话已保存: {STORAGE_STATE_FILE.name}")
+
+
+def clear_latest_credentials(reason: str = "", auth_state: dict = None) -> bool:
+    """只在朱雀网页里真实退出后清理 latest 凭证，不删除历史快照。"""
+    removed = False
+    if LATEST_CREDENTIALS_FILE.exists():
+        LATEST_CREDENTIALS_FILE.unlink()
+        removed = True
+    write_logged_out_status(reason or "朱雀网页显示未登录", auth_state=auth_state)
+    suffix = f" | {reason}" if reason else ""
+    if removed:
+        print(f"  [logout-sync] 已清除最新朱雀凭证: {LATEST_CREDENTIALS_FILE.name}{suffix}")
+    else:
+        print(f"  [logout-sync] 朱雀网页已退出，当前无最新凭证{suffix}")
+    return removed
+
+
+def auth_signature(auth_state: dict) -> tuple:
+    """用于判断登录用户/凭证是否变化，避免每秒重复写文件。"""
+    token = auth_state.get("token") or ""
+    return (
+        bool(auth_state.get("ready")),
+        (auth_state.get("userName") or "").strip(),
+        token[:48],
+        auth_state.get("fp") or "",
+        auth_state.get("remainingUses"),
+    )
+
+
+async def save_logged_in_snapshot(page, ctx, reason: str = "") -> tuple[Path, Path]:
+    """提取当前页面登录态并保存为 GankAIGC 可用凭证。"""
+    creds = await extract_credentials(page)
+    creds_file, latest_file = save_credentials(creds)
+    await save_browser_state(ctx)
+    write_session_status({
+        "connected": True,
+        "ready": True,
+        "has_token": bool(creds.get("access_token")),
+        "remaining_uses": creds.get("remainingUses", -1),
+        "user_name": creds.get("userName") or "",
+        "quota_text": creds.get("quotaText") or creds.get("submitButtonText") or "",
+        "message": "朱雀网页已登录",
+    })
+    label = f"（{reason}）" if reason else ""
+    print(f"  [sync] 已同步朱雀登录态{label}: {creds.get('userName') or '未知用户'}")
+    print(f"   凭证: {latest_file}")
+    return creds_file, latest_file
+
+
+async def sync_session_until_closed(page, ctx, *, trigger_login_when_missing: bool = False) -> dict:
+    """打开真实朱雀页面，按用户在网页内的登录/退出操作同步本地凭证。
+
+    语义：
+    - 不自动退出账号；
+    - 只有观察到朱雀网页处于未登录态，才删除 creds_latest.json；
+    - 观察到登录态就保存/更新 creds_latest.json；
+    - 用户关闭窗口后退出，最后一次观察到的状态就是 GankAIGC 状态。
+    """
+    print("\n[sync] 已进入朱雀真实状态同步模式")
+    print("   可在打开的朱雀网页内扫码登录、退出登录或切换账号。")
+    print("   GankAIGC 只认网页内真实状态；关闭窗口后保留最后一次同步结果。\n")
+
+    last_signature = None
+    logged_out_synced = False
+    login_triggered = False
+    logged_out_streak = 0
+
+    while True:
+        try:
+            if page.is_closed():
+                print("  [sync] 朱雀窗口已关闭，结束同步")
+                break
+            auth_state = await inspect_auth_state(page)
+        except Exception as exc:
+            if page.is_closed():
+                print("  [sync] 朱雀窗口已关闭，结束同步")
+                break
+            print(f"  [sync] 状态读取失败，继续等待: {exc}")
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        if auth_state.get("ready"):
+            logged_out_streak = 0
+            logged_out_synced = False
+            write_session_status(_auth_state_status(auth_state, message="朱雀网页已登录"))
+            signature = auth_signature(auth_state)
+            if signature != last_signature:
+                await save_logged_in_snapshot(page, ctx, reason="检测到登录态")
+                last_signature = signature
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        logged_out_streak += 1
+        write_logged_out_status("朱雀网页显示未登录", auth_state=auth_state)
+
+        if trigger_login_when_missing and not login_triggered and logged_out_streak >= 2:
+            login_triggered = True
+            print("  [sync] 当前未登录，尝试打开微信扫码登录入口...")
+            try:
+                triggered = await trigger_login_flow(page)
+                await page.screenshot(path=str(TEMP / "qrcode_latest.png"))
+                print(f"\n[shot] 二维码截图已保存: {TEMP / 'qrcode_latest.png'}")
+                if not triggered:
+                    print("  [sync] 未能自动打开二维码，请在朱雀网页内手动点击登录/微信登录。")
+            except Exception as exc:
+                print(f"  [sync] 自动打开登录入口失败，请手动操作: {exc}")
+
+        # 连续两次确认未登录后，才认为用户已在朱雀网页退出。
+        # 如果已经明确看到登录入口，马上按真实网页退出态同步；若只是页面
+        # 初始化空白/抖动，则仍保留两次轮询确认，避免误删。
+        logged_out_visible = bool(auth_state.get("loginPromptVisible"))
+        if (logged_out_visible or logged_out_streak >= 2) and not logged_out_synced:
+            clear_latest_credentials("朱雀网页显示未登录", auth_state=auth_state)
+            try:
+                await save_browser_state(ctx)
+            except Exception as exc:
+                print(f"  [sync] 保存退出态浏览器会话失败: {exc}")
+            last_signature = None
+            logged_out_synced = True
+
+        await asyncio.sleep(POLL_INTERVAL)
+
+    return {"status": "closed"}
 
 
 async def wait_for_login(page, timeout=WAIT_TIMEOUT):
@@ -468,11 +720,11 @@ async def open_matrix_page(page) -> None:
         await page.wait_for_load_state("load", timeout=15000)
     except Exception:
         print("  [note] load 状态未完全结束，可能有长连接/埋点请求；继续登录检测")
-    await asyncio.sleep(3)
+    await asyncio.sleep(1)
 
 
-async def capture_flow(headless=False, force_login=False):
-    """打开浏览器 → 触发登录 → 等待扫码 → 提取凭证 → 保存"""
+async def capture_flow(headless=False, force_login=False, sync_session=False):
+    """打开浏览器 → 触发/同步登录 → 提取凭证 → 保存。"""
     pw = await async_playwright().start()
 
     browser_executable = find_browser_executable()
@@ -504,11 +756,22 @@ async def capture_flow(headless=False, force_login=False):
 
     print(f"\n{'='*60}")
     print(f"  朱雀凭证捕获工具 v2.0")
-    print(f"  模式: {'可见浏览器' if not headless else '无头（仅测试已登录态）'}")
+    if sync_session:
+        mode_label = '真实网页状态同步'
+    else:
+        mode_label = '可见浏览器' if not headless else '无头（仅测试已登录态）'
+    print(f"  模式: {mode_label}")
     print(f"{'='*60}")
 
     # 打开页面。不要等待 networkidle：朱雀页面有长连接/埋点请求，可能永远不 idle。
     await open_matrix_page(page)
+
+    if sync_session:
+        try:
+            return await sync_session_until_closed(page, ctx, trigger_login_when_missing=True)
+        finally:
+            await browser.close()
+            await pw.stop()
 
     # 检查是否已登录。朱雀前端偶尔会调整 token 存储 key，所以这里不只看 aiGenAccessToken。
     auth_state = await inspect_auth_state(page)
@@ -583,14 +846,7 @@ async def capture_flow(headless=False, force_login=False):
     creds = await extract_credentials(page)
 
     # 保存
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    creds_file = TEMP / f"creds_{timestamp}.json"
-    latest_file = TEMP / "creds_latest.json"
-
-    with open(creds_file, 'w', encoding='utf-8') as f:
-        json.dump(creds, f, ensure_ascii=False, indent=2)
-    with open(latest_file, 'w', encoding='utf-8') as f:
-        json.dump(creds, f, ensure_ascii=False, indent=2)
+    creds_file, latest_file = save_credentials(creds)
 
     # 摘要
     print(f"\n[OK] 凭证已保存:")
@@ -611,10 +867,7 @@ async def capture_flow(headless=False, force_login=False):
             print(f"     [cookie] {c['name']}: {c['value'][:50]}...")
 
     # 持久化浏览器会话（cookies+localStorage），下次启动可检测登录态
-    state = await ctx.storage_state()
-    with open(STORAGE_STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False)
-    print(f"  [save] 浏览器会话已保存: {STORAGE_STATE_FILE.name}")
+    await save_browser_state(ctx)
 
     await browser.close()
     await pw.stop()
@@ -699,7 +952,14 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser(
         description="朱雀凭证捕获工具 — 微信扫码登录自动提取凭证",
-        epilog="示例: python capture_zhuque_creds.py                  # 打开浏览器扫码\n"               "      python capture_zhuque_creds.py --switch         # 切号：退出→重新扫码\n"               "      python capture_zhuque_creds.py --load           # 查看已保存凭证\n"               "      python capture_zhuque_creds.py --export-shell   # 导出环境变量"    )
+        epilog=(
+            "示例: python capture_zhuque_creds.py                  # 打开浏览器扫码\n"
+            "      python capture_zhuque_creds.py --sync-session   # 同步真实网页登录/退出状态\n"
+            "      python capture_zhuque_creds.py --switch         # 旧切号：退出→重新扫码\n"
+            "      python capture_zhuque_creds.py --load           # 查看已保存凭证\n"
+            "      python capture_zhuque_creds.py --export-shell   # 导出环境变量"
+        )
+    )
     pg = p.add_mutually_exclusive_group()
     pg.add_argument("--load", nargs="?", const="latest", metavar="FILE",
                     help="加载凭证文件并显示摘要 (默认: creds_latest.json)")
@@ -707,8 +967,10 @@ if __name__ == "__main__":
                     help="导出为 shell 环境变量")
     pg.add_argument("--export-json-creds", nargs="?", const="latest", metavar="FILE",
                     help="导出为 zhuque_api_headless.py 可用的 JSON credentials")
+    p.add_argument("--sync-session", action="store_true",
+                   help="真实状态同步：打开朱雀页，不自动退出；登录则保存凭证，网页内退出才清除凭证")
     p.add_argument("--switch", action="store_true",
-                   help="切号模式：先退出当前登录，再扫码换号")
+                   help="旧切号模式：先自动退出当前登录，再扫码换号")
     p.add_argument("--headless", action="store_true",
                    help="无头模式（仅当已有登录态时可用，无法扫码）")
     args = p.parse_args()
@@ -722,4 +984,4 @@ if __name__ == "__main__":
     elif args.export_json_creds:
         export_json_creds(None if args.export_json_creds == "latest" else args.export_json_creds)
     else:
-        asyncio.run(capture_flow(headless=args.headless, force_login=args.switch))
+        asyncio.run(capture_flow(headless=args.headless, force_login=args.switch, sync_session=args.sync_session))

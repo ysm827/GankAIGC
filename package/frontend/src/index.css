@@ -916,3 +916,5428 @@ code {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-cyan-500;
   }
 }
+
+/* Aurora Paper Desk workspace recreation */
+.aurora-app-page {
+  min-height: 100dvh;
+  background:
+    radial-gradient(64rem 22rem at 76% 6rem, rgba(153, 246, 228, 0.62), transparent 64%),
+    radial-gradient(52rem 18rem at 58% 4rem, rgba(199, 210, 254, 0.48), transparent 62%),
+    radial-gradient(38rem 18rem at 86% 18rem, rgba(186, 230, 253, 0.42), transparent 62%),
+    linear-gradient(180deg, #fbfdff 0%, #f5fbff 48%, #f7fbff 100%);
+}
+
+.aurora-app-page::before {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.010) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.22), transparent 70%);
+}
+
+.aurora-app-page::after {
+  background:
+    linear-gradient(108deg, transparent 0 44%, rgba(255, 255, 255, 0.62) 49%, transparent 54%),
+    radial-gradient(circle at 58% 10%, rgba(255, 255, 255, 0.86), transparent 18rem);
+  opacity: 0.62;
+}
+
+.aurora-app-page .orb-one {
+  top: 4.6rem;
+  left: 42%;
+  width: 42rem;
+  height: 18rem;
+  background: radial-gradient(ellipse, rgba(125, 211, 252, 0.36), transparent 68%);
+  filter: none;
+  opacity: 0.42;
+}
+
+.aurora-app-page .orb-two {
+  right: 2rem;
+  top: 6rem;
+  bottom: auto;
+  width: 46rem;
+  height: 20rem;
+  background: radial-gradient(ellipse, rgba(167, 243, 208, 0.42), transparent 66%);
+  filter: none;
+  opacity: 0.38;
+}
+
+.aurora-app-page .orb-three {
+  top: 8rem;
+  right: 22%;
+  width: 34rem;
+  height: 14rem;
+  background: radial-gradient(ellipse, rgba(196, 181, 253, 0.24), transparent 70%);
+  filter: none;
+  opacity: 0.36;
+}
+
+.aurora-topbar.apple-global-nav {
+  min-height: 68px;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.55);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.03);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-brand-logo img {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  filter: drop-shadow(0 10px 18px rgba(37, 99, 235, 0.14));
+}
+
+.aurora-brand-logo span {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  color: #0f172a;
+}
+
+.aurora-contract-strip.apple-subnav {
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.aurora-nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 38px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #334155;
+  padding: 0.48rem 0.78rem;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-nav-pill-blue {
+  border-color: rgba(191, 219, 254, 0.86);
+  background: rgba(239, 246, 255, 0.76);
+  color: #2563eb;
+}
+
+.aurora-topbar .gank-topbar-pill,
+.aurora-topbar .gank-primary-button,
+.aurora-topbar a,
+.aurora-topbar button {
+  min-height: 38px;
+  border-radius: 13px;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-topbar .gank-primary-button {
+  border-color: rgba(191, 219, 254, 0.86);
+  background: rgba(239, 246, 255, 0.84);
+  color: #2563eb;
+}
+
+.aurora-topbar button.text-ios-red {
+  color: #334155;
+}
+
+.aurora-topbar svg {
+  stroke-width: 1.9;
+}
+
+.aurora-page-shell {
+  min-height: calc(100dvh - 68px);
+}
+
+.aurora-announcement {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  border: 1px solid rgba(226, 232, 240, 0.68);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.85rem 1rem;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.035);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+}
+
+.aurora-workbench-card.apple-product-tile,
+.aurora-workbench-card.gank-tabbit-hero,
+.aurora-workbench-card.gank-liquid-panel {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  border-radius: 20px;
+  background:
+    radial-gradient(44rem 24rem at 88% 5%, rgba(153, 246, 228, 0.22), transparent 62%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.90));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-workbench-card.gank-tabbit-hero::after {
+  display: none;
+}
+
+.aurora-workbench-card.gank-liquid-panel::before {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.58), transparent 28%),
+    linear-gradient(118deg, transparent 0 42%, rgba(255, 255, 255, 0.26) 51%, transparent 58%);
+  opacity: 0.72;
+}
+
+.aurora-control-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.35rem;
+  border-right: 1px solid rgba(203, 213, 225, 0.58);
+  padding: 1.75rem 1.65rem;
+}
+
+.aurora-editor-column {
+  min-width: 0;
+  padding: 1.75rem 1.65rem 1.95rem;
+}
+
+.aurora-section-heading {
+  margin-bottom: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.aurora-mode-list.gank-segmented-control {
+  display: grid;
+  gap: 0.55rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-mode-card,
+.aurora-billing-card {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.95rem 1.05rem;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.aurora-mode-card:hover,
+.aurora-billing-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(147, 197, 253, 0.78);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.aurora-mode-card-active,
+.aurora-billing-card-active {
+  border-color: rgba(59, 130, 246, 0.72);
+  background:
+    radial-gradient(18rem 7rem at 100% 0%, rgba(153, 246, 228, 0.44), transparent 70%),
+    linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(255, 255, 255, 0.76));
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12), 0 14px 30px rgba(37, 99, 235, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.aurora-mode-icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #eef2ff;
+  color: #2563eb;
+}
+
+.aurora-icon-cyan {
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.92), rgba(204, 251, 241, 0.92));
+  color: #2563eb;
+}
+
+.aurora-icon-navy {
+  background: #f8fafc;
+  color: #1e3a8a;
+}
+
+.aurora-icon-violet {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.aurora-icon-blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.aurora-icon-pink {
+  background: #fdf2f8;
+  color: #db2777;
+}
+
+.aurora-control-divider {
+  height: 1px;
+  background: rgba(203, 213, 225, 0.64);
+}
+
+.aurora-check-dot,
+.aurora-radio-dot {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.aurora-billing-card-active .aurora-check-dot,
+.aurora-billing-card-active .aurora-radio-dot {
+  border-color: transparent;
+  background: #3b82f6;
+}
+
+.aurora-input,
+.aurora-textarea,
+.aurora-select {
+  width: 100%;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0f172a;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84), 0 8px 20px rgba(15, 23, 42, 0.035);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-input {
+  min-height: 48px;
+  padding: 0.85rem 1rem;
+  font-size: 15px;
+}
+
+.aurora-textarea {
+  min-height: 470px;
+  resize: none;
+  padding: 1rem 1.05rem;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+.aurora-select {
+  min-height: 46px;
+  appearance: none;
+  padding: 0 2.8rem 0 1rem;
+  font-size: 15px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.aurora-input:focus,
+.aurora-textarea:focus,
+.aurora-select:focus {
+  border-color: rgba(59, 130, 246, 0.62);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12), 0 10px 24px rgba(37, 99, 235, 0.06);
+}
+
+.aurora-primary-action.apple-action-pill {
+  min-height: 58px;
+  min-width: 210px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #22d3ee 0%, #3b82f6 48%, #6366f1 100%);
+  font-size: 17px;
+  font-weight: 700;
+  box-shadow: 0 18px 36px rgba(59, 130, 246, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.aurora-primary-action.apple-action-pill:hover {
+  background: linear-gradient(135deg, #06b6d4 0%, #2563eb 48%, #4f46e5 100%);
+}
+
+.aurora-secondary-action,
+.aurora-plain-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 12px;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  background: rgba(239, 246, 255, 0.84);
+  color: #2563eb;
+  padding: 0.62rem 0.95rem;
+  font-size: 13px;
+  font-weight: 700;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.aurora-secondary-action:hover,
+.aurora-plain-button:hover {
+  background: rgba(219, 234, 254, 0.92);
+}
+
+.aurora-secondary-action:active,
+.aurora-plain-button:active {
+  transform: scale(0.97);
+}
+
+.aurora-plain-button {
+  border-color: rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.8);
+  color: #64748b;
+}
+
+.aurora-zhuque-panel {
+  --zhuque-card-gap: 0.72rem;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 20px;
+  background:
+    radial-gradient(26rem 10rem at 100% 0%, rgba(153, 246, 228, 0.18), transparent 72%),
+    radial-gradient(22rem 10rem at 0% 100%, rgba(191, 219, 254, 0.16), transparent 70%),
+    rgba(255, 255, 255, 0.9);
+  padding: 0.82rem 0.9rem;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.aurora-zhuque-status-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--zhuque-card-gap);
+  min-width: 0;
+}
+
+.aurora-zhuque-title {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.aurora-zhuque-title-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.aurora-zhuque-title p {
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 860;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+
+.aurora-zhuque-account {
+  display: block;
+  max-width: 10.8rem;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aurora-zhuque-account.is-connected {
+  color: #2563eb;
+}
+
+.aurora-zhuque-metrics {
+  display: contents;
+}
+
+.aurora-zhuque-metric {
+  display: flex;
+  flex: 1 1 8.7rem;
+  min-height: 48px;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.52rem 0.72rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 7px 18px rgba(15, 23, 42, 0.04);
+}
+
+.aurora-zhuque-metric span {
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 820;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.aurora-zhuque-metric strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.aurora-zhuque-metric strong.is-connected {
+  border-radius: 9px;
+  background: rgba(220, 252, 231, 0.72);
+  color: #059669;
+  padding: 0.28rem 0.48rem;
+}
+
+.aurora-zhuque-metric strong.is-disconnected {
+  color: #64748b;
+}
+
+.aurora-zhuque-metric strong i {
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.10);
+}
+
+.aurora-zhuque-login-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 106px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0b7cff 0%, #0066cc 100%);
+  color: #fff;
+  order: 1;
+  padding: 0.58rem 0.84rem;
+  font-size: 14px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  box-shadow: 0 10px 22px rgba(0, 102, 204, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.aurora-zhuque-login-button svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.aurora-zhuque-login-button:hover:not(:disabled) {
+  filter: brightness(1.04);
+  box-shadow: 0 14px 26px rgba(0, 102, 204, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.aurora-zhuque-login-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.aurora-zhuque-login-button:focus-visible {
+  outline: 2px solid rgba(0, 102, 204, 0.45);
+  outline-offset: 3px;
+}
+
+.aurora-zhuque-login-button:disabled {
+  cursor: wait;
+  filter: saturate(0.94);
+}
+
+.aurora-zhuque-login-button.is-ready {
+  background: linear-gradient(180deg, #0b7cff 0%, #0066cc 100%);
+  color: #fff;
+}
+
+.aurora-zhuque-title {
+  order: 0;
+}
+
+.aurora-zhuque-metrics {
+  order: 2;
+}
+
+.aurora-zhuque-metrics .aurora-zhuque-metric:first-child {
+  order: 2;
+}
+
+.aurora-zhuque-metrics .aurora-zhuque-metric:last-child {
+  order: 3;
+}
+
+@media (max-width: 640px) {
+  .aurora-zhuque-panel {
+    border-radius: 20px;
+    padding: 1rem;
+  }
+
+  .aurora-zhuque-title {
+    align-items: flex-start;
+    flex-basis: 100%;
+  }
+
+  .aurora-zhuque-login-button {
+    order: 2;
+    width: 100%;
+  }
+
+  .aurora-zhuque-metrics {
+    order: 1;
+  }
+
+  .aurora-zhuque-metric {
+    flex-basis: 100%;
+    min-height: 60px;
+  }
+
+}
+
+.aurora-side-card.apple-utility-card,
+.aurora-side-card.gank-liquid-panel {
+  overflow: visible;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  border-radius: 20px;
+  background:
+    radial-gradient(28rem 18rem at 80% 0%, rgba(153, 246, 228, 0.24), transparent 66%),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.aurora-side-card.gank-liquid-panel::before {
+  opacity: 0.55;
+}
+
+.aurora-side-top {
+  border-bottom: 1px solid rgba(203, 213, 225, 0.58);
+  padding: 1.65rem 1.45rem 1.35rem;
+}
+
+.aurora-icon-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  background: rgba(255, 255, 255, 0.72);
+  color: #2563eb;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.aurora-icon-button:hover {
+  background: rgba(239, 246, 255, 0.94);
+}
+
+.aurora-icon-button:active {
+  transform: scale(0.96);
+}
+
+.aurora-project-actions {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.aurora-project-action-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 12px;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  background: rgba(239, 246, 255, 0.86);
+  color: #2563eb;
+  padding: 0.55rem 0.7rem;
+  font-size: 12px;
+  font-weight: 750;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.aurora-project-action-button:hover {
+  border-color: rgba(147, 197, 253, 0.92);
+  background: rgba(219, 234, 254, 0.96);
+}
+
+.aurora-project-action-button:active {
+  transform: scale(0.97);
+}
+
+.aurora-project-action-danger {
+  border-color: rgba(254, 202, 202, 0.9);
+  background: rgba(255, 241, 242, 0.9);
+  color: #e11d48;
+}
+
+.aurora-project-action-danger:hover {
+  border-color: rgba(251, 113, 133, 0.64);
+  background: rgba(255, 228, 230, 0.96);
+}
+
+.aurora-project-hint {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.76);
+  background: rgba(248, 250, 252, 0.78);
+  padding: 0.68rem 0.78rem;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.aurora-history-head {
+  position: relative;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1.45rem 1.45rem 0.95rem;
+}
+
+.aurora-history-filter-button {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  background: rgba(255, 255, 255, 0.78);
+  color: #64748b;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.aurora-history-filter-button:hover,
+.aurora-history-filter-button-active {
+  border-color: rgba(147, 197, 253, 0.88);
+  background: rgba(239, 246, 255, 0.96);
+  color: #2563eb;
+}
+
+.aurora-history-filter-button:active {
+  transform: scale(0.96);
+}
+
+.aurora-history-filter-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 120;
+  width: 11rem;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.88);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-history-filter-option {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.55rem 0.72rem;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.aurora-history-filter-option:hover,
+.aurora-history-filter-option-active {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.aurora-history-list {
+  position: relative;
+  z-index: 1;
+  max-height: 550px;
+  overflow-y: auto;
+  padding: 0 1.25rem 1.2rem;
+}
+
+.aurora-history-item {
+  position: relative;
+  margin-bottom: 0.85rem;
+  display: flex;
+  cursor: pointer;
+  gap: 0.9rem;
+  border: 1px solid rgba(226, 232, 240, 0.76);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 0.88rem 2.2rem 0.88rem 0.88rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.aurora-history-item:hover,
+.aurora-history-item-active {
+  transform: translateY(-1px);
+  border-color: rgba(147, 197, 253, 0.74);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.aurora-history-icon {
+  display: inline-flex;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #eef2ff, #dbeafe);
+  color: #2563eb;
+}
+
+.aurora-mode-badge {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #6366f1;
+  padding: 0.18rem 0.55rem;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.aurora-session-project-move {
+  position: relative;
+  margin-top: 0.55rem;
+  display: inline-flex;
+  max-width: 100%;
+  z-index: 20;
+}
+
+.aurora-history-item-menu-open {
+  z-index: 40;
+}
+
+.aurora-session-project-trigger {
+  display: inline-flex;
+  min-height: 34px;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 197, 253, 0.74);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.86));
+  color: #2563eb;
+  padding: 0.36rem 0.72rem;
+  font-size: 12px;
+  font-weight: 760;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 8px 18px rgba(37, 99, 235, 0.08);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.aurora-session-project-trigger:hover,
+.aurora-session-project-trigger-active {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: linear-gradient(180deg, #eff6ff, #dbeafe);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96), 0 12px 24px rgba(37, 99, 235, 0.12);
+}
+
+.aurora-session-project-trigger:active {
+  transform: scale(0.97);
+}
+
+.aurora-session-project-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 80;
+  width: min(18rem, calc(100vw - 4rem));
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 0.45rem;
+  box-shadow: 0 22px 46px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-session-project-menu-title {
+  padding: 0.38rem 0.55rem 0.48rem;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+}
+
+.aurora-session-project-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.62rem;
+  border-radius: 12px;
+  padding: 0.62rem 0.6rem;
+  color: #0f172a;
+  text-align: left;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.aurora-session-project-option:hover {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.aurora-session-project-option:active {
+  transform: scale(0.99);
+}
+
+.aurora-session-project-option-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.aurora-delete-button {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: rgba(100, 116, 139, 0.52);
+  opacity: 0;
+  transition: opacity 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.aurora-history-item:hover .aurora-delete-button {
+  opacity: 1;
+}
+
+.aurora-delete-button:hover {
+  background: #fff1f2;
+  color: #e11d48;
+}
+
+.aurora-progress-card {
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 1.25rem;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(24px) saturate(1.28);
+  -webkit-backdrop-filter: blur(24px) saturate(1.28);
+}
+
+/* Aurora account/settings pages: shared Apple-light utility layout */
+.aurora-account-page {
+  background:
+    radial-gradient(58rem 22rem at 72% 6rem, rgba(191, 219, 254, 0.38), transparent 64%),
+    radial-gradient(44rem 18rem at 88% 18rem, rgba(153, 246, 228, 0.34), transparent 62%),
+    linear-gradient(180deg, #fbfdff 0%, #f6fbff 50%, #f8fbff 100%);
+}
+
+.aurora-account-shell {
+  min-height: calc(100dvh - 68px);
+}
+
+.aurora-account-back-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 13px;
+  border: 1px solid rgba(191, 219, 254, 0.86);
+  background: rgba(239, 246, 255, 0.86);
+  color: #2563eb;
+  padding: 0.56rem 0.92rem;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.aurora-account-back-link:hover {
+  border-color: rgba(147, 197, 253, 0.96);
+  background: rgba(219, 234, 254, 0.94);
+}
+
+.aurora-account-back-link:active {
+  transform: scale(0.97);
+}
+
+.aurora-account-hero {
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  background:
+    radial-gradient(36rem 18rem at 92% 8%, rgba(153, 246, 228, 0.26), transparent 64%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.9));
+  padding: clamp(1.4rem, 3vw, 2.1rem);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-account-hero h1 {
+  margin-top: 0.35rem;
+  color: #0f172a;
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  font-weight: 720;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.aurora-account-hero p:not(.gank-eyebrow) {
+  margin-top: 0.82rem;
+  max-width: 42rem;
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.aurora-account-chip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.aurora-account-chip-strip .apple-config-chip {
+  min-height: 38px;
+  border-color: rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.82);
+  color: #334155;
+  padding: 0.58rem 0.82rem;
+  font-size: 12px;
+}
+
+.aurora-account-card.apple-utility-card {
+  overflow: hidden;
+  border-color: rgba(255, 255, 255, 0.86);
+  border-radius: 20px;
+  background:
+    radial-gradient(24rem 14rem at 100% 0%, rgba(219, 234, 254, 0.24), transparent 68%),
+    rgba(255, 255, 255, 0.94);
+  padding: clamp(1.15rem, 2vw, 1.55rem);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-loading-card,
+.aurora-empty-state {
+  display: flex;
+  min-height: 11rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.aurora-profile-card {
+  min-height: 100%;
+}
+
+.aurora-profile-avatar,
+.aurora-credit-hero-icon {
+  display: inline-flex;
+  width: 68px;
+  height: 68px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 21px;
+  border: 1px solid rgba(191, 219, 254, 0.82);
+  background: linear-gradient(135deg, #eff6ff, #ccfbf1);
+  color: #2563eb;
+  box-shadow: 0 16px 28px rgba(37, 99, 235, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  margin-bottom: 1.1rem;
+}
+
+.aurora-profile-meta {
+  margin-top: 1.55rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.aurora-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 13px;
+  border: 1px solid rgba(226, 232, 240, 0.72);
+  background: rgba(248, 250, 252, 0.72);
+  padding: 0.78rem 0.86rem;
+}
+
+.aurora-profile-row span {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.aurora-profile-row strong {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 740;
+  text-align: right;
+  word-break: break-word;
+}
+
+.aurora-account-metric.apple-metric-card {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  border-color: rgba(226, 232, 240, 0.82);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 1.1rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045);
+}
+
+.aurora-metric-icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+}
+
+.aurora-account-metric p {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.aurora-account-metric strong {
+  display: block;
+  margin-top: 0.12rem;
+  color: #0f172a;
+  font-size: 26px;
+  font-weight: 760;
+  letter-spacing: -0.045em;
+}
+
+.aurora-account-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.aurora-account-form-head,
+.aurora-ledger-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.aurora-account-form h2,
+.aurora-ledger-head h2,
+.aurora-api-summary h2 {
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.aurora-form-title-with-icon {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.aurora-field-label {
+  margin-bottom: 0.45rem;
+  display: block;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.aurora-form-footer p {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.aurora-account-primary.apple-action-pill {
+  min-height: 48px;
+  border-radius: 999px;
+  background: #0066cc;
+  padding: 0.74rem 1.25rem;
+  font-size: 14px;
+  font-weight: 760;
+  letter-spacing: -0.01em;
+}
+
+.aurora-account-primary.apple-action-pill:hover {
+  background: #0057b8;
+}
+
+.aurora-subtle-badge {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(248, 250, 252, 0.86);
+  color: #64748b;
+  padding: 0.35rem 0.72rem;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-badge-success {
+  border-color: rgba(167, 243, 208, 0.86);
+  background: rgba(236, 253, 245, 0.92);
+  color: #047857;
+}
+
+.aurora-invite-code {
+  min-height: 48px;
+  border-radius: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  background: rgba(248, 250, 252, 0.82);
+  padding: 0.86rem 1rem;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.aurora-credit-card {
+  position: relative;
+}
+
+.aurora-credit-card h2 {
+  margin-top: 0.35rem;
+  color: #0f172a;
+  font-size: clamp(3rem, 7vw, 5.4rem);
+  font-weight: 780;
+  letter-spacing: -0.075em;
+  line-height: 0.92;
+}
+
+.aurora-credit-rules,
+.aurora-api-checklist {
+  margin-top: 1.35rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.aurora-credit-rules div,
+.aurora-api-checklist div {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border-radius: 13px;
+  border: 1px solid rgba(226, 232, 240, 0.74);
+  background: rgba(248, 250, 252, 0.74);
+  padding: 0.72rem 0.78rem;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.aurora-credit-rules svg,
+.aurora-api-checklist svg {
+  margin-top: 0.08rem;
+  flex: 0 0 auto;
+  color: #2563eb;
+}
+
+.aurora-ledger-list {
+  margin-top: 1rem;
+  display: grid;
+  max-height: 620px;
+  gap: 0.72rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.aurora-ledger-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.76);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.95rem;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.aurora-ledger-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.74);
+  background: rgba(248, 250, 252, 0.86);
+  padding: 0.25rem 0.55rem;
+}
+
+.aurora-ledger-amount {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid;
+  padding: 0.42rem 0.72rem;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.aurora-amount-credit {
+  border-color: rgba(167, 243, 208, 0.92);
+  background: rgba(236, 253, 245, 0.94);
+  color: #047857;
+}
+
+.aurora-amount-debit {
+  border-color: rgba(254, 202, 202, 0.96);
+  background: rgba(255, 241, 242, 0.94);
+  color: #e11d48;
+}
+
+.aurora-amount-neutral {
+  border-color: rgba(226, 232, 240, 0.92);
+  background: rgba(248, 250, 252, 0.94);
+  color: #475569;
+}
+
+.aurora-api-summary p {
+  margin-top: 0.65rem;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.aurora-api-form-card {
+  min-width: 0;
+}
+
+.aurora-saved-key-notice {
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border-radius: 14px;
+  border: 1px solid rgba(167, 243, 208, 0.86);
+  background: rgba(236, 253, 245, 0.92);
+  padding: 0.78rem 0.9rem;
+  color: #047857;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.aurora-saved-key-notice svg {
+  margin-top: 0.08rem;
+  flex: 0 0 auto;
+}
+
+.aurora-api-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.aurora-api-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 0.35rem;
+}
+
+@media (min-width: 768px) {
+  .aurora-api-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .aurora-account-hero,
+  .aurora-account-form-head,
+  .aurora-ledger-head,
+  .aurora-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aurora-account-chip-strip {
+    justify-content: flex-start;
+  }
+
+  .aurora-ledger-item {
+    flex-direction: column;
+  }
+
+  .aurora-ledger-amount {
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .aurora-account-back-link span {
+    display: none;
+  }
+
+  .aurora-account-hero {
+    border-radius: 18px;
+  }
+
+  .aurora-account-card.apple-utility-card {
+    border-radius: 18px;
+  }
+}
+
+/* Aurora session detail: v1 report + agent ledger reference */
+.aurora-session-page {
+  min-height: 100dvh;
+  background:
+    radial-gradient(58rem 33rem at 82% 8%, rgba(45, 212, 191, 0.34), transparent 64%),
+    radial-gradient(54rem 30rem at 95% 13%, rgba(96, 165, 250, 0.24), transparent 66%),
+    radial-gradient(42rem 22rem at 52% 8%, rgba(186, 230, 253, 0.27), transparent 64%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbfd 48%, #edf6fb 100%);
+}
+
+.aurora-session-page::before {
+  opacity: 0.32;
+}
+
+.aurora-session-page .orb-one {
+  top: 5.2rem;
+  left: 19%;
+  width: 42rem;
+  height: 16rem;
+  background: radial-gradient(ellipse, rgba(186, 230, 253, 0.30), transparent 68%);
+  filter: blur(24px);
+}
+
+.aurora-session-page .orb-two {
+  top: 4.8rem;
+  right: 3%;
+  bottom: auto;
+  width: 58rem;
+  height: 30rem;
+  background: radial-gradient(ellipse, rgba(94, 234, 212, 0.38), transparent 66%);
+  filter: blur(30px);
+}
+
+.aurora-session-page .orb-three {
+  top: 15rem;
+  right: 18%;
+  width: 38rem;
+  height: 18rem;
+  background: radial-gradient(ellipse, rgba(191, 219, 254, 0.34), transparent 72%);
+  filter: blur(30px);
+}
+
+.aurora-session-topbar.apple-global-nav {
+  min-height: 68px;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.54);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.045);
+  backdrop-filter: blur(28px) saturate(1.34);
+  -webkit-backdrop-filter: blur(28px) saturate(1.34);
+}
+
+.aurora-session-brand img {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  filter: drop-shadow(0 10px 18px rgba(37, 99, 235, 0.14));
+}
+
+.aurora-session-brand span {
+  font-size: 16px;
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  color: #0a1431;
+}
+
+.aurora-detail-back-link,
+.aurora-stop-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 160ms ease, color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.aurora-detail-back-link {
+  border-radius: 11px;
+  border: 1px solid rgba(147, 197, 253, 0.86);
+  background: rgba(239, 246, 255, 0.88);
+  color: #005bd3;
+  padding: 0.46rem 0.78rem;
+  text-decoration: none;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.aurora-detail-back-link:hover {
+  border-color: rgba(96, 165, 250, 0.95);
+  background: rgba(219, 234, 254, 0.92);
+  color: #0045a8;
+}
+
+.aurora-detail-back-link:active,
+.aurora-stop-button:active {
+  transform: scale(0.97);
+}
+
+.aurora-stop-button {
+  border-radius: 999px;
+  border: 1px solid rgba(254, 202, 202, 0.72);
+  background: rgba(254, 242, 242, 0.84);
+  color: #dc2626;
+  padding: 0.46rem 0.78rem;
+  text-decoration: none;
+}
+
+.aurora-status-pill {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 11px;
+  padding: 0.4rem 0.72rem;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-status-pill-success {
+  border: 1px solid rgba(187, 247, 208, 0.95);
+  background: rgba(240, 253, 244, 0.86);
+  color: #079455;
+}
+
+.aurora-status-pill-danger {
+  border: 1px solid rgba(254, 202, 202, 0.88);
+  background: rgba(254, 242, 242, 0.84);
+  color: #dc2626;
+}
+
+.aurora-status-pill-muted {
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: rgba(248, 250, 252, 0.82);
+  color: #64748b;
+}
+
+.aurora-export-button.apple-action-pill {
+  min-height: 40px;
+  padding: 0.56rem 1rem;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+  box-shadow: 0 16px 30px rgba(0, 102, 204, 0.20);
+}
+
+.aurora-session-shell {
+  padding-top: 1rem;
+}
+
+.aurora-session-title-row {
+  position: relative;
+  min-height: 56px;
+}
+
+.aurora-detail-tabs.gank-segmented-control {
+  width: 320px;
+  min-width: 320px;
+  max-width: calc(100vw - 40px);
+  border-radius: 15px;
+  border-color: rgba(203, 213, 225, 0.70);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(241, 245, 249, 0.52)),
+    rgba(255, 255, 255, 0.50);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.aurora-detail-tab {
+  display: inline-flex;
+  min-height: 38px;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 12px;
+  color: #475569;
+  padding: 0.42rem 0.78rem;
+  font-size: 12px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.aurora-detail-tab-active {
+  background: rgba(255, 255, 255, 0.96);
+  color: #005bd3;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-detail-report.gank-liquid-panel,
+.aurora-agent-panel.gank-liquid-panel,
+.aurora-reading-card.gank-text-panel {
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 20px;
+  background:
+    radial-gradient(56rem 23rem at 94% 3%, rgba(153, 246, 228, 0.22), transparent 70%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.62)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(30px) saturate(1.32);
+  -webkit-backdrop-filter: blur(30px) saturate(1.32);
+}
+
+.aurora-detail-report.gank-liquid-panel {
+  min-height: 318px;
+}
+
+.aurora-detail-report-head,
+.aurora-agent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.35rem 0.75rem;
+}
+
+.aurora-detail-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 24px rgba(0, 102, 204, 0.18);
+}
+
+.aurora-detail-icon-blue {
+  background: linear-gradient(135deg, #2f80ff 0%, #075ee8 100%);
+  color: white;
+}
+
+.aurora-detail-icon-pulse {
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2f80ff 0%, #075ee8 100%);
+  color: white;
+}
+
+.aurora-report-status,
+.aurora-diagnosis-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 11px;
+  padding: 0.46rem 0.72rem;
+  font-size: 12px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.aurora-report-status-success {
+  border: 1px solid rgba(187, 247, 208, 0.95);
+  background: rgba(240, 253, 244, 0.86);
+  color: #079455;
+}
+
+.aurora-report-status-danger {
+  border: 1px solid rgba(254, 202, 202, 0.86);
+  background: rgba(254, 242, 242, 0.86);
+  color: #dc2626;
+}
+
+.aurora-diagnosis-pill {
+  border: 1px solid rgba(147, 197, 253, 0.86);
+  background: rgba(239, 246, 255, 0.90);
+  color: #005bd3;
+  font-size: 11px;
+}
+
+.aurora-detail-report-body {
+  padding: 0.82rem 1.35rem 0.88rem;
+}
+
+.aurora-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.aurora-report-metric.apple-utility-card {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  gap: 0.62rem;
+  border-radius: 11px;
+  border-color: rgba(203, 213, 225, 0.58);
+  background: rgba(255, 255, 255, 0.70);
+  padding: 0.62rem 0.78rem;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-metric-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.aurora-metric-icon-blue {
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.96), rgba(191, 219, 254, 0.75));
+  color: #005bd3;
+}
+
+.aurora-metric-icon-sky {
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.96), rgba(224, 242, 254, 0.78));
+  color: #0b73ff;
+}
+
+.aurora-metric-icon-green {
+  background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(153, 246, 228, 0.72));
+  color: #0f9f78;
+}
+
+.aurora-metric-icon-purple {
+  background: linear-gradient(135deg, rgba(237, 233, 254, 0.96), rgba(224, 231, 255, 0.74));
+  color: #5b3fd6;
+}
+
+.aurora-report-metric p {
+  margin: 0 0 0.18rem;
+  color: #68758a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.aurora-report-metric strong {
+  color: #020617;
+  font-size: 20px;
+  font-weight: 820;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.aurora-report-metric strong span {
+  margin-left: 0.22rem;
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.aurora-metric-value-blue {
+  color: #075ee8 !important;
+}
+
+.aurora-metric-value-green {
+  color: #079455 !important;
+}
+
+.aurora-metric-value-purple {
+  color: #5b3fd6 !important;
+}
+
+.aurora-report-meta.gank-liquid-section {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.75fr) minmax(0, 1.3fr);
+  align-items: center;
+  border-radius: 11px;
+  border-color: rgba(226, 232, 240, 0.66);
+  background: rgba(255, 255, 255, 0.56);
+  padding: 0.45rem 0.72rem;
+  color: #334155;
+  font-size: 11px;
+  line-height: 1.3;
+  box-shadow: none;
+}
+
+.aurora-report-meta-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  padding: 0 0.85rem;
+  border-left: 1px solid rgba(203, 213, 225, 0.78);
+}
+
+.aurora-report-meta-item:first-child {
+  justify-content: flex-start;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.aurora-report-meta-message {
+  justify-content: flex-start;
+}
+
+.aurora-report-meta-label {
+  flex: 0 0 auto;
+  color: #0f172a;
+  font-weight: 760;
+}
+
+.aurora-report-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  padding: 0.2rem 0.44rem;
+  font-size: 10px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.aurora-report-chip-blue {
+  background: rgba(219, 234, 254, 0.9);
+  color: #075ee8;
+}
+
+.aurora-report-chip-green {
+  background: rgba(209, 250, 229, 0.95);
+  color: #079455;
+}
+
+.aurora-report-chip-slate {
+  background: rgba(241, 245, 249, 0.95);
+  color: #475569;
+}
+
+.aurora-process-wrap {
+  margin-top: 0.7rem;
+}
+
+.aurora-process-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  border: 1px solid rgba(147, 197, 253, 0.62);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.52);
+  padding: 0.34rem 0.56rem;
+}
+
+.aurora-process-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.1rem 0.72rem 0.1rem 0.25rem;
+}
+
+.aurora-process-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: -0.42rem;
+  top: 50%;
+  width: 5.9rem;
+  height: 1px;
+  background-image: linear-gradient(90deg, rgba(96, 165, 250, 0.55) 45%, transparent 45%);
+  background-size: 10px 1px;
+}
+
+.aurora-process-step:not(:last-child)::before {
+  content: "›";
+  position: absolute;
+  right: -0.72rem;
+  top: calc(50% - 0.58rem);
+  color: rgba(96, 165, 250, 0.76);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.aurora-process-step > span:first-child {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  background: radial-gradient(circle at 30% 30%, #60a5fa, #075ee8);
+  color: white;
+  font-size: 11px;
+  font-weight: 820;
+  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.82);
+}
+
+.aurora-process-step p {
+  margin: 0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.aurora-process-step > span:last-child {
+  display: none;
+}
+
+.aurora-agent-panel.gank-liquid-panel {
+  background:
+    radial-gradient(42rem 22rem at 100% 0%, rgba(219, 234, 254, 0.23), transparent 66%),
+    rgba(255, 255, 255, 0.74);
+}
+
+.aurora-agent-head {
+  min-height: 58px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.64);
+}
+
+.aurora-agent-scroll {
+  position: relative;
+  max-height: 560px;
+  padding: 0.72rem 1.35rem 0.82rem;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.aurora-agent-scroll::before {
+  content: "";
+  position: absolute;
+  top: 1.12rem;
+  bottom: 1.22rem;
+  left: 2.32rem;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(7, 94, 232, 0.18);
+}
+
+.aurora-agent-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 0.72rem;
+  margin-bottom: 0.32rem;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: 58px;
+}
+
+.aurora-agent-node {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  border-radius: 999px;
+  background: #075ee8;
+  color: white;
+  font-size: 10.5px;
+  font-weight: 840;
+  box-shadow: 0 0 0 3px rgba(219, 234, 254, 0.72);
+}
+
+.aurora-agent-card.gank-liquid-section {
+  border-radius: 12px;
+  border-color: rgba(226, 232, 240, 0.66);
+  background: #ffffff;
+  padding: 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  contain: layout style;
+  overflow: hidden;
+}
+
+.aurora-agent-row-main {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr 22px;
+  min-height: 42px;
+  align-items: center;
+  gap: 0.62rem;
+  padding: 0.35rem 0.72rem 0.35rem 0.95rem;
+}
+
+.aurora-agent-row-main h4 {
+  margin: 0;
+  color: #020617;
+  font-size: 12px;
+  font-weight: 840;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
+.aurora-agent-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.aurora-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  padding: 0.18rem 0.42rem;
+  font-size: 9.5px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.aurora-agent-chip-blue {
+  background: rgba(219, 234, 254, 0.80);
+  color: #075ee8;
+}
+
+.aurora-agent-chip-muted {
+  background: rgba(241, 245, 249, 0.92);
+  color: #475569;
+}
+
+.aurora-agent-chip-red {
+  background: rgba(254, 242, 242, 0.92);
+  color: #dc2626;
+}
+
+.aurora-agent-chip-green {
+  background: rgba(209, 250, 229, 0.88);
+  color: #047857;
+}
+
+.aurora-agent-meta-grid {
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  justify-content: space-between;
+  gap: 0.35rem 0.68rem;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.aurora-agent-meta-grid p {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.aurora-agent-meta-grid-mobile {
+  display: none;
+}
+
+.aurora-agent-chevron {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  background: rgba(255, 255, 255, 0.82);
+  color: #475569;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.aurora-agent-chevron:hover {
+  border-color: rgba(147, 197, 253, 0.84);
+  background: rgba(239, 246, 255, 0.92);
+  color: #075ee8;
+}
+
+.aurora-agent-chevron:active {
+  transform: scale(0.96);
+}
+
+.aurora-agent-chevron:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.34);
+  outline-offset: 2px;
+}
+
+.aurora-agent-chevron-placeholder {
+  cursor: default;
+  border-color: transparent;
+  background: transparent;
+}
+
+.aurora-agent-drawer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  padding: 0 0.95rem 0.62rem;
+}
+
+.aurora-agent-note {
+  margin-top: 0.32rem;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  padding: 0.48rem 0.65rem;
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.aurora-agent-drawer .aurora-agent-note {
+  margin-top: 0;
+}
+
+.aurora-agent-note p {
+  margin: 0;
+}
+
+.aurora-agent-note-red {
+  border-color: rgba(254, 202, 202, 0.72);
+  background: rgba(254, 242, 242, 0.82);
+  color: #dc2626;
+}
+
+.aurora-agent-note-blue {
+  border-color: rgba(191, 219, 254, 0.74);
+  background: rgba(239, 246, 255, 0.88);
+  color: #075ee8;
+}
+
+.aurora-agent-note-green {
+  border-color: rgba(167, 243, 208, 0.72);
+  background: rgba(236, 253, 245, 0.84);
+  color: #047857;
+}
+
+.aurora-agent-note-muted {
+  border-color: rgba(226, 232, 240, 0.82);
+  background: rgba(248, 250, 252, 0.86);
+  color: #334155;
+}
+
+.aurora-agent-note-purple {
+  border-color: rgba(233, 213, 255, 0.86);
+  background: rgba(250, 245, 255, 0.72);
+  color: #475569;
+}
+
+.aurora-agent-live.gank-liquid-section {
+  margin-left: 46px;
+  border-radius: 12px;
+  padding: 0.62rem 0.75rem;
+}
+
+.aurora-reading-grid {
+  align-items: start;
+}
+
+.aurora-reading-card.gank-text-panel {
+  display: flex;
+  min-height: 320px;
+  max-height: 500px;
+  flex-direction: column;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.90);
+}
+
+.aurora-reading-card-muted.gank-text-panel {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.aurora-reading-head {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.78rem;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.58);
+  padding: 0.58rem 0.82rem;
+}
+
+.aurora-reading-head h3 {
+  margin: 0;
+  color: #020617;
+  font-size: 12.5px;
+  font-weight: 840;
+  letter-spacing: -0.025em;
+}
+
+.aurora-reading-card-muted .aurora-reading-head h3 {
+  color: #64748b;
+}
+
+.aurora-reading-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.aurora-reading-icon-blue {
+  background: #0b73ff;
+  color: white;
+}
+
+.aurora-reading-icon-muted {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.aurora-copy-button.apple-action-pill {
+  min-height: 32px;
+  padding: 0.42rem 0.8rem;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 820;
+  box-shadow: 0 12px 24px rgba(0, 102, 204, 0.16);
+}
+
+.aurora-reading-body {
+  flex: 1;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0.82rem 0.95rem 1rem;
+}
+
+.aurora-reading-card-muted .aurora-reading-body {
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.aurora-reading-body pre {
+  margin: 0;
+  color: #020617;
+  font-size: 11.5px;
+  line-height: 1.68;
+  white-space: pre-wrap;
+}
+
+.aurora-reading-card-muted .aurora-reading-body pre {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.aurora-mini-tabs {
+  border-radius: 12px;
+}
+
+.aurora-mini-tabs button {
+  border-radius: 8px;
+  padding: 0.25rem 0.55rem;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.aurora-mini-tabs .aurora-mini-tab-active {
+  background: white;
+  color: #0f172a;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.07);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .aurora-session-topbar.apple-global-nav,
+  .aurora-detail-report.gank-liquid-panel,
+  .aurora-agent-panel.gank-liquid-panel,
+  .aurora-reading-card.gank-text-panel,
+  .aurora-report-metric.apple-utility-card,
+  .aurora-process-rail,
+  .aurora-agent-card.gank-liquid-section,
+  .aurora-agent-live.gank-liquid-section,
+  .aurora-report-meta.gank-liquid-section {
+    background: var(--glass-bg-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .aurora-session-topbar.apple-global-nav,
+  .aurora-detail-report.gank-liquid-panel,
+  .aurora-agent-panel.gank-liquid-panel,
+  .aurora-reading-card.gank-text-panel,
+  .aurora-report-metric.apple-utility-card,
+  .aurora-process-rail,
+  .aurora-agent-card.gank-liquid-section,
+  .aurora-agent-live.gank-liquid-section,
+  .aurora-report-meta.gank-liquid-section {
+    background: var(--glass-bg-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .aurora-detail-report-head,
+  .aurora-agent-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .aurora-report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .aurora-report-meta.gank-liquid-section,
+  .aurora-process-rail {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .aurora-report-meta-item {
+    justify-content: flex-start;
+    border-left: 0;
+    padding: 0;
+  }
+
+  .aurora-process-step {
+    justify-content: flex-start;
+  }
+
+  .aurora-process-step:not(:last-child)::before,
+  .aurora-process-step:not(:last-child)::after {
+    display: none;
+  }
+
+  .aurora-agent-row-main {
+    grid-template-columns: 1fr 28px;
+  }
+
+  .aurora-agent-row-main .aurora-agent-chip-row,
+  .aurora-agent-row-main > .aurora-agent-meta-grid {
+    grid-column: 1 / -1;
+  }
+
+  .aurora-agent-row-main > .aurora-agent-meta-grid {
+    display: none;
+  }
+
+  .aurora-agent-meta-grid-mobile {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 1.55rem 0.75rem;
+  }
+
+  .aurora-agent-drawer {
+    grid-template-columns: 1fr;
+  }
+
+  .aurora-detail-tabs.gank-segmented-control {
+    min-width: min(100%, 520px);
+  }
+}
+
+@media (max-width: 640px) {
+  .aurora-session-topbar.apple-global-nav {
+    min-height: 64px;
+  }
+
+  .aurora-session-brand img {
+    width: 38px;
+    height: 38px;
+  }
+
+  .aurora-session-brand span,
+  .aurora-status-pill span {
+    display: none;
+  }
+
+  .aurora-detail-back-link,
+  .aurora-status-pill,
+  .aurora-stop-button {
+    min-height: 38px;
+    padding: 0.5rem 0.7rem;
+  }
+
+  .aurora-export-button.apple-action-pill {
+    min-height: 44px;
+    padding: 0.68rem 1rem;
+    font-size: 16px;
+  }
+
+  .aurora-session-shell {
+    padding-top: 1.25rem;
+  }
+
+  .aurora-detail-tabs.gank-segmented-control {
+    min-width: 100%;
+  }
+
+  .aurora-detail-tab {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .aurora-detail-report-head,
+  .aurora-agent-head {
+    padding: 1.35rem 1.1rem 1.2rem;
+  }
+
+  .aurora-detail-report-body,
+  .aurora-agent-scroll {
+    padding: 1.1rem;
+  }
+
+  .aurora-report-metrics,
+  .aurora-agent-meta-grid-mobile {
+    grid-template-columns: 1fr;
+  }
+
+  .aurora-agent-scroll::before {
+    left: 1.85rem;
+  }
+
+  .aurora-agent-event {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 0.75rem;
+    contain: layout style;
+  }
+
+  .aurora-agent-node {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+  }
+
+  .aurora-agent-row-main {
+    padding: 0.75rem 0.9rem;
+  }
+
+  .aurora-agent-meta-grid-mobile,
+  .aurora-agent-drawer {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  .aurora-agent-live.gank-liquid-section {
+    margin-left: 0;
+  }
+
+  .aurora-reading-card.gank-text-panel {
+    min-height: 360px;
+    max-height: 520px;
+  }
+
+  .aurora-reading-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .aurora-reading-body pre {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 1279px) {
+  .aurora-side-card.apple-utility-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 1023px) {
+  .aurora-control-column {
+    border-right: 0;
+    border-bottom: 1px solid rgba(203, 213, 225, 0.58);
+  }
+
+  .aurora-textarea {
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 640px) {
+  .aurora-topbar.apple-global-nav {
+    min-height: 60px;
+  }
+
+  .aurora-brand-logo img {
+    width: 38px;
+    height: 38px;
+  }
+
+  .aurora-brand-logo span {
+    font-size: 22px;
+  }
+
+  .aurora-control-column,
+  .aurora-editor-column,
+  .aurora-side-top {
+    padding: 1.1rem;
+  }
+
+  .aurora-mode-card,
+  .aurora-billing-card {
+    padding: 0.78rem;
+  }
+
+  .aurora-textarea {
+    min-height: 300px;
+  }
+}
+
+/* Runtime performance guardrail:
+   keep glass-like palette, but avoid layer explosion from many live backdrop
+   filters on workspace/detail pages. */
+.glass,
+.glass-dark,
+.gank-liquid-panel,
+.gank-glass-card,
+.gank-glass-toolbar,
+.gank-glass-status-grid,
+.gank-segmented-control,
+.gank-glass-choice,
+.gank-glass-choice-active,
+.gank-glass-choice-warm,
+.gank-secondary-button,
+.apple-global-nav,
+.apple-subnav,
+.apple-product-tile,
+.apple-product-tile-dark,
+.apple-action-pill,
+.apple-ghost-pill,
+.apple-utility-card,
+.apple-paper-stage,
+.apple-paper-stage-preview,
+.apple-report-stage,
+.apple-reading-panel,
+.apple-metric-card,
+.apple-config-chip,
+.aurora-progress-card,
+.aurora-session-topbar,
+.aurora-detail-report,
+.aurora-agent-panel,
+.aurora-reading-card,
+.gank-liquid-section,
+.aurora-process-rail,
+.aurora-report-meta.gank-liquid-section,
+.aurora-agent-card.gank-liquid-section,
+.aurora-agent-live.gank-liquid-section {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.aurora-agent-card.gank-liquid-section::before,
+.aurora-agent-live.gank-liquid-section::before,
+.aurora-report-meta.gank-liquid-section::before {
+  display: none !important;
+}
+
+.gank-ambient-orb,
+.aurora-app-page .gank-ambient-orb,
+.aurora-session-page .gank-ambient-orb {
+  content-visibility: auto;
+  contain: layout paint style;
+  filter: none !important;
+  transform: none !important;
+  will-change: auto;
+}
+
+.gank-app-page::before,
+.gank-app-page::after,
+.aurora-app-page::before,
+.aurora-app-page::after,
+.aurora-session-page::before,
+.aurora-session-page::after {
+  display: none !important;
+  pointer-events: none;
+}
+
+/* Aurora admin console: Apple-light management UI */
+.aurora-admin-page {
+  --admin-blue: #0066cc;
+  --admin-blue-dark: #0057b8;
+  --admin-line: rgba(203, 213, 225, 0.72);
+  --admin-line-soft: rgba(226, 232, 240, 0.78);
+  --admin-card: rgba(255, 255, 255, 0.94);
+  --admin-card-strong: #ffffff;
+  --admin-ink: #0f172a;
+  --admin-muted: #64748b;
+  background:
+    radial-gradient(56rem 22rem at 78% 5rem, rgba(191, 219, 254, 0.36), transparent 66%),
+    radial-gradient(46rem 18rem at 92% 18rem, rgba(153, 246, 228, 0.30), transparent 64%),
+    linear-gradient(180deg, #fbfdff 0%, #f6fbff 48%, #f8fbff 100%);
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+.aurora-admin-topbar.apple-global-nav {
+  border-bottom: 1px solid rgba(203, 213, 225, 0.68);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.035);
+}
+
+.aurora-admin-topbar-chip,
+.aurora-admin-logout,
+.aurora-admin-secondary-action,
+.aurora-admin-action,
+.aurora-admin-tab-button,
+.aurora-admin-subtle-button,
+.aurora-admin-danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 40px;
+  border-radius: 13px;
+  border: 1px solid rgba(191, 219, 254, 0.84);
+  background: rgba(239, 246, 255, 0.88);
+  color: var(--admin-blue);
+  padding: 0.58rem 0.9rem;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.aurora-admin-topbar-chip:hover,
+.aurora-admin-secondary-action:hover,
+.aurora-admin-tab-button:hover,
+.aurora-admin-subtle-button:hover {
+  border-color: rgba(147, 197, 253, 0.96);
+  background: rgba(219, 234, 254, 0.94);
+}
+
+.aurora-admin-topbar-chip:active,
+.aurora-admin-secondary-action:active,
+.aurora-admin-action:active,
+.aurora-admin-tab-button:active,
+.aurora-admin-subtle-button:active,
+.aurora-admin-danger-button:active {
+  transform: scale(0.97);
+}
+
+.aurora-admin-logout {
+  border-color: rgba(254, 202, 202, 0.86);
+  background: rgba(255, 241, 242, 0.9);
+  color: #dc2626;
+}
+
+.aurora-admin-logout:hover,
+.aurora-admin-danger-button:hover {
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(255, 228, 230, 0.96);
+}
+
+.aurora-admin-shell {
+  height: calc(100dvh - 76px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.aurora-admin-shell > .grid {
+  height: 100%;
+  min-height: 0;
+}
+
+.aurora-admin-shell[data-sidebar-collapsed="true"] > .grid {
+  grid-template-columns: 86px minmax(0, 1fr) !important;
+}
+
+.aurora-admin-sidebar {
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-admin-nav-item {
+  position: relative;
+  min-height: 52px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #334155;
+  text-align: left;
+}
+
+.aurora-admin-nav-item::before {
+  content: "";
+  position: absolute;
+  left: -0.25rem;
+  top: 0.72rem;
+  bottom: 0.72rem;
+  width: 4px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 160ms ease;
+}
+
+.aurora-admin-nav-item:hover {
+  border-color: rgba(191, 219, 254, 0.72);
+  background: rgba(239, 246, 255, 0.66);
+  color: var(--admin-blue);
+}
+
+.aurora-admin-nav-item-active {
+  border-color: rgba(191, 219, 254, 0.92);
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.72));
+  color: var(--admin-blue);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-admin-nav-item-active::before {
+  background: var(--admin-blue);
+}
+
+.aurora-admin-nav-icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: rgba(248, 250, 252, 0.88);
+  color: #475569;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.aurora-admin-nav-item:hover .aurora-admin-nav-icon,
+.aurora-admin-nav-item-active .aurora-admin-nav-icon {
+  background: rgba(219, 234, 254, 0.96);
+  color: var(--admin-blue);
+}
+
+.aurora-admin-main {
+  display: grid;
+  gap: 1.5rem;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+.aurora-admin-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.aurora-admin-section-head h1,
+.aurora-admin-section-head h2,
+.aurora-admin-section-head h3 {
+  color: var(--admin-ink);
+  font-size: clamp(1.9rem, 3vw, 2.55rem);
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.aurora-admin-section-head p:not(.gank-eyebrow) {
+  margin-top: 0.55rem;
+  max-width: 46rem;
+  color: var(--admin-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.aurora-admin-card {
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  border-radius: 20px;
+  background:
+    radial-gradient(24rem 14rem at 100% 0%, rgba(219, 234, 254, 0.18), transparent 68%),
+    var(--admin-card);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-admin-page .shadow-ios {
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-admin-page .bg-white.rounded-2xl,
+.aurora-admin-page .bg-white.rounded-xl,
+.aurora-admin-page .rounded-2xl.bg-white,
+.aurora-admin-page .rounded-xl.bg-white {
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.aurora-admin-page table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.aurora-admin-page thead,
+.aurora-admin-table-head {
+  background: rgba(248, 250, 252, 0.96) !important;
+  box-shadow: inset 0 -1px 0 rgba(226, 232, 240, 0.82);
+}
+
+.aurora-admin-page tbody tr {
+  transition: background 140ms ease;
+}
+
+.aurora-admin-page tbody tr:hover {
+  background: rgba(239, 246, 255, 0.58) !important;
+}
+
+.aurora-admin-page th {
+  color: #64748b;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+}
+
+.aurora-admin-page td {
+  color: #334155;
+}
+
+.aurora-admin-input,
+.aurora-admin-page input[type="text"],
+.aurora-admin-page input[type="search"],
+.aurora-admin-page input[type="number"],
+.aurora-admin-page input[type="password"],
+.aurora-admin-page textarea,
+.aurora-admin-page select {
+  border-color: rgba(203, 213, 225, 0.82) !important;
+  border-radius: 12px !important;
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  color: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 8px 20px rgba(15, 23, 42, 0.035);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.aurora-admin-input:focus,
+.aurora-admin-page input:focus,
+.aurora-admin-page textarea:focus,
+.aurora-admin-page select:focus {
+  border-color: rgba(0, 102, 204, 0.62) !important;
+  box-shadow: 0 0 0 4px rgba(0, 102, 204, 0.12), 0 10px 24px rgba(37, 99, 235, 0.06) !important;
+  outline: none !important;
+}
+
+.aurora-admin-action,
+.aurora-admin-page button.bg-indigo-600,
+.aurora-admin-page button.bg-blue-600,
+.aurora-admin-page button.bg-violet-600,
+.aurora-admin-page button.bg-slate-700 {
+  border-color: transparent !important;
+  background: var(--admin-blue) !important;
+  color: #fff !important;
+  box-shadow: 0 14px 28px rgba(0, 102, 204, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.aurora-admin-action:hover,
+.aurora-admin-page button.bg-indigo-600:hover,
+.aurora-admin-page button.bg-blue-600:hover,
+.aurora-admin-page button.bg-violet-600:hover,
+.aurora-admin-page button.bg-slate-700:hover {
+  background: var(--admin-blue-dark) !important;
+}
+
+.aurora-admin-page button:focus-visible,
+.aurora-admin-page a:focus-visible,
+.aurora-admin-page input:focus-visible,
+.aurora-admin-page select:focus-visible,
+.aurora-admin-page textarea:focus-visible {
+  outline: 2px solid rgba(0, 102, 204, 0.72);
+  outline-offset: 2px;
+}
+
+.aurora-admin-tab-button {
+  border-color: transparent;
+  background: transparent;
+  color: #64748b;
+  box-shadow: none;
+}
+
+.aurora-admin-tab-button-active,
+.aurora-admin-page .aurora-admin-tab-button-active,
+.aurora-admin-page button.aurora-admin-tab-button-active {
+  border-color: rgba(191, 219, 254, 0.92) !important;
+  background: #eff6ff !important;
+  color: var(--admin-blue) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px rgba(37, 99, 235, 0.08) !important;
+}
+
+.aurora-admin-subtle-button {
+  border-color: rgba(226, 232, 240, 0.82);
+  background: rgba(255, 255, 255, 0.86);
+  color: #475569;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
+}
+
+.aurora-admin-danger-button {
+  border-color: rgba(254, 202, 202, 0.9);
+  background: rgba(255, 241, 242, 0.92);
+  color: #dc2626;
+  box-shadow: none;
+}
+
+.aurora-admin-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  background: rgba(248, 250, 252, 0.92);
+  padding: 0.28rem 0.68rem;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-admin-page .gank-eyebrow {
+  color: var(--admin-blue);
+}
+
+.aurora-admin-page .custom-scrollbar,
+.aurora-admin-page .overflow-auto,
+.aurora-admin-page .overflow-y-auto {
+  scrollbar-color: rgba(100, 116, 139, 0.32) transparent;
+}
+
+.aurora-admin-page .fixed.inset-0.bg-black,
+.aurora-admin-page .fixed.inset-0.bg-slate-900\/40 {
+  background: rgba(15, 23, 42, 0.34) !important;
+}
+
+@media (max-width: 1023px) {
+  .aurora-admin-sidebar {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .aurora-admin-nav-item::before {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .aurora-admin-section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .aurora-admin-logout span,
+  .aurora-admin-logout {
+    font-size: 0;
+  }
+
+  .aurora-admin-logout svg {
+    margin: 0;
+  }
+}
+
+/* Aurora admin image-level reconstruction details */
+.aurora-admin-page {
+  --admin-blue: #0066cc;
+  --admin-blue-dark: #0057b8;
+  --admin-cyan: #25b8bf;
+  --admin-violet: #6b6ff6;
+  --admin-amber: #f5a524;
+  --admin-slate: #2563eb;
+}
+
+.aurora-admin-page .aurora-page-shell {
+  max-width: 100vw;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.aurora-admin-topbar.apple-global-nav {
+  min-height: 76px;
+}
+
+.aurora-admin-topbar-search,
+.aurora-session-search {
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 42px;
+  min-width: 22rem;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0 0.75rem;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
+}
+
+.aurora-admin-topbar-search input,
+.aurora-session-search input {
+  min-height: 0 !important;
+  height: 38px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  flex: 1;
+  font-size: 13px;
+}
+
+.aurora-admin-topbar-search span {
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  padding: 0.18rem 0.42rem;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.aurora-admin-icon-button,
+.aurora-admin-profile-button,
+.aurora-admin-date-range,
+.aurora-admin-collapse-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 42px;
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  padding: 0.55rem 0.85rem;
+  font-size: 13px;
+  font-weight: 760;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.aurora-admin-icon-button {
+  width: 42px;
+  padding: 0;
+}
+
+.aurora-admin-icon-button:hover,
+.aurora-admin-profile-button:hover,
+.aurora-admin-date-range:hover,
+.aurora-admin-collapse-button:hover {
+  border-color: rgba(147, 197, 253, 0.96);
+  background: #eff6ff;
+  color: var(--admin-blue);
+}
+
+.aurora-admin-avatar,
+.aurora-admin-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b6ff6, #2f8cff);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(11, 111, 246, 0.22);
+}
+
+.aurora-admin-user-avatar.is-large {
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
+}
+
+.aurora-admin-collapse-button {
+  width: 100%;
+  justify-content: flex-start;
+  color: #64748b;
+}
+
+.aurora-admin-sidebar {
+  border-radius: 0 !important;
+  height: calc(100dvh - 76px) !important;
+  min-height: 0 !important;
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  box-shadow: 10px 0 34px rgba(15, 23, 42, 0.045);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.aurora-admin-sidebar--collapsed {
+  width: 86px;
+  min-width: 86px;
+}
+
+.aurora-admin-sidebar--collapsed .aurora-admin-nav-item {
+  justify-content: center;
+  padding-left: 0.65rem !important;
+  padding-right: 0.65rem !important;
+}
+
+.aurora-admin-sidebar--collapsed .aurora-admin-nav-item span.flex,
+.aurora-admin-sidebar--collapsed .aurora-admin-collapse-button span {
+  display: none;
+}
+
+.aurora-admin-nav-item {
+  border-radius: 14px !important;
+  min-height: 58px;
+}
+
+.aurora-admin-nav-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.55);
+}
+
+.aurora-admin-nav-item-active .aurora-admin-nav-icon {
+  border-color: rgba(147, 197, 253, 0.75);
+  box-shadow: 0 8px 18px rgba(11, 111, 246, 0.12);
+}
+
+.aurora-admin-dashboard-grid,
+.aurora-session-console,
+.aurora-ops-console {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.aurora-admin-dashboard-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: -0.5rem;
+}
+
+.aurora-admin-kpi-grid,
+.aurora-session-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.aurora-admin-stat-card {
+  min-height: 190px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 1.35rem;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  overflow: hidden;
+}
+
+.aurora-admin-stat-card.compact {
+  min-height: 132px;
+}
+
+.aurora-admin-stat-card.compact > span,
+.aurora-admin-stat-trend {
+  display: inline-flex;
+  margin-top: 0.42rem;
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-admin-stat-card.compact > span.is-down,
+.aurora-admin-stat-trend.is-down {
+  color: #16a34a;
+}
+
+.aurora-admin-metric-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  color: var(--admin-blue);
+  background: #eaf3ff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 12px 24px rgba(11,111,246,.14);
+}
+
+.aurora-admin-metric-icon-cyan { color: #0f9ca5; background: #e8fbfb; }
+.aurora-admin-metric-icon-violet { color: #625df5; background: #eeeeff; }
+.aurora-admin-metric-icon-amber { color: #f59e0b; background: #fff4dc; }
+.aurora-admin-metric-icon-slate { color: #2563eb; background: #eaf2ff; }
+
+.aurora-admin-info-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.aurora-admin-stat-label {
+  color: #475569;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.aurora-admin-stat-value {
+  margin-top: 0.25rem;
+  color: #0f172a;
+  font-size: clamp(1.65rem, 2vw, 2.15rem);
+  font-weight: 820;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.aurora-admin-stat-value span,
+.aurora-admin-chart-value span {
+  margin-left: 0.35rem;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  color: #64748b;
+}
+
+.aurora-admin-sparkline {
+  width: 100%;
+  height: 42px;
+  margin-top: 1.2rem;
+}
+
+.aurora-admin-sparkline polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aurora-admin-sparkline-blue { color: var(--admin-blue); }
+.aurora-admin-sparkline-cyan { color: var(--admin-cyan); }
+.aurora-admin-sparkline-violet { color: var(--admin-violet); }
+.aurora-admin-sparkline-amber { color: var(--admin-amber); }
+.aurora-admin-sparkline-slate { color: #2563eb; }
+
+.aurora-admin-analytics-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr 1.12fr;
+  gap: 1rem;
+}
+
+.aurora-admin-chart-card {
+  min-height: 316px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 1.35rem;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+}
+
+.aurora-admin-chart-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.aurora-admin-chart-head h3,
+.aurora-admin-mode-head h3,
+.aurora-admin-list-head h3,
+.aurora-admin-user-detail-panel h3,
+.aurora-admin-audit-detail h3,
+.aurora-database-summary-card h3,
+.aurora-config-status-card h3,
+.aurora-config-ready-card h3 {
+  color: #0f172a;
+  font-size: 1.08rem;
+  font-weight: 820;
+  letter-spacing: -0.025em;
+}
+
+.aurora-admin-chart-value {
+  margin-top: 0.65rem;
+  color: var(--admin-blue);
+  font-size: 2rem;
+  font-weight: 820;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.aurora-admin-chart-value-cyan { color: var(--admin-blue); }
+.aurora-admin-chart-value-violet { color: var(--admin-blue); }
+
+.aurora-admin-bar-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1rem;
+  height: 150px;
+  align-items: end;
+  margin-top: 1.6rem;
+  padding: 0.5rem 1rem 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.aurora-admin-bar {
+  display: block;
+  border-radius: 9px 9px 0 0;
+  background: linear-gradient(180deg, #4392ff, #0b6ff6);
+  box-shadow: 0 10px 18px rgba(11,111,246,.16);
+}
+
+.aurora-admin-line-chart {
+  height: 170px;
+  margin-top: 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.aurora-admin-line-chart svg {
+  width: 100%;
+  height: 100%;
+}
+
+.aurora-admin-chart-line {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.aurora-admin-chart-line-cyan { stroke: var(--admin-cyan); }
+.aurora-admin-chart-line-violet { stroke: var(--admin-violet); }
+.aurora-admin-chart-line-blue { stroke: var(--admin-blue); }
+.aurora-admin-chart-line-amber { stroke: var(--admin-amber); }
+.aurora-admin-chart-line-slate { stroke: var(--admin-slate); }
+.aurora-admin-area-violet { fill: rgba(107, 111, 246, 0.12); }
+.aurora-admin-area-blue { fill: rgba(11, 111, 246, 0.12); }
+.aurora-admin-area-cyan { fill: rgba(37, 184, 191, 0.12); }
+.aurora-admin-area-amber { fill: rgba(245, 165, 36, 0.12); }
+.aurora-admin-area-slate { fill: rgba(37, 99, 235, 0.12); }
+.aurora-admin-chart-dot-cyan { fill: var(--admin-cyan); }
+.aurora-admin-chart-dot-violet { fill: var(--admin-violet); }
+.aurora-admin-chart-dot-blue { fill: var(--admin-blue); }
+.aurora-admin-chart-dot-amber { fill: var(--admin-amber); }
+.aurora-admin-chart-dot-slate { fill: var(--admin-slate); }
+
+.aurora-admin-mode-card { padding: 1.35rem; }
+.aurora-admin-mode-head { margin-bottom: 1rem; }
+.aurora-admin-mode-head p { margin-top: .25rem; color: #64748b; font-size: 13px; }
+.aurora-admin-mode-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 260px;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.aurora-admin-donut {
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: conic-gradient(var(--admin-blue) 0 var(--p1), var(--admin-cyan) var(--p1) var(--p2), var(--admin-violet) var(--p2) var(--p3), var(--admin-amber) var(--p3) 100%);
+  display: grid;
+  place-items: center;
+  margin: auto;
+}
+.aurora-admin-donut::before {
+  content: "";
+  position: absolute;
+}
+.aurora-admin-donut > div {
+  width: 108px;
+  height: 108px;
+  border-radius: 999px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px #e2e8f0;
+}
+.aurora-admin-donut span { color: #64748b; font-size: 12px; font-weight: 760; }
+.aurora-admin-donut strong { color: #0f172a; font-size: 1.35rem; font-weight: 820; }
+
+.aurora-admin-mode-table {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.aurora-admin-mode-row {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr .7fr .8fr 1fr;
+  gap: 1rem;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 1rem;
+  border-top: 1px solid #edf2f7;
+  color: #334155;
+  font-size: 13px;
+}
+.aurora-admin-mode-row:first-child { border-top: 0; }
+.aurora-admin-mode-row-head { background: #f8fafc; color: #64748b; font-weight: 760; }
+.aurora-admin-mode-name { display: inline-flex; align-items: center; gap: .55rem; font-weight: 760; }
+.aurora-admin-mode-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--admin-blue); }
+.aurora-admin-mode-dot-cyan { background: var(--admin-cyan); }
+.aurora-admin-mode-dot-violet { background: var(--admin-violet); }
+.aurora-admin-mode-dot-amber { background: var(--admin-amber); }
+.aurora-admin-mode-dot-slate { background: var(--admin-slate); }
+.aurora-admin-mode-row .aurora-admin-sparkline { height: 28px; margin: 0; }
+
+.aurora-admin-mode-summary { display: grid; gap: 1rem; }
+.aurora-admin-summary-tile {
+  border-radius: 16px;
+  background: #eff6ff;
+  padding: 1.2rem;
+  color: var(--admin-blue);
+}
+.aurora-admin-summary-tile.is-muted { background: linear-gradient(135deg, #f8fafc, #eef6ff); }
+.aurora-admin-summary-tile span { display: block; margin-top: .8rem; color: #64748b; font-size: 13px; font-weight: 760; }
+.aurora-admin-summary-tile strong { display: block; margin-top: .2rem; font-size: 1.35rem; font-weight: 840; color: var(--admin-blue); }
+.aurora-admin-summary-tile p { margin-top: .35rem; color: #64748b; font-size: 13px; }
+
+.aurora-admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1rem;
+}
+.aurora-admin-users-toolbar,
+.aurora-admin-list-head,
+.aurora-admin-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.aurora-admin-list-head.compact { padding: 1rem 1.25rem; }
+.aurora-admin-list-head p { color: #64748b; font-size: 12px; margin-top: .2rem; }
+.aurora-admin-users-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; min-width: 22rem; }
+.aurora-admin-users-stats div { border-radius: 14px; background: #f8fafc; padding: .7rem .85rem; }
+.aurora-admin-users-stats .is-good { background: #ecfdf5; color: #047857; }
+.aurora-admin-users-stats .is-danger { background: #fff1f2; color: #be123c; }
+.aurora-admin-users-stats span { display: block; font-size: 12px; font-weight: 760; color: #64748b; }
+.aurora-admin-users-stats strong { display: block; margin-top: .15rem; color: #0f172a; font-size: 1.25rem; font-weight: 840; }
+.aurora-admin-users-filters { display: flex; flex: 1; justify-content: flex-end; gap: .75rem; align-items: center; }
+
+.aurora-admin-user-detail-panel,
+.aurora-admin-audit-detail {
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: rgba(255,255,255,.96);
+  padding: 1.25rem;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+}
+.aurora-admin-user-profile-card {
+  margin-top: 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.aurora-admin-user-profile-card strong { display:block; color:#0f172a; font-size:1.1rem; }
+.aurora-admin-user-profile-card p { color:#64748b; font-size:13px; }
+.aurora-admin-user-assets { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; margin-top:1rem; }
+.aurora-admin-user-assets div { border:1px solid #e2e8f0; border-radius:16px; padding:1rem; }
+.aurora-admin-user-assets span { color:#64748b; font-size:12px; font-weight:760; }
+.aurora-admin-user-assets strong { display:block; margin-top:.45rem; color:var(--admin-blue); font-size:1.45rem; font-weight:840; }
+.aurora-admin-user-assets i { display:block; margin-top:.8rem; width:68%; height:4px; border-radius:999px; background:var(--admin-blue); }
+.aurora-admin-user-info-list { margin-top: 1rem; }
+.aurora-admin-user-info-list div { display:flex; justify-content:space-between; gap:1rem; padding:.75rem 0; border-bottom:1px solid #edf2f7; font-size:13px; }
+.aurora-admin-user-info-list span { color:#64748b; }
+.aurora-admin-user-info-list strong { color:#334155; text-align:right; }
+.aurora-admin-user-actions { display:flex; flex-wrap:wrap; gap:.65rem; margin-top:1.25rem; }
+.aurora-admin-user-actions button { display:inline-flex; align-items:center; gap:.45rem; border:1px solid #bfdbfe; border-radius:12px; padding:.65rem .8rem; color:var(--admin-blue); font-weight:760; font-size:13px; background:#fff; }
+.aurora-admin-user-actions button.is-danger { border-color:#fecaca; color:#dc2626; }
+
+.aurora-admin-announcement-composer { display:grid; grid-template-columns: minmax(0,1.18fr) minmax(22rem,.82fr); gap:1rem; }
+.aurora-admin-editor-card,
+.aurora-admin-preview-card { padding:0; overflow:hidden; }
+.aurora-admin-editor-head { align-items:flex-start; }
+.aurora-admin-editor-head span { color:#64748b; font-size:12px; font-weight:760; }
+.aurora-admin-editor-head strong { display:block; margin-top:.25rem; color:#0f172a; font-size:1.1rem; font-weight:840; }
+.aurora-admin-editor-card form { padding:1.25rem; }
+.aurora-admin-editor-toolbar { display:flex; flex-wrap:wrap; gap:.55rem; margin-bottom:.55rem; }
+.aurora-admin-editor-toolbar span { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:32px; border:1px solid #e2e8f0; border-radius:8px; background:#fff; color:#0f172a; font-weight:760; }
+.aurora-admin-switch-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; border:1px solid #e2e8f0; border-radius:14px; padding:.7rem .9rem; }
+.aurora-admin-switch-row.is-inline { min-height:42px; padding:.35rem .75rem; }
+.aurora-admin-switch-row strong { color:#334155; font-size:13px; }
+.aurora-admin-switch-row small { display:block; color:#64748b; font-size:12px; }
+.aurora-admin-switch-row input[type="checkbox"] { width:2.8rem !important; height:1.55rem !important; accent-color:var(--admin-blue); }
+.aurora-admin-announcement-preview { margin:1.25rem; border:1px solid #e2e8f0; border-radius:16px; background:#fff; padding:1.25rem; }
+.aurora-admin-announcement-preview h3 { margin-top:1rem; color:#0f172a; font-size:1.45rem; font-weight:840; letter-spacing:-.035em; }
+.aurora-admin-preview-body { margin-top:1rem; border-top:1px solid #e2e8f0; padding-top:1rem; color:#334155; line-height:1.8; }
+.aurora-admin-announcement-row { display:flex; justify-content:space-between; gap:1rem; padding:1.2rem 1.25rem; }
+.aurora-admin-announcement-row h4 { color:#0f172a; font-weight:800; }
+.aurora-admin-announcement-row p { margin-top:.45rem; color:#64748b; line-height:1.6; max-width:72ch; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.aurora-admin-announcement-row small { display:block; margin-top:.55rem; color:#94a3b8; }
+
+.aurora-admin-audit-filters,
+.aurora-session-filter-row {
+  display:flex;
+  flex-wrap:wrap;
+  gap:.8rem;
+  align-items:center;
+}
+.aurora-admin-audit-layout { display:grid; grid-template-columns: 250px minmax(0,1fr) 340px; gap:1rem; align-items:start; }
+.aurora-admin-timeline-list { padding:1rem; }
+.aurora-admin-timeline-item { position:relative; padding:0 0 1.2rem 2rem; border-left:1px solid #dbeafe; }
+.aurora-admin-timeline-item > span { position:absolute; left:-9px; top:0; width:18px; height:18px; border-radius:999px; border:4px solid #dbeafe; background:var(--admin-blue); }
+.aurora-admin-timeline-item > span.is-warn { background:#f59e0b; }
+.aurora-admin-timeline-item > span.is-good { background:#22c55e; }
+.aurora-admin-timeline-item strong { color:#0f172a; font-size:13px; }
+.aurora-admin-timeline-item p,
+.aurora-admin-timeline-item small { display:block; color:#64748b; font-size:12px; margin-top:.2rem; }
+.aurora-admin-audit-code { margin-top:1rem; border:1px solid #e2e8f0; border-radius:14px; background:#f8fafc; padding:1rem; }
+.aurora-admin-audit-code button { float:right; color:var(--admin-blue); font-weight:760; font-size:12px; }
+.aurora-admin-audit-code pre { white-space:pre-wrap; color:#334155; font-size:12px; }
+.aurora-admin-trace-steps { margin-top:1rem; display:grid; gap:1rem; }
+.aurora-admin-trace-steps div { position:relative; padding-left:2rem; }
+.aurora-admin-trace-steps span { position:absolute; left:0; top:.15rem; width:12px; height:12px; border-radius:999px; border:3px solid #bfdbfe; background:#fff; }
+.aurora-admin-trace-steps span.is-done { background:#22c55e; border-color:#bbf7d0; }
+.aurora-admin-trace-steps p { color:#0f172a; font-size:13px; font-weight:760; }
+.aurora-admin-trace-steps small { color:#94a3b8; font-size:12px; }
+
+.aurora-session-main-grid { display:grid; grid-template-columns:minmax(0,1fr) 420px; gap:1rem; }
+.aurora-session-bottom-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(25rem,.9fr); gap:1rem; }
+.aurora-session-filter-row .aurora-session-search { display:flex; flex:1; min-width:18rem; }
+.aurora-session-queue-card { padding-bottom:1rem; }
+.aurora-session-queue-row { display:grid; grid-template-columns:24px 1fr .9fr .8fr .7fr 18px; gap:.6rem; align-items:center; min-height:42px; padding:.5rem 1rem; border-bottom:1px solid #edf2f7; font-size:12px; }
+.aurora-session-queue-row > span { display:grid; place-items:center; width:18px; height:18px; border-radius:999px; background:var(--admin-blue); color:#fff; font-size:11px; font-weight:800; }
+.aurora-session-queue-row strong { color:var(--admin-blue); font-weight:800; }
+.aurora-session-queue-row small { color:#64748b; }
+.aurora-session-throughput { padding:0 1.25rem 1.25rem; }
+.aurora-session-throughput svg { width:100%; height:260px; }
+.aurora-session-throughput path { fill:none; stroke:var(--admin-blue); stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+.aurora-session-throughput circle { fill:var(--admin-blue); }
+.aurora-session-timeline { padding:1rem 1.25rem; display:grid; gap:1rem; }
+.aurora-session-timeline div { position:relative; padding-left:2rem; border-bottom:1px solid #edf2f7; padding-bottom:1rem; }
+.aurora-session-timeline span { position:absolute; left:0; top:0; display:grid; place-items:center; width:20px; height:20px; border-radius:999px; color:#fff; }
+.aurora-session-timeline span.is-ok { background:#22c55e; }
+.aurora-session-timeline span.is-info { background:var(--admin-blue); }
+.aurora-session-timeline span.is-error { background:#ef4444; }
+.aurora-session-timeline p { color:#334155; font-size:13px; }
+.aurora-session-timeline time { position:absolute; right:0; top:0; color:#64748b; font-size:12px; }
+.aurora-session-timeline small { display:block; margin-top:.25rem; color:#64748b; font-size:12px; }
+
+.aurora-ops-health-panel { padding:1rem; }
+.aurora-ops-health-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1rem; }
+.aurora-ops-health-card { display:flex; align-items:center; gap:1rem; min-height:118px; border:1px solid #e2e8f0; border-radius:16px; padding:1rem; background:#fff; }
+.aurora-ops-health-card span { color:#64748b; font-size:13px; font-weight:760; }
+.aurora-ops-health-card strong { display:block; margin-top:.25rem; font-size:1.35rem; font-weight:840; }
+.aurora-ops-health-card p { margin-top:.55rem; color:#64748b; font-size:12px; }
+.aurora-ops-middle-grid { display:grid; grid-template-columns: .9fr .9fr 1.3fr; gap:1rem; }
+.aurora-ops-provider-list { padding:1rem; display:grid; gap:.6rem; }
+.aurora-ops-provider-list div { display:flex; align-items:center; gap:.75rem; border:1px solid #edf2f7; border-radius:12px; padding:.65rem .8rem; }
+.aurora-ops-provider-list strong { flex:1; color:#334155; font-size:13px; }
+.aurora-ops-worker-body { display:flex; align-items:center; justify-content:space-around; padding:1rem 1rem 1.5rem; }
+.aurora-admin-donut.ops { width:150px; height:150px; }
+.aurora-ops-db-layout { display:grid; grid-template-columns: 140px 1fr; gap:1rem; padding:1rem 1.25rem; }
+.aurora-ops-db-layout span { display:block; margin-top:.75rem; color:#64748b; font-size:12px; }
+.aurora-ops-db-layout strong { display:block; color:#10b981; font-size:1.65rem; font-weight:840; }
+.aurora-ops-db-layout svg { width:100%; height:180px; }
+/* Sub2API-inspired realtime operations board; values are fed by /api/admin/operations/status only. */
+.aurora-ops-console {
+  gap: 1rem;
+}
+
+.aurora-ops-board-shell {
+  overflow: hidden;
+  padding: 0;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+}
+
+.aurora-ops-header {
+  align-items: center;
+  margin-bottom: 0;
+  padding: 1rem 1.15rem 0.9rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.aurora-ops-header h2 {
+  font-size: clamp(1.45rem, 2vw, 1.86rem);
+  letter-spacing: -0.048em;
+}
+
+.aurora-ops-header p:not(.gank-eyebrow) {
+  margin-top: 0.32rem;
+  max-width: 43rem;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.aurora-ops-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.52rem;
+}
+
+.aurora-ops-header-actions .aurora-admin-secondary-action {
+  min-height: 34px;
+  border-radius: 10px;
+  padding: 0.45rem 0.68rem;
+  font-size: 12px;
+}
+
+.aurora-ops-refresh-chip,
+.aurora-ops-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid rgba(219, 228, 239, 0.94);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.92);
+  color: #64748b;
+  padding: 0.22rem 0.62rem;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.aurora-ops-live-grid {
+  display: grid;
+  grid-template-columns: minmax(25rem, 0.9fr) minmax(32rem, 1.1fr);
+  align-items: stretch;
+  gap: 0.82rem;
+  padding: 0.9rem 1rem 0;
+}
+
+.aurora-ops-realtime-card {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid rgba(226, 232, 240, 0.82);
+  border-radius: 18px;
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-ops-realtime-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(18rem 10rem at 6% 10%, rgba(255, 255, 255, 0.8), transparent 72%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), transparent 56%);
+}
+
+.aurora-ops-reference-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(7.8rem, 0.48fr) 1px minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  min-height: 252px;
+  padding: 1rem;
+}
+
+.aurora-ops-reference-score {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.64rem;
+  min-width: 0;
+}
+
+.aurora-ops-score-reference-ring {
+  position: relative;
+  display: grid;
+  width: clamp(6.8rem, 7.5vw, 8.2rem);
+  aspect-ratio: 1;
+  place-items: center;
+  color: #f59e0b;
+}
+
+.aurora-ops-score-reference-ring svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.aurora-ops-score-reference-track,
+.aurora-ops-score-reference-progress {
+  fill: none;
+  stroke-width: 8;
+}
+
+.aurora-ops-score-reference-track {
+  stroke: #e6e9ee;
+}
+
+.aurora-ops-score-reference-progress {
+  stroke: currentColor;
+  stroke-linecap: round;
+  filter: drop-shadow(0 5px 8px rgba(245, 158, 11, 0.14));
+}
+
+.aurora-ops-score-reference-ring.is-ok {
+  color: #22c55e;
+}
+
+.aurora-ops-score-reference-ring.is-warn {
+  color: #facc15;
+}
+
+.aurora-ops-score-reference-ring.is-risk {
+  color: #f59e0b;
+}
+
+.aurora-ops-score-reference-ring.is-muted {
+  color: #94a3b8;
+}
+
+.aurora-ops-score-reference-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  transform: translateY(0.08rem);
+}
+
+.aurora-ops-score-reference-value strong {
+  color: currentColor;
+  font-size: clamp(1.86rem, 2.45vw, 2.35rem);
+  font-weight: 880;
+  letter-spacing: -0.075em;
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+
+.aurora-ops-score-reference-value span {
+  margin-top: 0.24rem;
+  color: #9aa3af;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.aurora-ops-health-status {
+  display: grid;
+  justify-items: center;
+  gap: 0.14rem;
+  color: #6b7280;
+  font-weight: 740;
+}
+
+.aurora-ops-health-status span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.aurora-ops-health-status i,
+.aurora-ops-info-title i {
+  display: inline-flex;
+  width: 0.92rem;
+  height: 0.92rem;
+  align-items: center;
+  justify-content: center;
+  border: 1.4px solid #a3adba;
+  border-radius: 999px;
+  color: #9aa3af;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 820;
+  line-height: 1;
+}
+
+.aurora-ops-health-status strong {
+  color: #eab308;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.aurora-ops-reference-divider {
+  position: relative;
+  justify-self: center;
+  width: 1px;
+  height: 10.5rem;
+  background: #dfe4ea;
+}
+
+.aurora-ops-reference-divider::before {
+  content: none;
+}
+
+.aurora-ops-reference-info {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+}
+
+.aurora-ops-reference-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.54rem;
+}
+
+.aurora-ops-info-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  color: #9aa3af;
+  font-size: 0.94rem;
+  font-weight: 860;
+  letter-spacing: -0.035em;
+}
+
+.aurora-ops-info-title b {
+  display: inline-flex;
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 999px;
+  background: #3b82f6;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.18);
+}
+
+.aurora-ops-window-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  flex-wrap: nowrap;
+}
+
+.aurora-ops-window-tabs button {
+  min-width: 2.75rem;
+  min-height: 1.55rem;
+  border: 0;
+  border-radius: 0.42rem;
+  background: #e5e7eb;
+  color: #4b5563;
+  padding: 0 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  transition: transform 150ms ease, background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.aurora-ops-window-tabs button:hover {
+  background: #dbe4ef;
+  color: #1f2937;
+}
+
+.aurora-ops-window-tabs button:active {
+  transform: scale(0.97);
+}
+
+.aurora-ops-window-tabs button.is-active {
+  background: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.18);
+}
+
+.aurora-ops-current-block > span,
+.aurora-ops-reference-stats span {
+  color: #9aa3af;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.aurora-ops-current-values {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: clamp(0.65rem, 1.4vw, 1.05rem);
+  margin-top: 0.24rem;
+}
+
+.aurora-ops-current-values p,
+.aurora-ops-reference-stats p {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.34rem;
+  color: #111827;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.aurora-ops-current-values strong {
+  color: #111827;
+  font-size: clamp(1.4rem, 1.92vw, 1.82rem);
+  font-weight: 850;
+  letter-spacing: -0.065em;
+  line-height: 1;
+}
+
+.aurora-ops-current-values em,
+.aurora-ops-reference-stats em {
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 780;
+  letter-spacing: -0.015em;
+}
+
+.aurora-ops-reference-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.8rem, 2vw, 1.5rem);
+  margin-top: 0.7rem;
+  max-width: 34rem;
+}
+
+.aurora-ops-reference-stats > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.aurora-ops-reference-stats strong {
+  color: #111827;
+  font-size: clamp(0.9rem, 1.1vw, 1.06rem);
+  font-weight: 850;
+  letter-spacing: -0.055em;
+  line-height: 1.04;
+}
+
+.aurora-ops-reference-chart {
+  margin-top: 0.56rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.aurora-ops-reference-chart svg {
+  display: block;
+  width: 100%;
+  height: clamp(2.9rem, 4.2vw, 3.7rem);
+  overflow: visible;
+}
+
+.aurora-ops-trend-area {
+  fill: transparent;
+  stroke: none;
+}
+
+.aurora-ops-trend-line {
+  fill: none;
+  stroke: #94bdfb;
+  stroke-width: 3.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aurora-ops-reference-chart circle {
+  fill: #3b82f6;
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
+.aurora-ops-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.64rem;
+  min-width: 0;
+}
+
+.aurora-ops-metric-tile,
+.aurora-ops-runtime-card {
+  border: 1px solid rgba(219, 228, 239, 0.94);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
+}
+
+.aurora-ops-metric-tile {
+  min-height: 122px;
+  padding: 0.76rem;
+}
+
+.aurora-ops-metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.aurora-ops-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 11px;
+  border: 1px solid rgba(219, 228, 239, 0.94);
+  background: #f8fafc;
+  color: var(--admin-blue);
+}
+
+.aurora-ops-icon-blue { color: var(--admin-blue); background: #eff6ff; border-color: #dbeafe; }
+.aurora-ops-icon-cyan { color: #0891b2; background: #ecfeff; border-color: #cffafe; }
+.aurora-ops-icon-violet { color: #6d5dfc; background: #f3f1ff; border-color: #ddd6fe; }
+.aurora-ops-icon-emerald { color: #059669; background: #ecfdf5; border-color: #bbf7d0; }
+.aurora-ops-icon-amber { color: #d97706; background: #fffbeb; border-color: #fde68a; }
+
+.aurora-ops-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.10);
+}
+
+.aurora-ops-state-dot.is-warn {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+}
+
+.aurora-ops-metric-tile p {
+  margin-top: 0.48rem;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-ops-metric-tile strong {
+  display: block;
+  margin-top: 0.14rem;
+  color: #0f172a;
+  font-size: 1.02rem;
+  font-weight: 880;
+  letter-spacing: -0.045em;
+}
+
+.aurora-ops-metric-tile small {
+  display: block;
+  min-height: 1.55em;
+  margin-top: 0.18rem;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.aurora-ops-progress {
+  height: 5px;
+  margin-top: 0.44rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.aurora-ops-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0b6ff6, #4da3ff);
+}
+
+.aurora-ops-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.64rem;
+  padding: 0.82rem 1rem 1rem;
+}
+
+.aurora-ops-runtime-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 78px;
+  padding: 0.72rem;
+  min-width: 0;
+}
+
+.aurora-ops-runtime-card p {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.aurora-ops-runtime-card strong {
+  display: block;
+  margin-top: 0.18rem;
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 820;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.aurora-ops-health-panel { padding:1rem; }
+.aurora-ops-health-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1rem; }
+.aurora-ops-health-card { display:flex; align-items:center; gap:1rem; min-height:118px; border:1px solid #e2e8f0; border-radius:16px; padding:1rem; background:#fff; }
+.aurora-ops-health-card span { color:#64748b; font-size:13px; font-weight:760; }
+.aurora-ops-health-card strong { display:block; margin-top:.25rem; font-size:1.35rem; font-weight:840; }
+.aurora-ops-health-card p { margin-top:.55rem; color:#64748b; font-size:12px; }
+.aurora-ops-middle-grid { display:grid; grid-template-columns: .95fr .85fr 1fr; gap:1rem; }
+.aurora-ops-provider-list { padding:1rem; display:grid; gap:.6rem; }
+.aurora-ops-provider-list div { display:flex; align-items:center; gap:.75rem; border:1px solid #edf2f7; border-radius:12px; padding:.65rem .8rem; }
+.aurora-ops-provider-list strong { flex:1; color:#334155; font-size:13px; }
+.aurora-ops-worker-body { display:flex; align-items:center; justify-content:space-around; padding:1rem 1rem 1.5rem; }
+.aurora-ops-db-layout { display:grid; grid-template-columns: 140px 1fr; gap:1rem; padding:1rem 1.25rem; }
+.aurora-ops-db-layout span { display:block; margin-top:.75rem; color:#64748b; font-size:12px; }
+.aurora-ops-db-layout strong { display:block; color:#10b981; font-size:1.65rem; font-weight:840; }
+.aurora-ops-db-layout svg { width:100%; height:180px; }
+.aurora-ops-db-layout path { fill:none; stroke:var(--admin-blue); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.aurora-ops-db-layout circle { fill:var(--admin-blue); }
+.aurora-ops-bottom-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:1rem; }
+.aurora-ops-job-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; padding:1.25rem; }
+.aurora-ops-job-grid div { border:1px solid #e2e8f0; border-radius:16px; min-height:132px; display:grid; place-items:center; align-content:center; color:var(--admin-blue); }
+.aurora-ops-job-grid strong { color:var(--admin-blue); font-size:1.55rem; font-weight:840; }
+.aurora-ops-job-grid span { color:#64748b; font-size:13px; }
+.aurora-ops-event-list { padding:1rem 1.25rem; display:grid; gap:.45rem; }
+.aurora-ops-event-list div { display:grid; grid-template-columns:18px minmax(0,1fr) 64px 150px; gap:.75rem; align-items:center; border-bottom:1px solid #edf2f7; min-height:42px; color:#334155; font-size:13px; }
+.aurora-ops-event-list span { width:12px; height:12px; border-radius:999px; background:#3b82f6; }
+.aurora-ops-event-list span.success { background:#22c55e; }
+.aurora-ops-event-list span.warn { background:#f59e0b; }
+.aurora-ops-event-list strong { justify-self:start; border-radius:8px; background:#eff6ff; color:var(--admin-blue); padding:.15rem .45rem; font-size:12px; }
+.aurora-ops-event-list small { color:#64748b; }
+
+.aurora-database-top-grid { display:grid; grid-template-columns: minmax(22rem,.8fr) minmax(0,1.4fr); gap:1rem; }
+.aurora-database-selector-card,
+.aurora-database-summary-card,
+.aurora-database-record-head { padding:1.25rem; }
+.aurora-database-summary-grid { display:grid; grid-template-columns:repeat(5,1fr); margin-top:1.5rem; }
+.aurora-database-summary-grid div { border-left:1px solid #e2e8f0; padding:0 1.2rem; }
+.aurora-database-summary-grid div:first-child { border-left:0; padding-left:0; }
+.aurora-database-summary-grid span { display:block; color:#64748b; font-size:13px; font-weight:760; }
+.aurora-database-summary-grid strong { display:block; margin-top:.65rem; color:#0f172a; font-size:1.55rem; font-weight:840; }
+.aurora-database-record-head { display:flex; justify-content:space-between; gap:1rem; align-items:center; }
+.aurora-database-record-head h3 { color:#0f172a; font-weight:840; }
+.aurora-database-record-head p { margin-top:.25rem; color:#64748b; font-size:13px; }
+.aurora-database-record-actions { display:flex; gap:.75rem; align-items:center; }
+.aurora-database-record-actions label { min-width:18rem; }
+.aurora-database-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.aurora-database-action-card { padding:1.25rem; display:flex; gap:1rem; }
+.aurora-database-action-card h3 { color:#0f172a; font-size:1.1rem; font-weight:840; }
+.aurora-database-action-card p { color:#64748b; font-size:13px; margin:.25rem 0 1rem; }
+.aurora-database-action-card input { margin-bottom:.8rem; }
+
+.aurora-config-status-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(28rem,.9fr); gap:1rem; }
+.aurora-config-status-card,
+.aurora-config-ready-card { padding:1.25rem; }
+.aurora-config-status-card { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+.aurora-config-status-card span { color:#64748b; font-size:13px; }
+.aurora-config-ready-list { margin-top:1rem; }
+.aurora-config-ready-list div { display:grid; grid-template-columns:140px minmax(0,1fr); gap:1rem; align-items:center; padding:.75rem 0; border-bottom:1px solid #edf2f7; font-size:13px; }
+.aurora-config-ready-list span { color:#64748b; }
+.aurora-config-ready-list strong { color:#16a34a; }
+.aurora-config-ready-list small { color:#64748b; }
+.aurora-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.aurora-config-card { position:relative; overflow:hidden; }
+.aurora-config-card::before { content:""; position:absolute; left:1rem; top:1.25rem; bottom:auto; width:4px; height:28px; border-radius:999px; background:var(--admin-blue); }
+.aurora-config-card > div:first-child { padding-left:.75rem; }
+
+@media (max-width: 1280px) {
+  .aurora-admin-kpi-grid,
+  .aurora-session-kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .aurora-admin-analytics-grid,
+  .aurora-admin-mode-layout,
+  .aurora-admin-users-layout,
+  .aurora-admin-announcement-composer,
+  .aurora-admin-audit-layout,
+  .aurora-session-main-grid,
+  .aurora-session-bottom-grid,
+  .aurora-ops-live-grid,
+  .aurora-ops-middle-grid,
+  .aurora-ops-bottom-grid,
+  .aurora-database-top-grid,
+  .aurora-config-status-row,
+  .aurora-config-grid { grid-template-columns: 1fr; }
+  .aurora-ops-health-grid,
+  .aurora-ops-metric-grid,
+  .aurora-ops-runtime-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .aurora-ops-reference-panel { grid-template-columns: 1fr; gap: 2rem; min-height: auto; }
+  .aurora-ops-reference-divider { width: 100%; height: 1px; }
+  .aurora-ops-reference-info-head { flex-wrap: wrap; }
+}
+
+@media (max-width: 768px) {
+  .aurora-admin-dashboard-toolbar,
+  .aurora-admin-users-toolbar,
+  .aurora-database-record-head,
+  .aurora-config-status-card { flex-direction:column; align-items:stretch; }
+  .aurora-admin-users-filters,
+  .aurora-database-record-actions { flex-direction:column; align-items:stretch; }
+  .aurora-admin-users-stats,
+  .aurora-ops-health-grid,
+  .aurora-ops-metric-grid,
+  .aurora-ops-runtime-grid,
+  .aurora-ops-reference-stats,
+  .aurora-ops-job-grid,
+  .aurora-database-summary-grid,
+  .aurora-database-action-grid { grid-template-columns:1fr; }
+  .aurora-admin-kpi-grid,
+  .aurora-session-kpi-grid { grid-template-columns: 1fr; }
+  .aurora-ops-reference-panel { padding: 1rem; }
+  .aurora-ops-current-values { gap: 1.2rem; }
+  .aurora-ops-window-tabs { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aurora-ops-window-tabs button { width: 100%; }
+  .aurora-ops-score-reference-ring { width: 7.8rem; }
+}
+
+/* Aurora admin reference-fidelity overrides */
+.aurora-admin-page {
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+.aurora-admin-page .aurora-admin-shell {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  height: calc(100dvh - 76px);
+  overflow: hidden;
+}
+
+.aurora-admin-page .aurora-admin-main {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.aurora-admin-topbar .aurora-brand-logo img {
+  border-radius: 9px;
+}
+
+.aurora-admin-topbar .aurora-brand-logo span {
+  font-size: 24px;
+  font-weight: 820;
+  letter-spacing: -0.055em;
+}
+
+.aurora-admin-nav-item {
+  min-height: 54px !important;
+  padding-inline: 1rem !important;
+}
+
+.aurora-admin-nav-icon {
+  color: #475569;
+}
+
+.aurora-admin-nav-glyph {
+  filter: drop-shadow(0 3px 6px rgba(15, 23, 42, 0.05));
+}
+
+
+.aurora-admin-breadcrumb {
+  margin-bottom: 0.65rem;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aurora-admin-breadcrumb span {
+  margin: 0 0.45rem;
+  color: #cbd5e1;
+}
+
+.aurora-admin-selected-row {
+  background: rgba(239, 246, 255, 0.92) !important;
+  box-shadow: inset 3px 0 0 #0b6ff6;
+}
+
+.aurora-admin-announcement-composer {
+  border: 1px solid #dfe8f5;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.055);
+  overflow: hidden;
+}
+
+.aurora-admin-announcement-composer > .aurora-admin-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.aurora-admin-announcement-composer > .aurora-admin-card + .aurora-admin-card {
+  border-left: 1px solid #e2e8f0;
+}
+
+.aurora-admin-announcement-table td,
+.aurora-admin-announcement-table th {
+  vertical-align: middle;
+}
+
+.aurora-session-view-toggle {
+  opacity: 0.94;
+}
+
+.aurora-session-table-footer,
+.aurora-database-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.82);
+  padding: 0.78rem 1.1rem;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aurora-session-table-footer nav,
+.aurora-session-table-footer div,
+.aurora-database-pagination div {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.aurora-session-table-footer button,
+.aurora-database-pagination button {
+  display: inline-flex;
+  min-width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid #dbe4ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #475569;
+  padding: 0 0.65rem;
+  font-weight: 760;
+}
+
+.aurora-session-table-footer button.is-active,
+.aurora-database-pagination button.is-active {
+  border-color: #0b6ff6;
+  background: #0b6ff6;
+  color: #fff;
+}
+
+.aurora-session-card-link {
+  margin: 0.9rem 1rem 0;
+  display: flex;
+  width: calc(100% - 2rem);
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #edf2f7;
+  padding-top: 0.8rem;
+  color: var(--admin-blue);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-session-chart-frame {
+  position: relative;
+  height: 280px;
+  margin-top: 0.6rem;
+  padding: 0.4rem 0 1.2rem 2.2rem;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 54px, rgba(203, 213, 225, 0.46) 55px);
+}
+
+.aurora-session-chart-frame > span {
+  position: absolute;
+  left: 0;
+  color: #8da0ba;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.aurora-session-chart-frame > span:nth-child(1) { top: 8px; }
+.aurora-session-chart-frame > span:nth-child(2) { top: 63px; }
+.aurora-session-chart-frame > span:nth-child(3) { top: 118px; }
+.aurora-session-chart-frame > span:nth-child(4) { top: 173px; }
+.aurora-session-chart-frame > span:nth-child(5) { top: 228px; }
+
+.aurora-session-chart-frame svg {
+  height: 100%;
+}
+
+.aurora-session-chart-frame strong {
+  position: absolute;
+  right: 18%;
+  top: 44px;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0.6rem 0.75rem;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 720;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.aurora-ops-provider-list .aurora-admin-metric-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.aurora-ops-job-grid div.is-success,
+.aurora-ops-job-grid div.is-success strong { color: #10b981; }
+.aurora-ops-job-grid div.is-blue,
+.aurora-ops-job-grid div.is-blue strong { color: var(--admin-blue); }
+.aurora-ops-job-grid div.is-warn,
+.aurora-ops-job-grid div.is-warn strong { color: #f59e0b; }
+.aurora-ops-job-grid div.is-danger,
+.aurora-ops-job-grid div.is-danger strong { color: #ef4444; }
+
+.aurora-database-readonly-badge,
+.aurora-database-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(147, 197, 253, 0.78);
+  border-radius: 12px;
+  background: rgba(239, 246, 255, 0.9);
+  color: #075ee8;
+  padding: 0.55rem 0.8rem;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-database-warning {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: #dbeafe;
+  background: rgba(248, 250, 252, 0.86);
+  color: #64748b;
+}
+
+.aurora-database-file-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  margin-bottom: 0.8rem;
+}
+
+.aurora-database-file-input input {
+  border-radius: 12px 0 0 12px !important;
+  margin-bottom: 0 !important;
+}
+
+.aurora-database-file-input button {
+  border: 1px solid #dbe4ef;
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: #fff;
+  color: #334155;
+  padding: 0 1rem;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+/* System config API guide: visible, but skinned to the Aurora admin theme. */
+.aurora-config-guide-shell {
+  display: block;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] {
+  border: 1px solid rgba(191, 219, 254, 0.78);
+  border-radius: 22px;
+  background:
+    radial-gradient(26rem 14rem at 100% 0%, rgba(219, 234, 254, 0.30), transparent 68%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] > button:first-child {
+  border-radius: 22px 22px 0 0;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] > button:first-child:hover {
+  background: rgba(239, 246, 255, 0.72);
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] > button:first-child > div:first-child > div:first-child {
+  border: 1px solid rgba(191, 219, 254, 0.92);
+  background: linear-gradient(180deg, #f8fbff 0%, #eaf3ff 100%);
+  color: var(--admin-blue);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] > button:first-child > div:first-child > div:first-child svg {
+  color: var(--admin-blue) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] h3 {
+  color: var(--admin-ink);
+  font-weight: 820;
+  letter-spacing: -0.025em;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] h3 span,
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .bg-green-100 {
+  border: 1px solid rgba(187, 247, 208, 0.92);
+  background: rgba(240, 253, 244, 0.92) !important;
+  color: #15803d !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .bg-blue-100 {
+  border: 1px solid rgba(191, 219, 254, 0.88);
+  background: rgba(239, 246, 255, 0.94) !important;
+  color: var(--admin-blue) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .border-gray-200,
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .border-blue-100 {
+  border-color: rgba(219, 228, 239, 0.96) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .bg-gray-50 {
+  background: rgba(248, 250, 252, 0.90) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .bg-gray-50:hover,
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .hover\:bg-gray-100:hover {
+  background: rgba(239, 246, 255, 0.92) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] .bg-white {
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] pre {
+  border: 1px solid rgba(30, 41, 59, 0.92);
+  background: #111827;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.aurora-config-guide-shell > [data-api-guide-multi-expand="true"] a {
+  color: var(--admin-blue);
+}
+
+.aurora-config-reference-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  gap: 1rem;
+}
+
+.aurora-config-card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.aurora-config-card-title.no-margin {
+  margin-bottom: 0;
+}
+
+.aurora-config-card-title > span:not(.aurora-config-title-icon) {
+  display: inline-flex;
+  width: 4px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--admin-blue);
+  flex: 0 0 auto;
+}
+
+.aurora-config-title-icon {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eaf3ff 100%);
+  color: var(--admin-blue);
+  box-shadow: 0 12px 24px rgba(0, 102, 204, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-config-title-icon svg {
+  stroke-width: 2.15;
+}
+
+.aurora-config-title-icon-gateway {
+  border-color: rgba(147, 197, 253, 0.9);
+  background: linear-gradient(180deg, #f8fbff 0%, #eaf3ff 100%);
+  color: var(--admin-blue);
+}
+
+.aurora-config-title-icon-security {
+  border-color: rgba(186, 230, 253, 0.95);
+  background: linear-gradient(180deg, #f9feff 0%, #e6fbff 100%);
+  color: #0e9aa7;
+}
+
+.aurora-config-title-icon-quota {
+  border-color: rgba(191, 219, 254, 0.95);
+  background: linear-gradient(180deg, #ffffff 0%, #eef6ff 100%);
+  color: #2563eb;
+}
+
+.aurora-config-title-icon-zhuque {
+  border-color: rgba(254, 215, 170, 0.95);
+  background: linear-gradient(180deg, #fffdf8 0%, #fff4e6 100%);
+  color: #ea580c;
+}
+
+.aurora-config-title-icon-feature {
+  border-color: rgba(221, 214, 254, 0.95);
+  background: linear-gradient(180deg, #ffffff 0%, #f3f0ff 100%);
+  color: #625df5;
+}
+
+.aurora-config-card-title h3,
+.aurora-config-feature-card h3 {
+  color: #0f172a;
+  font-size: 1.08rem;
+  font-weight: 840;
+  letter-spacing: -0.025em;
+}
+
+.aurora-config-card-title p {
+  margin-top: 0.25rem;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.aurora-config-provider-stack,
+.aurora-config-security-list,
+.aurora-config-quota-grid {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.aurora-config-provider-stack label,
+.aurora-config-security-list label,
+.aurora-config-quota-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.aurora-config-provider-stack label > span,
+.aurora-config-security-list label > span,
+.aurora-config-quota-grid label > span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-config-provider-stack small,
+.aurora-config-security-list small,
+.aurora-config-quota-grid small {
+  color: #8da0ba;
+  font-size: 12px;
+}
+
+.aurora-config-inline-field,
+.aurora-config-unit-input {
+  display: grid !important;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0;
+}
+
+.aurora-config-timeout-field {
+  grid-template-columns: max-content 5.25rem max-content !important;
+  justify-content: start;
+  column-gap: 0;
+}
+
+.aurora-config-timeout-field > span {
+  margin-right: 0.9rem;
+}
+
+.aurora-config-timeout-field input {
+  width: 5.25rem !important;
+  min-width: 0 !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.aurora-config-timeout-field strong {
+  width: max-content;
+  min-width: 2.7rem;
+  justify-content: center;
+}
+
+.aurora-config-inline-field > span {
+  grid-column: 1;
+}
+
+.aurora-config-inline-field input,
+.aurora-config-unit-input input {
+  border-radius: 12px 0 0 12px !important;
+}
+
+.aurora-config-inline-field strong,
+.aurora-config-unit-input strong {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  border: 1px solid #dbe4ef;
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 0 0.85rem;
+  font-size: 13px;
+}
+
+.aurora-config-connection-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.9rem;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.aurora-config-switch-line,
+.aurora-config-feature-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #edf2f7;
+  padding: 0.72rem 0;
+}
+
+.aurora-config-switch-line strong,
+.aurora-config-feature-switch strong {
+  display: block;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-config-switch-line button,
+.aurora-config-feature-switch button {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 160ms ease;
+}
+
+.aurora-config-switch-line button span,
+.aurora-config-feature-switch button span {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  transition: transform 160ms ease;
+}
+
+.aurora-config-switch-line button.is-on,
+.aurora-config-feature-switch button.is-on {
+  background: var(--admin-blue);
+}
+
+.aurora-config-switch-line button.is-on span,
+.aurora-config-feature-switch button.is-on span {
+  transform: translateX(20px);
+}
+
+.aurora-config-local-proxy-line {
+  border-bottom: 0;
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, rgba(241, 247, 255, 0.86) 100%);
+  padding: 0.9rem 1rem;
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.72);
+}
+
+.aurora-config-local-proxy-line button:focus-visible {
+  outline: 2px solid rgba(0, 102, 204, 0.42);
+  outline-offset: 3px;
+}
+
+.aurora-config-server-host-field {
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.72);
+  padding: 0.85rem 1rem;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.82);
+}
+
+.aurora-config-server-host-field input {
+  max-width: 14rem;
+}
+
+.aurora-config-local-proxy-status {
+  border: 1px solid;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.55;
+}
+
+.aurora-config-local-proxy-status.is-ok {
+  border-color: rgba(125, 211, 252, 0.62);
+  background: rgba(240, 249, 255, 0.88);
+  color: #0369a1;
+}
+
+.aurora-config-local-proxy-status.is-warn {
+  border-color: rgba(253, 230, 138, 0.78);
+  background: rgba(255, 251, 235, 0.9);
+  color: #92400e;
+}
+
+.aurora-config-quota-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.aurora-config-feature-switches {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
+}
+
+.aurora-config-feature-switch {
+  border-bottom: 0;
+  border-left: 1px solid #e2e8f0;
+  padding: 0 1rem;
+}
+
+.aurora-config-feature-switch:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.aurora-config-feature-switch small {
+  display: block;
+  margin-top: 0.2rem;
+  color: #8da0ba;
+  font-size: 12px;
+}
+
+.aurora-config-advanced-drawer details {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.9rem 1rem;
+}
+
+.aurora-config-advanced-drawer summary {
+  cursor: pointer;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.aurora-config-bottom-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.aurora-config-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgba(187, 247, 208, 0.9);
+  border-radius: 18px;
+  background:
+    radial-gradient(18rem 10rem at 0% 0%, rgba(220, 252, 231, 0.72), transparent 68%),
+    rgba(248, 253, 250, 0.94);
+  padding: 0.9rem 1rem;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.aurora-config-save-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-config-save-note span {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.13);
+}
+
+.aurora-config-mono-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* Image-reference fidelity pass: tab-specific chrome, glyphs, drawers */
+.aurora-admin-topbar-row {
+  position: relative;
+  gap: 1.25rem;
+}
+
+.aurora-admin-sidebar--plain .aurora-admin-nav-icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.aurora-admin-sidebar--plain .aurora-admin-nav-item {
+  gap: 1rem !important;
+  border-radius: 12px !important;
+}
+
+.aurora-admin-sidebar--plain .aurora-admin-nav-item-active {
+  background: linear-gradient(90deg, #eff6ff 0%, rgba(239, 246, 255, 0.72) 100%) !important;
+  border-color: rgba(191, 219, 254, 0.56) !important;
+  box-shadow: none !important;
+}
+
+.aurora-admin-sidebar--boxed .aurora-admin-nav-item {
+  min-height: 54px !important;
+  gap: 1rem !important;
+  border-radius: 12px !important;
+}
+
+.aurora-admin-sidebar--boxed .aurora-admin-nav-icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.aurora-admin-sidebar--boxed .aurora-admin-nav-item-active .aurora-admin-nav-icon {
+  background: transparent;
+  color: #0b6ff6;
+}
+
+.aurora-admin-page[data-admin-tab="accounts"] .aurora-admin-shell {
+  background:
+    radial-gradient(22rem 20rem at 0% 88%, rgba(219, 234, 254, 0.82), transparent 70%),
+    radial-gradient(18rem 16rem at 100% 88%, rgba(191, 219, 254, 0.58), transparent 65%);
+}
+
+.aurora-admin-accounts-page .aurora-admin-section-head {
+  align-items: center;
+  margin-bottom: 0.85rem;
+}
+
+.aurora-admin-accounts-page .aurora-admin-section-head h2 {
+  font-size: clamp(2rem, 3vw, 2.35rem);
+}
+
+.aurora-admin-user-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.aurora-admin-account-utility-tabs {
+  max-width: max-content;
+  margin-top: -0.5rem;
+  opacity: 0.72;
+  transform: scale(0.96);
+  transform-origin: left center;
+}
+
+.aurora-admin-account-utility-tabs:hover {
+  opacity: 1;
+}
+
+.aurora-admin-accounts-page .aurora-admin-users-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 1.25rem 1.25rem 0.85rem;
+}
+
+.aurora-admin-user-scope-tabs,
+.aurora-admin-user-filter-strip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe4ef;
+  border-radius: 13px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.aurora-admin-user-scope-tabs button,
+.aurora-admin-user-filter-strip button {
+  min-height: 42px;
+  border-left: 1px solid #edf2f7;
+  padding: 0 1.1rem;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-admin-user-scope-tabs button:first-child,
+.aurora-admin-user-filter-strip button:first-of-type {
+  border-left: 0;
+}
+
+.aurora-admin-user-scope-tabs button.is-active,
+.aurora-admin-user-filter-strip button.is-active {
+  background: #eaf3ff;
+  color: #0b6ff6;
+  box-shadow: inset 0 0 0 1px #bfdbfe;
+}
+
+.aurora-admin-user-filter-strip {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  margin-top: 0.85rem;
+  padding: 0 0.7rem;
+  gap: 0.2rem;
+  overflow: visible;
+}
+
+.aurora-admin-user-filter-strip span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 780;
+  padding-left: 0.25rem;
+}
+
+.aurora-admin-user-filter-strip i {
+  width: 1px;
+  height: 24px;
+  background: #dbe4ef;
+  margin: 0 0.7rem;
+}
+
+.aurora-admin-users-table-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+}
+
+.aurora-admin-users-table-actions > span {
+  margin-right: auto;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aurora-admin-user-table tbody tr {
+  height: 58px;
+}
+
+.aurora-admin-user-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.aurora-admin-icon-mini,
+.aurora-database-view-action {
+  display: inline-flex;
+  min-width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid #dbe4ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-admin-icon-mini:hover,
+.aurora-database-view-action:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #0b6ff6;
+}
+
+.aurora-admin-icon-mini.is-blue {
+  border-color: #bfdbfe;
+  background: #0b6ff6;
+  color: #fff;
+}
+
+.aurora-admin-row-credit-input {
+  width: 4.4rem;
+  height: 34px !important;
+  border-radius: 9px !important;
+  padding: 0 0.5rem !important;
+  font-size: 12px;
+}
+
+.aurora-admin-user-detail-panel {
+  position: sticky;
+  top: 92px;
+  min-height: calc(100dvh - 116px);
+  border-radius: 22px;
+  padding: 1.35rem;
+}
+
+.aurora-admin-user-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.aurora-admin-user-vip-badge {
+  border: 1px solid #fed7aa;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #c2410c;
+  padding: 0.16rem 0.5rem;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.aurora-admin-user-info-list em {
+  display: inline-flex;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eaf3ff;
+  color: #0b6ff6;
+  padding: 0.12rem 0.42rem;
+  font-style: normal;
+  font-weight: 820;
+}
+
+.aurora-session-interval-button {
+  min-width: 78px;
+}
+
+.aurora-session-queue-title {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.aurora-session-queue-title span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #eaf3ff;
+  color: #0b6ff6;
+  padding: 0.2rem 0.55rem;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.aurora-session-history-drawer {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.24) !important;
+}
+
+.aurora-session-history-drawer > .aurora-admin-card {
+  max-width: 520px;
+  border-radius: 24px 0 0 24px;
+}
+
+.aurora-database-title-line {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.aurora-database-view-action {
+  color: #0b6ff6;
+  border: 0;
+  background: transparent;
+}
+
+.aurora-admin-page[data-admin-tab="audit"] .aurora-admin-main {
+  padding-right: 0 !important;
+}
+
+.aurora-admin-page[data-admin-tab="audit"] .aurora-admin-audit-layout {
+  grid-template-columns: 250px minmax(0, 1fr) 372px;
+  gap: 1rem;
+}
+
+.aurora-admin-page[data-admin-tab="audit"] .aurora-admin-audit-detail {
+  position: sticky;
+  top: 76px;
+  min-height: calc(100dvh - 76px);
+  max-height: calc(100dvh - 76px);
+  overflow: auto;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: -14px 0 34px rgba(15, 23, 42, 0.065);
+}
+
+.aurora-admin-audit-date-range {
+  min-width: 330px;
+  justify-content: space-between;
+}
+
+.aurora-admin-audit-row-selected {
+  position: relative;
+  box-shadow: inset 4px 0 0 #0b6ff6, inset 0 0 0 1px rgba(11, 111, 246, 0.28);
+}
+
+.aurora-config-advanced-drawer {
+  display: none;
+}
+
+@media (max-width: 1280px) {
+  .aurora-config-reference-grid,
+  .aurora-config-feature-switches {
+    grid-template-columns: 1fr;
+  }
+
+  .aurora-config-feature-switch {
+    border-left: 0;
+    border-top: 1px solid #edf2f7;
+    padding: 0.75rem 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .aurora-session-table-footer,
+  .aurora-database-pagination,
+  .aurora-config-connection-row,
+  .aurora-config-bottom-actions,
+  .aurora-config-bottom-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aurora-config-quota-grid,
+  .aurora-config-inline-field,
+  .aurora-config-unit-input {
+    grid-template-columns: 1fr;
+  }
+
+  .aurora-config-server-host-field input {
+    max-width: none;
+  }
+
+  .aurora-config-timeout-field {
+    grid-template-columns: max-content 5.25rem max-content !important;
+  }
+}
+
+
+/* Admin shell hardening: fixed sidebar, uniform page canvas, functional control polish */
+.aurora-admin-page .aurora-admin-topbar {
+  flex: 0 0 76px;
+}
+
+.aurora-admin-page .aurora-admin-shell {
+  height: calc(100dvh - 76px) !important;
+  max-height: calc(100dvh - 76px) !important;
+  overflow: hidden !important;
+}
+
+.aurora-admin-page .aurora-admin-shell > .grid {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.aurora-admin-page .aurora-admin-sidebar {
+  position: sticky !important;
+  top: 0 !important;
+  align-self: start;
+  height: calc(100dvh - 76px) !important;
+  max-height: calc(100dvh - 76px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  z-index: 20;
+}
+
+.aurora-admin-page .aurora-admin-sidebar nav {
+  min-height: 0;
+}
+
+.aurora-admin-page .aurora-admin-main {
+  height: calc(100dvh - 76px) !important;
+  max-height: calc(100dvh - 76px) !important;
+  min-width: 0;
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+  scrollbar-gutter: stable both-edges;
+}
+
+.aurora-admin-page .aurora-admin-section {
+  min-width: 0;
+}
+
+.aurora-admin-page .aurora-admin-card {
+  min-width: 0;
+}
+
+.aurora-admin-page[data-admin-tab="audit"] .aurora-admin-main {
+  overflow-x: auto !important;
+}
+
+.aurora-admin-page[data-admin-tab="audit"] .aurora-admin-audit-layout {
+  min-width: 1040px;
+}
+
+.aurora-session-row-icon-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.aurora-session-row-icon-button:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--admin-blue);
+}
+
+.aurora-session-row-icon-button:active {
+  transform: scale(0.96);
+}
+
+.aurora-config-switch-line .aurora-config-readonly-switch,
+.aurora-config-feature-switch .aurora-config-readonly-switch {
+  position: relative;
+  display: inline-flex;
+  width: 44px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #cbd5e1;
+  opacity: 0.72;
+}
+
+.aurora-config-switch-line .aurora-config-readonly-switch > span,
+.aurora-config-feature-switch .aurora-config-readonly-switch > span {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  transition: transform 160ms ease;
+}
+
+.aurora-config-switch-line .aurora-config-readonly-switch.is-on,
+.aurora-config-feature-switch .aurora-config-readonly-switch.is-on {
+  background: var(--admin-blue);
+}
+
+.aurora-config-switch-line .aurora-config-readonly-switch.is-on > span,
+.aurora-config-feature-switch .aurora-config-readonly-switch.is-on > span {
+  transform: translateX(20px);
+}
+
+.aurora-config-state-chip {
+  display: inline-flex;
+  min-width: 4.6rem;
+  min-height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.94);
+  color: var(--admin-blue);
+  padding: 0 0.85rem;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.aurora-config-state-chip.is-on {
+  border-color: rgba(147, 197, 253, 0.88);
+  background: linear-gradient(180deg, #eff6ff 0%, #e0f2fe 100%);
+  color: #075ee8;
+}
+
+@media (max-width: 1023px) {
+  .aurora-admin-page .aurora-admin-shell,
+  .aurora-admin-page .aurora-admin-shell > .grid,
+  .aurora-admin-page .aurora-admin-main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .aurora-admin-page .aurora-admin-sidebar {
+    position: sticky !important;
+    top: 76px !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    z-index: 30;
+  }
+}

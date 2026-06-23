@@ -201,6 +201,61 @@ def test_list_sessions_can_filter_by_project_and_unfiled(client, monkeypatch):
     assert unfiled_sessions.json()[0]["project_id"] is None
 
 
+def test_user_can_move_unfiled_session_into_project(client, monkeypatch):
+    from app.services.optimization_service import OptimizationService
+
+    monkeypatch.setattr(OptimizationService, "start_optimization", _skip_optimization)
+    user_id, headers = _create_user()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).one()
+        user.credit_balance = 1
+        db.commit()
+    finally:
+        db.close()
+
+    project = client.post("/api/user/projects", json={"title": "test1"}, headers=headers).json()
+    start_response = client.post(
+        "/api/optimization/start",
+        json={
+            "original_text": "unfiled paragraph",
+            "processing_mode": "paper_enhance",
+            "billing_mode": "platform",
+        },
+        headers=headers,
+    )
+    assert start_response.status_code == 200
+    session_id = start_response.json()["session_id"]
+    assert start_response.json()["project_id"] is None
+
+    move_response = client.patch(
+        f"/api/optimization/sessions/{session_id}/project",
+        json={"project_id": project["id"]},
+        headers=headers,
+    )
+    assert move_response.status_code == 200
+    assert move_response.json()["project_id"] == project["id"]
+    assert move_response.json()["project_title"] == "test1"
+    assert move_response.json()["preview_text"] == "unfiled paragraph"
+
+    unfiled_sessions = client.get("/api/optimization/sessions?project_id=0", headers=headers)
+    assert unfiled_sessions.status_code == 200
+    assert unfiled_sessions.json() == []
+
+    project_sessions = client.get(f"/api/optimization/sessions?project_id={project['id']}", headers=headers)
+    assert project_sessions.status_code == 200
+    assert [item["session_id"] for item in project_sessions.json()] == [session_id]
+
+    unmove_response = client.patch(
+        f"/api/optimization/sessions/{session_id}/project",
+        json={"project_id": None},
+        headers=headers,
+    )
+    assert unmove_response.status_code == 200
+    assert unmove_response.json()["project_id"] is None
+    assert unmove_response.json()["project_title"] is None
+
+
 def _create_completed_session(user_id, project_id=None, task_title=None, session_id="export-session"):
     db = SessionLocal()
     try:

@@ -52,6 +52,82 @@ Questions to answer:
 
 ---
 
+## Scenario: Admin Operations Status Must Report Real Runtime Metrics
+
+### 1. Scope / Trigger
+
+- Trigger: any change to `package/backend/app/services/operations_service.py`, `GET /api/admin/operations/status`, or the admin operations panel data contract.
+- This endpoint is an operations/observability surface; it must report real collected state or explicit unavailability, never invented demo values.
+
+### 2. Signatures
+
+- API:
+  - `GET /api/admin/operations/status`.
+- Response top-level fields:
+  - `collected_at`, `system`, `database`, `worker`, `models`, `jobs`, `events`, `backup`, `onboarding`, `update`, `app`.
+- Real metrics:
+  - `system.cpu.percent`, `physical_cores`, `logical_cpus`.
+  - `system.memory.percent`, `used_label`, `total_label`.
+  - `system.disk.percent`, `used_label`, `total_label`, `backup_file_count`.
+  - `system.network.rx_rate_label`, `tx_rate_label`, `available`.
+  - `system.load.load1`, `load5`, `load15`.
+  - `database.average_latency_ms`, `latency_samples_ms`, `slow_query_count`.
+  - `models.items[]` with `stage`, `label`, `model`, `base_url`, `ok`, `message`.
+  - `jobs.scheduled_count`, `completed_count`, `processing_count`, `queued_count`, `failed_count`.
+  - `events[]` with `text`, `badge`, `tone`, `timestamp`.
+
+### 3. Contracts
+
+- Use real runtime sources:
+  - Linux `/proc` for CPU, memory, network and uptime when available.
+  - `shutil.disk_usage()` for disk usage.
+  - `os.getloadavg()` for load when available.
+  - PostgreSQL `SELECT 1` timing samples for database latency.
+  - `pg_stat_activity` for slow active query count when permission allows; otherwise return `None`/`不可用`.
+  - SQLAlchemy queries for worker/session/job/event counts.
+- Do not add heavy dependencies such as `psutil` unless the project explicitly accepts the packaging cost; stdlib/procfs collection is preferred.
+- First CPU/network requests may take a tiny local sample window; never fabricate stable placeholders.
+- If a runtime source is unavailable, return `available=false`, `ok=false` where appropriate, and `不可用` labels. Do not substitute pretty constants.
+- If database queries fail after the basic connection check fails, worker/job/event/onboarding helpers must catch the error, roll back the session, and return unavailable/partial status instead of turning the operations endpoint into HTTP 500.
+- Model readiness in this endpoint means configuration completeness and placeholder detection only. Actual network/API connectivity remains the explicit `/operations/model-test` action.
+
+### 4. Validation & Error Matrix
+
+- `/proc` missing -> affected `system.*.available=false` or load `available=false`, endpoint still 200.
+- PostgreSQL connection fails -> `database.ok=false`; endpoint should still include `system`, `models`, `backup`, `update`, and partial worker/job/onboarding status.
+- `pg_stat_activity` permission/query fails -> `database.slow_query_count=null`, not endpoint failure.
+- Model API key/base URL has placeholder values (`pwd`, `IP:PORT`, etc.) -> corresponding `models.items[].ok=false`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: page shows current host CPU/memory/disk/load, real DB latency samples, real worker queue counts, and recent task/backup events.
+- Base: Windows/non-Linux runtime has no `/proc`; page shows explicit unavailable states for procfs-only metrics.
+- Bad: API or frontend hardcodes `18%`, `46%`, `3.6 GB / 7.8 GB`, `↑ 1.2 MB/s ↓ 2.4 MB/s`, `2.42 ms`, static model provider rows, or fake recovery events.
+
+### 6. Tests Required
+
+- Backend tests should assert `/operations/status` includes `collected_at`, `system`, `database.average_latency_ms`, `latency_samples_ms`, `worker.capacity`, `models.items`, `jobs`, and `events`.
+- Backend tests should assert helper functions return unavailable/partial status when DB query calls raise.
+- Frontend static tests should assert operations panel reads backend status fields and rejects fake constants.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+{ icon: Cpu, title: 'CPU 使用率', value: '18%', meta: '4 核 / 8 线程' }
+{ icon: Globe2, title: '网络状态', value: '正常', meta: '↑ 1.2 MB/s ↓ 2.4 MB/s' }
+```
+
+#### Correct
+
+```jsx
+value: percentValue(status?.system?.cpu?.percent)
+meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status?.system?.network?.rx_rate_label || '不可用'}`
+```
+
+---
+
 ## Scenario: Zhuque AI Detect-Reduce Pipeline Contract
 
 ### 1. Scope / Trigger
@@ -63,8 +139,9 @@ Questions to answer:
 
 - API:
   - `POST /api/optimization/start` accepts `processing_mode="ai_detect_reduce"`.
+  - `PATCH /api/optimization/sessions/{session_id}/project` accepts `{project_id: int | null}` and moves one session into an active paper project or back to unfiled.
   - `POST /api/optimization/sessions/{session_id}/retry` must preserve Zhuque retry state.
-  - `POST /api/optimization/zhuque/browser/start` is a legacy URL name; it starts one-time WeChat QR credential capture and returns `{status, auth_mode="headless_api", login_mode="wechat_qr", credential_file, command?, message}`.
+  - `POST /api/optimization/zhuque/browser/start` is a legacy URL name; by default it starts the Zhuque real-page session sync window with `sync_session=true` and returns `{status, auth_mode="headless_api", login_mode="wechat_qr", credential_file, sync_session, command?, message}`.
   - `GET /api/optimization/zhuque/browser/status` is a legacy URL name; it returns credential status `{status, connected, ready, has_token, remaining_uses, button_enabled, auth_mode, login_mode, credential_file, user_name, quota_text, captured_at, message}`.
   - `GET /api/optimization/zhuque/readiness` returns Zhuque credential/API readiness without consuming a detection use.
   - `POST /api/optimization/zhuque/preflight` accepts `{original_text, processing_mode, billing_mode}` and returns readiness plus cost estimates without creating a session.
@@ -80,11 +157,12 @@ Questions to answer:
 ### 3. Contracts
 
 - Detection is a Zhuque-side quota operation and must not create GankAIGC beer transactions.
-- Login/setup is one-time WeChat QR credential capture via `zhuque_pkg/capture_zhuque_creds.py`; after `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API. Do not resurrect local page-control/CDP detection logic.
+- Login/setup uses `zhuque_pkg/capture_zhuque_creds.py --sync-session` from the workspace button. This opens the real Zhuque page and watches the page state: when Zhuque is logged in it saves/updates `creds_latest.json`; when the Zhuque page itself shows logged out for consecutive polls it removes `creds_latest.json` and persists the logged-out `browser_state.json`. Clicking GankAIGC's already-logged-in button must not pre-delete credentials or auto-logout the page; only a real logout inside the Zhuque page counts as logout. After `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API. Do not resurrect local page-control/CDP detection logic.
 - The credential file default search order must prefer the repo-level `zhuque_pkg/creds_latest.json` so `cd package && python main.py` and repo-root tooling agree. `ZHUQUE_CREDENTIALS_FILE` may override it.
-- Zhuque remaining-use values are not guaranteed to exist in `quotaText`; current live pages can expose quota via `availableUses`, `remainingUses`, `remaining_uses`, button text such as `Detect now(18 left)`, or Chinese quota copy. Backend code must normalize all of these and may use `ZhuqueAPI.peek_remaining_uses()` to read initial WebSocket auth frames without submitting captcha/text. A displayed `-1` means unknown, not zero.
-- `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. It must not return `started` if the QR capture process cannot open a browser; otherwise users see a false positive while no credential can be saved.
+- Zhuque remaining-use values are not guaranteed to exist in `quotaText`; current live pages can expose quota via `availableUses`, `remainingUses`, `remaining_uses`, button text such as `Detect now(18 left)`, or Chinese quota copy. Backend code must normalize all of these. `creds_latest.json` captures quota at login time and is stale after detections; `ZhuqueService.readiness()` and `start()` must refresh quota through `ZhuqueAPI.peek_remaining_uses()` when a token exists. The peek sends only auth data and closes before captcha/text submission, so it must not consume a detection use. Throttle passive workspace probes (current guard: `ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS`) and force-refresh preflight/start paths with real text. A displayed `-1` means unknown, not zero.
+- `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. It must not return `started` if the real-page sync window cannot open; otherwise users see a false positive while no login/logout state can be synced.
 - Start/retry in `platform` mode for `ai_detect_reduce` must leave `charge_status="not_charged"` and `charged_credits=0`; only actual LLM reduce calls create `reason="zhuque_reduce"` transactions.
+- Session project assignment is a metadata move only: it must verify the session belongs to the current user, verify the target `PaperProject` belongs to the same user and is not archived, update only `OptimizationSession.project_id/updated_at`, and never mutate segment text, billing fields, or task status. `project_id=null` means move the session back to unfiled.
 - `ai_detect_reduce` start must run a preflight before creating a session:
   - text shorter than 350 chars -> HTTP 400, no session, no transaction
   - Zhuque unready -> HTTP 400 with actionable message, no session, no transaction
@@ -116,8 +194,10 @@ Questions to answer:
 
 - 微信扫码凭证 missing/expired -> task `failed`, error mentions WeChat QR login and credential capture guidance.
 - Readiness endpoint credential missing/browser setup incomplete -> HTTP 200 with `ready=false`, `connected=false`, message/actions; it must not throw a blocking 500 for normal user setup issues.
-- Start credential capture with missing Playwright package -> `{status:"manual_required"}` and command includes `pip install playwright`.
-- Start credential capture with missing Chromium/Chrome -> `{status:"manual_required"}` and command includes `playwright install chromium`; do not report `started`.
+- Start real-page session sync with missing Playwright package -> `{status:"manual_required"}` and command includes `pip install playwright`.
+- Start real-page session sync with missing Chromium/Chrome -> `{status:"manual_required"}` and command includes `playwright install chromium`; do not report `started`.
+- User clicks the workspace `已登录` button -> backend starts `capture_zhuque_creds.py --sync-session`; old `creds_latest.json` remains until the Zhuque page itself is observed as logged out.
+- User logs in inside the Zhuque page and closes the sync window -> latest observed logged-in state remains saved, and the workspace status endpoint should continue to report logged in from `creds_latest.json`.
 - Preflight endpoint must not click Zhuque detect or consume Zhuque quota.
 - Zhuque page/button unusable or quota exhausted -> task `failed`, error tells the user to login/switch accounts/wait for quota restoration.
 - Initial full-text detection returns `success=false` -> task `failed`; do not initialize or call LLM services.
@@ -127,6 +207,7 @@ Questions to answer:
 - Zhuque reduce output length drifts beyond ±10% -> length-repair call must run before saving `zhuque_reduced_text`; the recheck must detect the repaired/fallback text, not the bloated intermediate output.
 - A reduce round lowers risk and a later round is equal or higher -> rollback protection restores the previous segment text/detection metadata and the trace marks `rollback_applied=true`.
 - Trace JSON invalid/missing on older sessions -> session detail API still returns `zhuque_agent_trace=null`; frontend handles it as absent.
+- Moving a session into another user's or archived project -> HTTP 404 "论文项目不存在"; moving another user's session -> HTTP 404 "会话不存在".
 - AIGC report export requested for a non-`ai_detect_reduce` session -> HTTP 400 with a clear message; requested before any Zhuque detection metadata exists -> HTTP 400. `txt` and `pdf` remain rejected by schema unless explicitly reintroduced with tests.
 - Prompt memory must survive startup schema creation and Alembic upgrade; missing table on existing deployments should be created by `Base.metadata.create_all()` during startup before migrations add indexes/columns.
 
@@ -134,6 +215,8 @@ Questions to answer:
 
 - Good: full text returns labels for only segments 1 and 3; only those segments run polish/enhance, two `zhuque_reduce` transactions are recorded, and the recheck writes the final report to all segments.
 - Good: Workspace preflight sees ready Zhuque credentials and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
+- Good: an unfiled session can be moved into `test1` through `PATCH /sessions/{session_id}/project`, disappears from `project_id=0`, appears under `project_id=<test1>`, and can be moved back with `project_id=null`.
+- Good: Workspace `已登录` opens a sync window without deleting the old credential; if the user only closes the Zhuque page, GankAIGC remains logged in; if the user logs out in the Zhuque page, `creds_latest.json` is removed and the workspace becomes logged out.
 - Good: QR capture is needed only before credentials exist; subsequent detections use WebSocket API and never need a local browser/debug port.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
 - Good: A high-risk session whose first reduced output is too long records `length_adjustments`, saves a repaired/fallback text within ±10%, and rechecks that text.
@@ -157,9 +240,10 @@ Questions to answer:
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
 - WeChat credential capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`), and credential status endpoint connected/disconnected shapes.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
+- Project assignment: tests must cover unfiled -> project, project -> unfiled, and rejection of another user's/archived project.
 - AIGC report export: `aigc_report_docx` and `aigc_report_md` return distinct filenames, MIME types, and per-segment AI-rate rows mapped from `segment_labels[].position`; non-Zhuque sessions and missing report metadata return HTTP 400.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
-- Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback.
+- Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback. Tests must prove stale credential quota is replaced by live peek quota in readiness, and that repeated passive readiness calls are throttled instead of opening a WebSocket on every poll.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.
 - Paper Reconstruction: repeated paper stagnation records `rewrite_mode="paper_reconstruction"`, language/section/pattern metadata, candidate selection metadata, and fact-card counts without storing full candidate text in trace.
 - Rollback protection: regression after a previously improved round restores saved text and records rollback metadata in trace/SSE.
@@ -191,4 +275,22 @@ CreditService(db).hold_platform_credit(
     session_id=session.id,
     amount=10,
 )
+```
+
+#### Wrong
+
+```python
+def _start_zhuque_wechat_capture(*, switch_account: bool = False):
+    if switch_account:
+        Path("zhuque_pkg/creds_latest.json").unlink()  # GankAIGC click is not a real Zhuque logout
+    subprocess.Popen([sys.executable, "capture_zhuque_creds.py", "--switch"])
+```
+
+#### Correct
+
+```python
+def _start_zhuque_wechat_capture(*, sync_session: bool = True):
+    args = ["--sync-session"] if sync_session else []
+    subprocess.Popen([sys.executable, "capture_zhuque_creds.py", *args])
+# capture script deletes creds_latest.json only after the Zhuque page is observed as logged out.
 ```

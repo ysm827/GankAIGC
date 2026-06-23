@@ -16,7 +16,7 @@ from app.models.models import User, OptimizationSession, OptimizationSegment, Ch
 from app.schemas import (
     OptimizationCreate, SessionResponse, SessionDetailResponse,
     QueueStatusResponse, ProgressUpdate, ChangeLogResponse, ExportConfirmation,
-    SessionRetryRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
+    SessionRetryRequest, SessionProjectUpdateRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
     ZhuquePreflightRequest, ZhuqueReadinessResponse,
 )
 from app.services.concurrency import concurrency_manager
@@ -113,6 +113,9 @@ def _zhuque_ratio_percent(value) -> Optional[float]:
 
 
 def _zhuque_risk_rate_from_result(result: dict, fallback: Optional[float] = None) -> Optional[float]:
+    if not isinstance(result, dict) or result.get("success") is False:
+        return None
+
     labels_ratio = result.get("labels_ratio") or {}
     if isinstance(labels_ratio, dict) and labels_ratio:
         ai_rate = _zhuque_ratio_from_result(result, "0") or 0.0
@@ -557,7 +560,7 @@ def _zhuque_capture_env() -> dict:
     return env
 
 
-def _start_zhuque_wechat_capture() -> dict:
+def _start_zhuque_wechat_capture(*, sync_session: bool = True) -> dict:
     status = zhuque_service._ensure_api().credential_status()
     script_path = _zhuque_capture_script_path()
     if script_path is None:
@@ -566,11 +569,13 @@ def _start_zhuque_wechat_capture() -> dict:
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", ""),
-            "command": "python zhuque_pkg/capture_zhuque_creds.py",
+            "sync_session": sync_session,
+            "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
             "message": "未找到 zhuque_pkg/capture_zhuque_creds.py，请确认新朱雀包在项目根目录",
         }
 
-    command = f'{sys.executable} {script_path}'
+    launch_args = ["--sync-session"] if sync_session else []
+    command = " ".join([sys.executable, str(script_path), *launch_args]).strip()
     if importlib.util.find_spec("playwright") is None:
         browsers_path = _zhuque_playwright_browsers_path()
         return {
@@ -578,8 +583,9 @@ def _start_zhuque_wechat_capture() -> dict:
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "sync_session": sync_session,
             "command": f'{sys.executable} -m pip install playwright && PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
-            "message": "当前 Python 环境未安装 Playwright，无法自动打开朱雀微信扫码授权页。请先安装 Playwright 并执行扫码命令。",
+            "message": "当前 Python 环境未安装 Playwright，无法自动打开朱雀真实网页状态同步窗口。请先安装 Playwright 并执行同步命令。",
         }
     if not _zhuque_playwright_browser_ready():
         browsers_path = _zhuque_playwright_browsers_path()
@@ -588,16 +594,17 @@ def _start_zhuque_wechat_capture() -> dict:
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "sync_session": sync_session,
             "command": f'PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
-            "message": "Playwright 已安装，但未找到可用于扫码授权页的 Chromium 内核浏览器（Chrome/Chromium/Edge/Brave）或 Playwright 内置 Chromium。请先安装任一浏览器内核；扫码只用于保存朱雀凭证，后续检测仍直接走无头 API。",
+            "message": "Playwright 已安装，但未找到可用于朱雀状态同步窗口的 Chromium 内核浏览器（Chrome/Chromium/Edge/Brave）或 Playwright 内置 Chromium。请先安装任一浏览器内核；登录/退出状态只按朱雀网页真实状态同步。",
         }
 
     try:
         log_path = script_path.parent / "capture_latest.log"
         log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
-        log_handle.write(f"\n--- start {utcnow().isoformat()} ---\n")
+        log_handle.write(f"\n--- start {utcnow().isoformat()} sync_session={sync_session} ---\n")
         subprocess.Popen(
-            [sys.executable, str(script_path)],
+            [sys.executable, str(script_path), *launch_args],
             cwd=str(script_path.parent),
             env=_zhuque_capture_env(),
             stdout=log_handle,
@@ -609,8 +616,13 @@ def _start_zhuque_wechat_capture() -> dict:
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "sync_session": sync_session,
             "command": command,
-            "message": f"已打开朱雀微信扫码授权页；扫码完成后会保存凭证，后续检测走无头 API。若扫码后未保存，请查看日志: {log_path}",
+            "message": (
+                "已打开朱雀真实网页状态同步窗口；请在朱雀网页内登录/退出，GankAIGC 会按网页状态保存或清除凭证。"
+                if sync_session
+                else "已打开朱雀微信扫码授权页；扫码完成后会保存凭证，后续检测走无头 API。"
+            ) + f"关闭窗口后会保留最后一次同步状态。日志: {log_path}",
         }
     except Exception as exc:
         return {
@@ -618,8 +630,9 @@ def _start_zhuque_wechat_capture() -> dict:
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
+            "sync_session": sync_session,
             "command": command,
-            "message": f"自动打开扫码授权页失败，请在终端手动运行命令完成微信扫码授权：{command}；错误: {exc}",
+            "message": f"自动打开朱雀网页状态同步窗口失败，请在终端手动运行命令完成登录态同步：{command}；错误: {exc}",
         }
 
 
@@ -825,10 +838,11 @@ async def start_optimization(
 
 @router.post("/zhuque/browser/start", response_model=ZhuqueBrowserLaunchResponse)
 async def start_zhuque_browser(
+    sync_session: bool = True,
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """兼容旧路径：启动微信扫码凭证捕获，不再启动本地页面调试窗口。"""
-    return _start_zhuque_wechat_capture()
+    """兼容旧路径：启动朱雀真实网页状态同步窗口。"""
+    return _start_zhuque_wechat_capture(sync_session=sync_session)
 
 
 @router.get("/zhuque/browser/status", response_model=ZhuqueBrowserStatusResponse)
@@ -969,6 +983,53 @@ async def get_session_detail(
         project_title=session.project_title,
         segments=[seg.__dict__ for seg in segments]
     )
+
+
+@router.patch("/sessions/{session_id}/project", response_model=SessionResponse)
+async def update_session_project(
+    session_id: str,
+    payload: SessionProjectUpdateRequest,
+    user: User = Depends(get_current_user_with_legacy_fallback),
+    db: Session = Depends(get_db),
+):
+    """把单个会话归入指定论文项目；project_id=null 表示移回未归档。"""
+    session = (
+        db.query(OptimizationSession)
+        .filter(
+            OptimizationSession.session_id == session_id,
+            OptimizationSession.user_id == user.id,
+        )
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    project = None
+    if payload.project_id is not None:
+        project = (
+            db.query(PaperProject)
+            .filter(
+                PaperProject.id == payload.project_id,
+                PaperProject.user_id == user.id,
+                PaperProject.is_archived.is_(False),
+            )
+            .first()
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="论文项目不存在")
+
+    session.project_id = project.id if project else None
+    session.updated_at = utcnow()
+    db.commit()
+    db.refresh(session)
+    if project:
+        session.project = project
+    else:
+        session.project = None
+
+    session.original_char_count = len(session.original_text or "")
+    session.preview_text = (session.original_text or "")[:50]
+    return session
 
 
 @router.get("/sessions/{session_id}/progress", response_model=ProgressUpdate)

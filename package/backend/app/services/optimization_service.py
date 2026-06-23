@@ -423,11 +423,21 @@ class OptimizationService:
         result = await self._detect_full_text_once(segments, prefer_reduced=has_reduced_text)
         if not result.get("success"):
             message = result.get("message") or "朱雀检测返回失败"
+            await self._emit_zhuque_trace_event({
+                "type": "detect",
+                "round": existing_rounds,
+                "source": "reduced" if has_reduced_text else "original",
+                "rate": None,
+                "threshold": threshold,
+                "remaining_uses": result.get("remaining_uses"),
+                "status": "error",
+                "message": f"初始全文检测失败：{message}",
+            })
             self._finalize_zhuque_trace("failed", None, f"初始朱雀检测失败：{message}")
             raise RuntimeError(f"朱雀检测失败: 全文: {message}")
 
         full_text_rate = self._get_zhuque_risk_rate(result)
-        self._append_zhuque_trace_event({
+        await self._emit_zhuque_trace_event({
             "type": "detect",
             "round": existing_rounds,
             "source": "reduced" if has_reduced_text else "original",
@@ -592,9 +602,9 @@ class OptimizationService:
                         f"{rollback_metadata['rolled_back_from_rate']}%），已恢复上一版 "
                         f"{rollback_metadata['rolled_back_to_rate']}%"
                     )
-                self._append_zhuque_trace_event(reduce_event)
+                await self._emit_zhuque_trace_event(reduce_event)
                 if reflection["record_reflection"]:
-                    self._append_zhuque_trace_event({
+                    await self._emit_zhuque_trace_event({
                         "type": "reflection",
                         "round": round_number,
                         "old_rate": old_rate,
@@ -649,7 +659,7 @@ class OptimizationService:
                         for seg in segments:
                             seg.status = "failed"
                         self.db.commit()
-                        self._append_zhuque_trace_event({
+                        await self._emit_zhuque_trace_event({
                             "type": "plateau_exit",
                             "round": round_number,
                             "rate": full_text_rate,
@@ -1031,23 +1041,32 @@ class OptimizationService:
         return "\n\n".join(self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced) for seg in segments)
 
     def _get_zhuque_risk_rate(self, result: dict) -> float:
-        labels_ratio = result.get("labels_ratio") or {}
-        try:
-            ai_rate = float(labels_ratio.get("0", 0)) * 100
-        except (TypeError, ValueError):
-            ai_rate = 0.0
-        try:
-            suspicious_rate = float(labels_ratio.get("2", 0)) * 100
-        except (TypeError, ValueError):
-            suspicious_rate = 0.0
+        if not isinstance(result, dict) or result.get("success") is False:
+            message = result.get("message") if isinstance(result, dict) else ""
+            raise ValueError(message or "朱雀检测结果无效")
 
-        if labels_ratio:
+        labels_ratio = result.get("labels_ratio") or {}
+        if isinstance(labels_ratio, dict) and labels_ratio:
+            try:
+                ai_rate = float(labels_ratio.get("0", 0)) * 100
+            except (TypeError, ValueError):
+                ai_rate = 0.0
+            try:
+                suspicious_rate = float(labels_ratio.get("2", 0)) * 100
+            except (TypeError, ValueError):
+                suspicious_rate = 0.0
             return round(max(ai_rate, suspicious_rate), 2)
 
-        try:
-            return float(result.get("rate", 0) or 0)
-        except (TypeError, ValueError):
-            return 0.0
+        for key in ("risk_rate", "rate"):
+            try:
+                raw_rate = result.get(key)
+                if raw_rate is None:
+                    continue
+                return round(float(raw_rate), 2)
+            except (TypeError, ValueError):
+                continue
+
+        raise ValueError(result.get("message") or "朱雀检测响应缺少有效风险率")
 
     def _get_zhuque_segment_text(
         self,
@@ -2225,10 +2244,157 @@ class OptimizationService:
         self.session_obj.zhuque_agent_trace = json.dumps(trace, ensure_ascii=False)
         self.db.commit()
 
-    def _append_zhuque_trace_event(self, event: dict) -> None:
+    def _format_zhuque_trace_rate(self, value) -> str:
+        if value is None:
+            return "--"
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if math.isfinite(number) and number.is_integer():
+            return f"{int(number)}%"
+        return f"{round(number, 2)}%"
+
+    def _infer_zhuque_event_phase(self, event: dict) -> str:
+        event_type = event.get("type")
+        phase_map = {
+            "detect": "zhuque_detect",
+            "reduce": "zhuque_reduce",
+            "reflection": "agent_reflection",
+            "prompt_evolution": "agent_learning",
+            "plateau_exit": "plateau_exit",
+            "plateau_recovery": "plateau_recovery",
+            "plateau_deep_reconstruction": "plateau_deep_reconstruction",
+            "detector_floor": "detector_floor",
+        }
+        return phase_map.get(event_type, "zhuque_agent")
+
+    def _infer_zhuque_event_status(self, event: dict) -> str:
+        if event.get("status"):
+            return str(event["status"])
+        event_type = event.get("type")
+        if event_type in {"plateau_exit", "detector_floor"}:
+            return "warning"
+        if event_type in {"failed", "error"}:
+            return "error"
+        if event.get("rollback_applied"):
+            return "warning"
+        if event_type == "detect" and event.get("rate") is not None:
+            try:
+                if float(event["rate"]) > float(event.get("threshold", settings.ZHUQUE_DETECT_THRESHOLD)):
+                    return "warning"
+            except (TypeError, ValueError):
+                pass
+        return "success"
+
+    def _build_zhuque_event_title(self, event: dict) -> str:
+        event_type = event.get("type")
+        round_number = event.get("round")
+        if event_type == "detect":
+            return "全文检测"
+        if event_type == "reduce":
+            return f"第 {round_number} 轮降 AI" if round_number is not None else "降 AI 改写"
+        if event_type == "reflection":
+            return f"第 {round_number} 轮收敛反思" if round_number is not None else "收敛反思"
+        if event_type == "prompt_evolution":
+            return f"第 {round_number} 轮 Agent 学习结果" if round_number is not None else "Agent 学习结果"
+        if event_type == "plateau_exit":
+            return f"第 {round_number} 轮卡点退出" if round_number is not None else "卡点退出"
+        if event_type == "plateau_recovery":
+            return f"第 {round_number} 轮卡点自动探索" if round_number is not None else "卡点自动探索"
+        if event_type == "plateau_deep_reconstruction":
+            return f"第 {round_number} 轮深度重构" if round_number is not None else "深度重构"
+        if event_type == "detector_floor":
+            return "检测地板校准"
+        return "Agent 事件"
+
+    def _build_zhuque_event_summary(self, event: dict) -> str:
+        if event.get("message"):
+            return str(event["message"])
+        event_type = event.get("type")
+        if event_type == "detect":
+            return (
+                f"全文风险率 {self._format_zhuque_trace_rate(event.get('rate'))}，"
+                f"阈值 {self._format_zhuque_trace_rate(event.get('threshold'))}"
+            )
+        if event_type == "reduce":
+            return (
+                f"风险率 {self._format_zhuque_trace_rate(event.get('old_rate'))} → "
+                f"{self._format_zhuque_trace_rate(event.get('new_rate'))}，"
+                f"策略：{event.get('strategy') or '--'}"
+            )
+        if event_type == "reflection":
+            return (
+                f"连续停滞 {event.get('stagnation_count', 0)} 轮，"
+                f"下一步：{event.get('action') or event.get('next_strategy') or '--'}"
+            )
+        if event_type == "prompt_evolution":
+            return f"Prompt patch 来源：{event.get('source') or '--'}，安全状态：{event.get('safety_status') or '--'}"
+        if event_type == "plateau_recovery":
+            return (
+                f"候选 {event.get('candidate_count', 0)} 个，"
+                f"风险率 {self._format_zhuque_trace_rate(event.get('old_rate'))} → "
+                f"{self._format_zhuque_trace_rate(event.get('new_rate'))}"
+            )
+        if event_type == "plateau_deep_reconstruction":
+            return (
+                f"深度重构候选 {event.get('candidate_count', 0)} 个，"
+                f"状态：{event.get('status') or '--'}"
+            )
+        if event_type == "detector_floor":
+            return (
+                f"当前风险率 {self._format_zhuque_trace_rate(event.get('rate'))}，"
+                f"建议阈值 {self._format_zhuque_trace_rate(event.get('recommended_threshold'))}"
+            )
+        return self._build_zhuque_event_title(event)
+
+    def _normalize_zhuque_trace_event(self, event: dict, trace: Optional[dict] = None) -> dict:
+        trace = trace or self._load_zhuque_trace()
+        events = trace.setdefault("events", [])
+        normalized = dict(event or {})
+        seq = normalized.get("seq")
+        if seq is None:
+            seq = len(events) + 1
+        normalized["seq"] = seq
+        normalized.setdefault("id", f"zq-{self.session_obj.session_id}-{seq}")
+        normalized.setdefault("created_at", f"{utcnow().isoformat()}Z")
+        normalized.setdefault("phase", self._infer_zhuque_event_phase(normalized))
+        normalized.setdefault("status", self._infer_zhuque_event_status(normalized))
+        normalized.setdefault("title", self._build_zhuque_event_title(normalized))
+        normalized.setdefault("summary", self._build_zhuque_event_summary(normalized))
+        return normalized
+
+    def _append_zhuque_trace_event(self, event: dict) -> dict:
         trace = self._load_zhuque_trace()
-        trace.setdefault("events", []).append(event)
+        normalized = self._normalize_zhuque_trace_event(event, trace)
+        trace.setdefault("events", []).append(normalized)
         self._save_zhuque_trace(trace)
+        return normalized
+
+    async def _broadcast_zhuque_trace_event(self, event: dict) -> None:
+        try:
+            await stream_manager.broadcast(self.session_obj.session_id, {
+                "type": "zhuque_agent_event",
+                "agent_event": event,
+                "event_type": event.get("type"),
+                "seq": event.get("seq"),
+                "id": event.get("id"),
+                "phase": event.get("phase"),
+                "status": event.get("status"),
+                "title": event.get("title"),
+                "summary": event.get("summary"),
+            })
+        except Exception as e:
+            logger.warning(
+                "Failed to broadcast Zhuque agent event for session %s: %s",
+                self.session_obj.session_id,
+                e,
+            )
+
+    async def _emit_zhuque_trace_event(self, event: dict) -> dict:
+        normalized = self._append_zhuque_trace_event(event)
+        await self._broadcast_zhuque_trace_event(normalized)
+        return normalized
 
     def _finalize_zhuque_trace(
         self,

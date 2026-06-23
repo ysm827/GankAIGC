@@ -67,11 +67,70 @@ def _coerce_rate_value(value) -> Optional[float]:
     return max(0.0, min(rate, 100.0))
 
 
+def _failure_zhuque_result(
+    message: str,
+    text_length: int,
+    *,
+    remaining_uses: int = -1,
+    source: str = "headless_api",
+) -> dict:
+    return {
+        "success": False,
+        "message": message,
+        "rate": None,
+        "risk_rate": None,
+        "rate_label": "",
+        "labels_ratio": {},
+        "alert_text": "",
+        "alert_title": "",
+        "remaining_uses": remaining_uses,
+        "text_length": text_length,
+        "source": source,
+    }
+
+
+def _zhuque_failure_message(data: dict) -> Optional[str]:
+    message = str(data.get("msg") or data.get("message") or data.get("error") or "").strip()
+    status = str(data.get("status") or "").strip().lower()
+    if data.get("success") is False:
+        return message or "朱雀检测返回失败"
+    if status in {"failed", "fail", "error"}:
+        return message or "朱雀检测返回失败"
+    if "invalid request" in message.lower() or "invalid_request" in message.lower():
+        return message or "Invalid request"
+    return None
+
+
 def _parse_remaining_uses(text: str) -> int:
     import re
 
     match = re.search(r"(\d+)", text or "")
     return int(match.group(1)) if match else -1
+
+
+def _normalise_login_text(text: str) -> str:
+    import re
+
+    return re.sub(r"\s+", "", str(text or "").strip()).lower()
+
+
+def _is_login_prompt_text(text: str) -> bool:
+    """Detect Zhuque's logged-out account placeholder.
+
+    The real page can render the top-right login entry as `.user-name = Login`.
+    If that placeholder is persisted into `creds_latest.json`, the old code kept
+    showing the anonymous button quota (for example 16 left) as if an account
+    was still logged in.
+    """
+    return _normalise_login_text(text) in {
+        "login",
+        "log in",
+        "signin",
+        "sign in",
+        "登录",
+        "微信登录",
+        "扫码登录",
+    }
 
 
 def _coerce_remaining_uses(*values) -> int:
@@ -161,19 +220,31 @@ def _extract_credentials(raw: dict) -> dict:
                 storage_token = _unwrap_token_value(value)
                 break
 
+    access_token = raw_token or storage_token or cookie_token or ""
+    fp = raw.get("fp") or local_storage.get("fp") or ""
+    user_name = raw.get("user_name") or raw.get("userName") or ""
+    if _is_login_prompt_text(user_name):
+        user_name = ""
+    logged_out_placeholder = not access_token and not user_name
+    remaining_uses = _coerce_remaining_uses(
+        raw.get("remaining_uses"),
+        raw.get("remainingUses"),
+        raw.get("availableUses"),
+        raw.get("quota_text"),
+        raw.get("quotaText"),
+    )
+    if logged_out_placeholder:
+        fp = ""
+        cookies = ""
+        remaining_uses = -1
+
     return {
-        "access_token": raw_token or storage_token or cookie_token or "",
-        "fp": raw.get("fp") or local_storage.get("fp") or "",
+        "access_token": access_token,
+        "fp": fp,
         "cookies": cookies or "",
-        "user_name": raw.get("user_name") or raw.get("userName") or "",
+        "user_name": user_name,
         "quota_text": raw.get("quota_text") or raw.get("quotaText") or "",
-        "remaining_uses": _coerce_remaining_uses(
-            raw.get("remaining_uses"),
-            raw.get("remainingUses"),
-            raw.get("availableUses"),
-            raw.get("quota_text"),
-            raw.get("quotaText"),
-        ),
+        "remaining_uses": remaining_uses,
         "captured_at": raw.get("captured_at") or raw.get("timestamp") or "",
         "raw": raw,
     }
@@ -209,6 +280,9 @@ def _infer_and_convert_labels(raw_labels: dict, ai_rate: Optional[float]) -> tup
     earlier package docs described 0=AI. We infer from confidence/rate when present,
     and expose only the stable GankAIGC contract: 0=AI, 1=human, 2=suspicious.
     """
+    if not isinstance(raw_labels, dict) or not raw_labels:
+        return {}, {0: 0, 1: 1, 2: 2}
+
     raw = {str(key): _coerce_ratio_value(value) for key, value in (raw_labels or {}).items()}
     raw0 = raw.get("0", 0.0)
     raw1 = raw.get("1", 0.0)
@@ -255,16 +329,58 @@ def _convert_segment_labels(segment_labels: Any, label_map: dict[int, int]) -> l
 
 
 def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dict:
+    failure_message = _zhuque_failure_message(data)
+    if failure_message:
+        return _failure_zhuque_result(
+            failure_message,
+            text_length,
+            remaining_uses=_coerce_remaining_uses(
+                data.get("availableUses"),
+                data.get("remaining_uses"),
+                data.get("remainingUses"),
+                data.get("remaining"),
+                data.get("quota_text"),
+                data.get("quotaText"),
+                data.get("button_text"),
+            ),
+            source=source,
+        )
+
     raw_rate = _coerce_rate_value(
         data.get("confidence", data.get("rate", data.get("ai_generated")))
     )
     raw_labels = data.get("labels_ratio") or data.get("labelsRatio") or {}
     labels_ratio, label_map = _infer_and_convert_labels(raw_labels, raw_rate)
+    if not labels_ratio and raw_rate is not None:
+        ai_ratio_from_rate = _coerce_ratio_value(raw_rate)
+        labels_ratio = {
+            "0": ai_ratio_from_rate,
+            "1": round(max(0.0, 1.0 - ai_ratio_from_rate), 6),
+            "2": 0.0,
+        }
 
     ai_ratio = labels_ratio.get("0", 0.0)
     suspicious_ratio = labels_ratio.get("2", 0.0)
     rate = round(raw_rate if raw_rate is not None else ai_ratio * 100, 2)
-    risk_rate = round(max(ai_ratio, suspicious_ratio) * 100, 2)
+    if labels_ratio:
+        risk_rate = round(max(ai_ratio, suspicious_ratio) * 100, 2)
+    elif raw_rate is not None:
+        risk_rate = rate
+    else:
+        return _failure_zhuque_result(
+            data.get("msg") or data.get("message") or "朱雀检测响应缺少有效检测分数",
+            text_length,
+            remaining_uses=_coerce_remaining_uses(
+                data.get("availableUses"),
+                data.get("remaining_uses"),
+                data.get("remainingUses"),
+                data.get("remaining"),
+                data.get("quota_text"),
+                data.get("quotaText"),
+                data.get("button_text"),
+            ),
+            source=source,
+        )
 
     if ai_ratio >= 0.5:
         alert_text = "未发现明显的人工创作特征"
@@ -346,43 +462,94 @@ class ZhuqueAPI:
         self._credentials_cache = creds
         return dict(creds)
 
+    def forget_credentials_cache(self) -> None:
+        """Forget in-memory credential cache after creds_latest.json is replaced/removed."""
+        self._credentials_cache = None
+
+    def _session_status_file(self) -> Path:
+        return self.credentials_file.parent / "session_status.json"
+
+    def _read_session_status(self) -> Optional[dict]:
+        status_file = self._session_status_file()
+        if not status_file.exists():
+            return None
+        try:
+            status = json.loads(status_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(status, dict):
+            return None
+        return status
+
+    def _status_from_session_file(self, status: dict) -> dict:
+        connected = bool(status.get("connected") or status.get("ready"))
+        remaining_uses = _coerce_remaining_uses(status.get("remaining_uses"), status.get("quota_text"))
+        return {
+            "ready": connected,
+            "connected": connected,
+            "page_found": connected,
+            "has_token": bool(status.get("has_token")) if connected else False,
+            "remaining_uses": remaining_uses,
+            "button_enabled": connected or remaining_uses != 0,
+            "credential_file": str(self.credentials_file),
+            "auth_mode": "headless_api",
+            "login_mode": "wechat_qr",
+            "user_name": status.get("user_name") or "",
+            "quota_text": status.get("quota_text") or "",
+            "captured_at": status.get("updated_at") or "",
+            "session_status_file": str(self._session_status_file()),
+            "message": status.get("message") or ("朱雀网页已登录" if connected else "朱雀网页显示未登录"),
+        }
+
     def credential_status(self) -> dict:
+        session_status = self._read_session_status()
+        if session_status and session_status.get("connected") is False:
+            return self._status_from_session_file(session_status)
+
         try:
             creds = self.load_credentials(refresh=True)
         except RuntimeError as exc:
+            has_stale_credentials_file = self.credentials_file.exists()
+            if session_status is not None:
+                return self._status_from_session_file(session_status)
             return {
                 "ready": False,
                 "connected": False,
                 "page_found": False,
                 "has_token": False,
                 "remaining_uses": -1,
-                "button_enabled": False,
+                "button_enabled": True,
                 "credential_file": str(self.credentials_file),
                 "auth_mode": "headless_api",
                 "login_mode": "wechat_qr",
                 "user_name": "",
                 "quota_text": "",
                 "captured_at": "",
-                "message": str(exc),
+                "message": "朱雀网页显示未登录，可使用免费次数或重新扫码登录" if has_stale_credentials_file else str(exc),
             }
 
         quota_text = creds.get("quota_text") or ""
-        remaining_uses = _coerce_remaining_uses(creds.get("remaining_uses"), quota_text)
         has_token = bool(creds.get("access_token"))
+        remaining_uses = (
+            _coerce_remaining_uses(creds.get("remaining_uses"), quota_text)
+            if has_token
+            else -1
+        )
         return {
             "ready": has_token,
             "connected": has_token,
             "page_found": has_token,
             "has_token": has_token,
             "remaining_uses": remaining_uses,
-            "button_enabled": has_token,
+            "button_enabled": has_token or remaining_uses != 0,
             "credential_file": str(self.credentials_file),
             "auth_mode": "headless_api",
             "login_mode": "wechat_qr",
             "user_name": creds.get("user_name") or "",
             "quota_text": quota_text,
             "captured_at": creds.get("captured_at") or "",
-            "message": "朱雀微信凭证已就绪，检测将走无头 API" if has_token else "朱雀凭证缺少 token，请重新扫码",
+            "session_status_file": str(self._session_status_file()),
+            "message": "朱雀微信凭证已就绪，检测将走无头 API" if has_token else "朱雀凭证缺少 token，可尝试未登录免费次数或重新扫码",
         }
 
     async def status(self) -> dict:
@@ -506,11 +673,6 @@ class ZhuqueAPI:
             )
 
         state_file = self.credentials_file.parent / "browser_state.json"
-        if not state_file.exists():
-            return self._failure(
-                f"朱雀无头 API 验证失败，且缺少浏览器会话 {state_file}，无法启用真实页面兜底。请重新微信扫码登录。",
-                len(text),
-            )
 
         os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(self._playwright_browsers_path()))
         pw = await async_playwright().start()
@@ -523,11 +685,13 @@ class ZhuqueAPI:
                     "--disable-blink-features=AutomationControlled",
                 ],
             )
-            ctx = await browser.new_context(
-                storage_state=str(state_file),
-                viewport={"width": 1280, "height": 720},
-                user_agent=DEFAULT_USER_AGENT,
-            )
+            ctx_kwargs = {
+                "viewport": {"width": 1280, "height": 720},
+                "user_agent": DEFAULT_USER_AGENT,
+            }
+            if state_file.exists():
+                ctx_kwargs["storage_state"] = str(state_file)
+            ctx = await browser.new_context(**ctx_kwargs)
             page = await ctx.new_page()
             await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(5000)
@@ -620,19 +784,7 @@ class ZhuqueAPI:
             await pw.stop()
 
     def _failure(self, message: str, text_length: int, *, remaining_uses: int = -1) -> dict:
-        return {
-            "success": False,
-            "message": message,
-            "rate": 0,
-            "risk_rate": 0,
-            "rate_label": "",
-            "labels_ratio": {},
-            "alert_text": "",
-            "alert_title": "",
-            "remaining_uses": remaining_uses,
-            "text_length": text_length,
-            "source": "headless_api",
-        }
+        return _failure_zhuque_result(message, text_length, remaining_uses=remaining_uses)
 
     async def detect(self, text: str, timeout: float = 60.0) -> dict:
         text = text or ""
@@ -640,7 +792,20 @@ class ZhuqueAPI:
         if text_len < 350:
             return self._failure(f"文本长度不足 ({text_len}<350字), 请提供更长的文本", text_len)
 
-        creds = self.load_credentials(refresh=True)
+        try:
+            creds = self.load_credentials(refresh=True)
+        except RuntimeError as exc:
+            return await self._detect_with_page(
+                text,
+                timeout,
+                reason=f"未找到可用 token，尝试使用朱雀页面未登录免费次数: {exc}",
+            )
+        if not creds.get("access_token"):
+            return await self._detect_with_page(
+                text,
+                timeout,
+                reason="朱雀凭证缺少 access_token，尝试使用真实页面未登录免费次数",
+            )
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
         headers = self._ws_headers(creds)
         deadline = time.time() + timeout

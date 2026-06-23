@@ -1,13 +1,16 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
-  ArrowLeft, Download, FileText, GitCompare,
-  CheckCircle, AlertCircle, Shield, Square, Activity, BarChart3
+  Download, FileText, GitCompare, ArrowLeft,
+  CheckCircle, AlertCircle, Shield, Square, Activity,
+  Search, RefreshCw, Database, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { optimizationAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import { formatChinaDate } from '../utils/dateTime';
+
+const STREAM_FLUSH_INTERVAL_MS = 100;
 
 const SessionDetailPage = () => {
   const { sessionId } = useParams();
@@ -20,6 +23,14 @@ const SessionDetailPage = () => {
   const [exportFormat, setExportFormat] = useState('docx');
   const [resultViewMode, setResultViewMode] = useState('enhanced');
   const [zhuqueLiveEvents, setZhuqueLiveEvents] = useState([]);
+  const [collapsedZhuqueEventKeys, setCollapsedZhuqueEventKeys] = useState(() => new Set());
+  const pendingContentUpdatesRef = useRef([]);
+  const pendingZhuqueEventsRef = useRef([]);
+  const streamFlushTimerRef = useRef(null);
+
+  useEffect(() => {
+    setCollapsedZhuqueEventKeys(new Set());
+  }, [sessionId]);
 
   useEffect(() => {
     let eventSource = null;
@@ -40,9 +51,17 @@ const SessionDetailPage = () => {
           }
           const data = JSON.parse(event.data);
           if (data.type === 'content') {
-            handleStreamUpdate(data);
-          } else if (data.type === 'zhuque_detect' || data.type === 'zhuque_reduce') {
-            setZhuqueLiveEvents((current) => [...current.slice(-9), data]);
+            enqueueStreamUpdate({ kind: 'content', data });
+          } else if (
+            data.type === 'zhuque_agent_event'
+            || data.agent_event
+            || data.type === 'zhuque_detect'
+            || data.type === 'zhuque_reduce'
+          ) {
+            const liveEvent = normalizeZhuqueLiveEvent(data);
+            if (liveEvent) {
+              enqueueStreamUpdate({ kind: 'zhuque', data: liveEvent });
+            }
           } else if (data.type === 'history_compressed') {
             toast.info(data.message);
           }
@@ -63,37 +82,82 @@ const SessionDetailPage = () => {
       if (eventSource) {
         eventSource.close();
       }
+      if (streamFlushTimerRef.current) {
+        window.clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+      pendingContentUpdatesRef.current = [];
+      pendingZhuqueEventsRef.current = [];
     };
   }, [sessionId]);
 
-  const handleStreamUpdate = (data) => {
+  const enqueueStreamUpdate = (update) => {
+    if (update.kind === 'content') {
+      pendingContentUpdatesRef.current.push(update.data);
+    } else if (update.kind === 'zhuque') {
+      pendingZhuqueEventsRef.current.push(update.data);
+    }
+
+    if (streamFlushTimerRef.current) {
+      return;
+    }
+
+    streamFlushTimerRef.current = window.setTimeout(() => {
+      flushStreamUpdates();
+    }, STREAM_FLUSH_INTERVAL_MS);
+  };
+
+  const flushStreamUpdates = () => {
+    const contentUpdates = pendingContentUpdatesRef.current;
+    const zhuqueEvents = pendingZhuqueEventsRef.current;
+
+    pendingContentUpdatesRef.current = [];
+    pendingZhuqueEventsRef.current = [];
+    streamFlushTimerRef.current = null;
+
+    if (contentUpdates.length > 0) {
+      handleStreamUpdates(contentUpdates);
+    }
+
+    if (zhuqueEvents.length > 0) {
+      setZhuqueLiveEvents((current) => (
+        mergeZhuqueEvents([], [...current, ...zhuqueEvents]).slice(-20)
+      ));
+    }
+  };
+
+  const handleStreamUpdates = (updates) => {
     setSegments(prevSegments => {
       const newSegments = [...prevSegments];
-      const segmentIndex = data.segment_index;
-      
-      // 确保段落存在
-      if (!newSegments[segmentIndex]) {
-        // 如果段落不存在（这不应该发生，除非初始化延迟），可以尝试重新加载或创建一个占位符
-        // 这里简单地忽略或记录错误
-        console.warn(`Segment ${segmentIndex} not found for update`);
-        return prevSegments;
+
+      for (const data of updates) {
+        const segmentIndex = data.segment_index;
+
+        // 确保段落存在
+        if (!newSegments[segmentIndex]) {
+          // 如果段落不存在（这不应该发生，除非初始化延迟），可以尝试重新加载或创建一个占位符
+          // 这里简单地忽略或记录错误
+          console.warn(`Segment ${segmentIndex} not found for update`);
+          continue;
+        }
+
+        const segment = { ...newSegments[segmentIndex] };
+
+        // 更新内容
+        if (data.stage === 'polish' || data.stage === 'emotion_polish') {
+          segment.polished_text = (segment.polished_text || "") + data.content;
+        } else if (data.stage === 'enhance') {
+          segment.enhanced_text = (segment.enhanced_text || "") + data.content;
+        }
+
+        // 标记为处理中（如果尚未标记）
+        if (segment.status !== 'processing') {
+            segment.status = 'processing';
+        }
+
+        newSegments[segmentIndex] = segment;
       }
 
-      const segment = { ...newSegments[segmentIndex] };
-      
-      // 更新内容
-      if (data.stage === 'polish' || data.stage === 'emotion_polish') {
-        segment.polished_text = (segment.polished_text || "") + data.content;
-      } else if (data.stage === 'enhance') {
-        segment.enhanced_text = (segment.enhanced_text || "") + data.content;
-      }
-      
-      // 标记为处理中（如果尚未标记）
-      if (segment.status !== 'processing') {
-          segment.status = 'processing';
-      }
-
-      newSegments[segmentIndex] = segment;
       return newSegments;
     });
 
@@ -182,12 +246,13 @@ const SessionDetailPage = () => {
     }
   };
 
-  const getFinalText = () => {
-    return segments
-      .sort((a, b) => a.segment_index - b.segment_index)
+  const sortedSegments = useMemo(() => [...segments].sort((a, b) => a.segment_index - b.segment_index), [segments]);
+
+  const getFinalText = useCallback(() => {
+    return sortedSegments
       .map(seg => seg.zhuque_reduced_text || seg.enhanced_text || seg.polished_text || seg.original_text)
       .join('\n\n');
-  };
+  }, [sortedSegments]);
 
   const parseZhuqueResult = (rawResult) => {
     if (!rawResult) {
@@ -222,28 +287,31 @@ const SessionDetailPage = () => {
       return null;
     }
 
-    const detectedSegments = segments.filter(
+    const detectedSegments = sortedSegments.filter(
       seg => seg.zhuque_detect_count > 0 || seg.zhuque_detect_rate !== null || seg.zhuque_detect_result
     );
     if (detectedSegments.length === 0) {
       return {
         finalRate: null,
+        isInvalid: false,
         detectCount: 0,
         reduceRounds: 0,
-        segmentCount: segments.length,
+        segmentCount: sortedSegments.length,
         result: null,
       };
     }
 
-    const sortedDetected = [...detectedSegments].sort((a, b) => a.segment_index - b.segment_index);
-    const reportSegment = [...sortedDetected]
+    // sortedSegments is already sorted by segment_index, no need to re-sort
+    const reportSegment = [...detectedSegments]
       .reverse()
-      .find(seg => seg.zhuque_detect_result || seg.zhuque_detect_rate !== null) || sortedDetected[0];
+      .find(seg => seg.zhuque_detect_result || seg.zhuque_detect_rate !== null) || detectedSegments[0];
     const result = parseZhuqueResult(reportSegment.zhuque_detect_result);
     const finalRate = getZhuqueRiskRate(result, reportSegment.zhuque_detect_rate);
+    const isInvalid = result?.success === false || finalRate === null;
 
     return {
       finalRate,
+      isInvalid,
       detectCount: Math.max(...detectedSegments.map(seg => seg.zhuque_detect_count || 0)),
       reduceRounds: Math.max(...segments.map(seg => seg.zhuque_reduce_attempt || 0), 0),
       segmentCount: segments.length,
@@ -259,9 +327,171 @@ const SessionDetailPage = () => {
     return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
   };
 
+  const normalizeZhuqueLiveEvent = (data) => {
+    if (!data || typeof data !== 'object') {
+      return null;
+    }
+    if (data.agent_event && typeof data.agent_event === 'object') {
+      return data.agent_event;
+    }
+    if (data.type === 'zhuque_detect') {
+      return {
+        ...data,
+        live_type: data.type,
+        type: 'detect',
+        phase: 'zhuque_detect',
+        status: data.success === false ? 'error' : 'success',
+        round: data.round ?? 0,
+        title: '全文检测',
+        summary: data.message || `朱雀检测：${formatRate(data.rate)}`,
+        selected_segment_indices: data.segment_indices || [],
+      };
+    }
+    if (data.type === 'zhuque_reduce') {
+      return {
+        ...data,
+        live_type: data.type,
+        type: 'reduce',
+        phase: 'zhuque_reduce',
+        status: data.rollback_applied ? 'warning' : 'success',
+        title: data.title || `第 ${data.round ?? '--'} 轮降 AI`,
+        summary: data.message || `朱雀降重：${formatRate(data.old_rate)} → ${formatRate(data.new_rate)}`,
+        selected_segment_indices: data.selected_segment_indices || data.segment_indices || [],
+      };
+    }
+    return data;
+  };
+
+  const getZhuqueEventSignature = (event) => ([
+    event?.type || '',
+    event?.phase || '',
+    event?.round ?? '',
+    event?.rate ?? '',
+    event?.old_rate ?? '',
+    event?.new_rate ?? '',
+    event?.strategy || '',
+    event?.rewrite_mode || '',
+  ].join('|'));
+
+  const getZhuqueEventKey = (event, index) => (
+    event?.id
+      || (event?.seq !== undefined ? `seq-${event.seq}` : null)
+      || `${getZhuqueEventSignature(event)}-${index}`
+  );
+
+  const getZhuqueEventDetailId = (eventKey, index) => {
+    const safeKey = String(eventKey || index).replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `zhuque-agent-detail-${index}-${safeKey}`;
+  };
+
+  const toggleZhuqueEvent = useCallback((eventKey) => {
+    setCollapsedZhuqueEventKeys((current) => {
+      const next = new Set(current);
+      if (next.has(eventKey)) {
+        next.delete(eventKey);
+      } else {
+        next.add(eventKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const mergeZhuqueEvents = (traceEvents = [], liveEvents = []) => {
+    const merged = [];
+    const primaryIndex = new Map();
+    const signatureIndex = new Map();
+    const sourceEvents = [...(traceEvents || []), ...(liveEvents || [])]
+      .map(normalizeZhuqueLiveEvent)
+      .filter(event => event && typeof event === 'object');
+
+    sourceEvents.forEach((event) => {
+      const primaryKey = event.id
+        ? `id:${event.id}`
+        : (event.seq !== undefined ? `seq:${event.seq}` : null);
+      const signature = getZhuqueEventSignature(event);
+      let existingIndex = primaryKey && primaryIndex.has(primaryKey)
+        ? primaryIndex.get(primaryKey)
+        : undefined;
+
+      if (existingIndex === undefined && signatureIndex.has(signature)) {
+        existingIndex = signatureIndex.get(signature);
+      }
+
+      if (existingIndex !== undefined) {
+        const previous = merged[existingIndex];
+        merged[existingIndex] = {
+          ...previous,
+          ...event,
+          id: event.id || previous.id,
+          seq: event.seq ?? previous.seq,
+          created_at: event.created_at || previous.created_at,
+          title: event.title || previous.title,
+          summary: event.summary || previous.summary,
+        };
+      } else {
+        existingIndex = merged.length;
+        merged.push(event);
+      }
+
+      const mergedEvent = merged[existingIndex];
+      const mergedPrimaryKey = mergedEvent.id
+        ? `id:${mergedEvent.id}`
+        : (mergedEvent.seq !== undefined ? `seq:${mergedEvent.seq}` : null);
+      if (mergedPrimaryKey) {
+        primaryIndex.set(mergedPrimaryKey, existingIndex);
+      }
+      signatureIndex.set(getZhuqueEventSignature(mergedEvent), existingIndex);
+    });
+
+    return merged;
+  };
+
+  const getAgentEventTitle = (event) => {
+    if (event?.title) {
+      return event.title;
+    }
+    if (event?.type === 'detect') {
+      return '全文检测';
+    }
+    if (event?.type === 'reflection') {
+      return `第 ${event.round} 轮收敛反思`;
+    }
+    if (event?.type === 'plateau_exit') {
+      return `第 ${event.round} 轮卡点退出`;
+    }
+    if (event?.type === 'plateau_recovery') {
+      return `第 ${event.round} 轮卡点自动探索`;
+    }
+    if (event?.type === 'plateau_deep_reconstruction') {
+      return `第 ${event.round} 轮深度重构`;
+    }
+    if (event?.type === 'detector_floor') {
+      return '检测地板校准';
+    }
+    if (event?.type === 'prompt_evolution') {
+      return `第 ${event.round} 轮 Agent 学习结果`;
+    }
+    return `第 ${event?.round ?? '--'} 轮降 AI`;
+  };
+
+  const getAgentEventStatusLabel = (status) => {
+    const labels = {
+      running: '执行中',
+      success: '已完成',
+      accepted: '已采纳',
+      failed: '未采纳',
+      warning: '需关注',
+      error: '失败',
+    };
+    return labels[status] || status;
+  };
+
   const getZhuqueRiskRate = (result, fallbackRate = null) => {
+    if (result?.success === false) {
+      return null;
+    }
     const labelsRatio = result?.labels_ratio;
-    if (labelsRatio && typeof labelsRatio === 'object') {
+    if (labelsRatio && typeof labelsRatio === 'object' && Object.keys(labelsRatio).length > 0) {
       const aiRate = Number(labelsRatio[0] ?? labelsRatio['0'] ?? 0) * 100;
       const suspiciousRate = Number(labelsRatio[2] ?? labelsRatio['2'] ?? 0) * 100;
       const riskRate = Math.max(
@@ -270,11 +500,15 @@ const SessionDetailPage = () => {
       );
       return Number(riskRate.toFixed(2));
     }
-    return result?.risk_rate ?? fallbackRate ?? result?.rate ?? null;
+    const fallback = result?.risk_rate ?? fallbackRate ?? result?.rate ?? null;
+    if (fallback === null || fallback === undefined || Number.isNaN(Number(fallback))) {
+      return null;
+    }
+    return Number(fallback);
   };
 
   const formatLabelsRatio = (labelsRatio) => {
-    if (!labelsRatio || typeof labelsRatio !== 'object') {
+    if (!labelsRatio || typeof labelsRatio !== 'object' || Object.keys(labelsRatio).length === 0) {
       return null;
     }
     const labelNames = {
@@ -293,37 +527,57 @@ const SessionDetailPage = () => {
       .join(' / ');
   };
 
-  const getOriginalText = () => {
-    return segments
-      .sort((a, b) => a.segment_index - b.segment_index)
+  const getOriginalText = useCallback(() => {
+    return sortedSegments
       .map(seg => seg.original_text)
       .join('\n\n');
-  };
+  }, [sortedSegments]);
 
-  const getPolishedText = () => {
-    return segments
-      .sort((a, b) => a.segment_index - b.segment_index)
+  const getPolishedText = useCallback(() => {
+    return sortedSegments
       .map(seg => seg.polished_text || seg.original_text)
       .join('\n\n');
-  };
+  }, [sortedSegments]);
 
-  const getDisplayText = () => {
+  const getDisplayText = useCallback(() => {
     if (resultViewMode === 'polished') {
       return getPolishedText();
     }
     return getFinalText();
-  };
+  }, [resultViewMode, getPolishedText, getFinalText]);
 
-  const shouldShowResultSwitch = () => {
+  const shouldShowResultSwitch = useMemo(() => {
     return session?.processing_mode === 'paper_polish_enhance'
       && segments.some(seg => seg.polished_text && seg.enhanced_text);
-  };
+  }, [session?.processing_mode, segments]);
 
-  const zhuqueReport = getZhuqueReport();
-  const zhuqueAgentTrace = parseZhuqueAgentTrace(session?.zhuque_agent_trace);
+  const zhuqueReport = useMemo(() => getZhuqueReport(), [session, sortedSegments]);
+  const zhuqueAgentTrace = useMemo(() => parseZhuqueAgentTrace(session?.zhuque_agent_trace), [session?.zhuque_agent_trace]);
+  const zhuqueTraceEvents = useMemo(() => zhuqueAgentTrace?.events || [], [zhuqueAgentTrace]);
+  const zhuqueTimelineEvents = useMemo(() => mergeZhuqueEvents(zhuqueTraceEvents, zhuqueLiveEvents), [zhuqueTraceEvents, zhuqueLiveEvents]);
+  const reflectionDrawerIndex = useMemo(() => zhuqueTimelineEvents.findIndex((event) => event.type === 'reflection'), [zhuqueTimelineEvents]);
+  const reflectionRollbackEvent = useMemo(() => reflectionDrawerIndex >= 0
+    ? [...zhuqueTimelineEvents.slice(0, reflectionDrawerIndex + 1)].reverse().find((event) => event.rollback_applied)
+    : null, [zhuqueTimelineEvents, reflectionDrawerIndex]);
+  const reflectionLearningEvent = useMemo(() => reflectionDrawerIndex >= 0
+    ? zhuqueTimelineEvents.slice(reflectionDrawerIndex + 1).find((event) => Array.isArray(event.root_causes) && event.root_causes.length > 0)
+    : null, [zhuqueTimelineEvents, reflectionDrawerIndex]);
+  const hasReflectionDrawer = useMemo(() => reflectionDrawerIndex >= 0 && (reflectionRollbackEvent || reflectionLearningEvent), [reflectionDrawerIndex, reflectionRollbackEvent, reflectionLearningEvent]);
   const zhuqueThreshold = 20;
-  const zhuquePassed = zhuqueReport?.finalRate !== null && zhuqueReport?.finalRate <= zhuqueThreshold;
-  const zhuqueLabelsRatio = formatLabelsRatio(zhuqueReport?.result?.labels_ratio);
+  const zhuquePassed = useMemo(() => !zhuqueReport?.isInvalid && zhuqueReport?.finalRate !== null && zhuqueReport?.finalRate <= zhuqueThreshold, [zhuqueReport]);
+  const zhuqueLabelsRatio = useMemo(() => formatLabelsRatio(zhuqueReport?.result?.labels_ratio), [zhuqueReport]);
+  const labelsRatio = zhuqueReport?.result?.labels_ratio;
+  const ratioChipData = useMemo(() => !zhuqueReport?.isInvalid && labelsRatio && typeof labelsRatio === 'object' && Object.keys(labelsRatio).length > 0
+    ? [
+        ['AI生成', labelsRatio[0] ?? labelsRatio['0'], 'blue'],
+        ['人类写作', labelsRatio[1] ?? labelsRatio['1'], 'green'],
+        ['疑似AI', labelsRatio[2] ?? labelsRatio['2'], 'slate'],
+      ].filter(([, value]) => value !== undefined && value !== null)
+    : [], [zhuqueReport?.isInvalid, labelsRatio]);
+  const formatRatioChipValue = useCallback((value) => {
+    const ratio = Number(value);
+    return Number.isNaN(ratio) ? String(value) : `${Math.round(ratio * 100)}%`;
+  }, []);
 
   if (!session) {
     return (
@@ -337,130 +591,107 @@ const SessionDetailPage = () => {
   }
 
   return (
-    <div className="gank-app-page">
+    <div className="gank-app-page aurora-session-page">
       <div className="gank-ambient-orb orb-one" />
       <div className="gank-ambient-orb orb-two" />
       <div className="gank-ambient-orb orb-three" />
 
       {/* 顶部导航 */}
       <header className="sticky top-0 z-50">
-        <nav className="apple-global-nav">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center min-h-[44px] gap-4">
-              <div className="flex items-center gap-3">
-                <BrandLogo size="sm" showText={false} />
-                <span className="text-[12px] font-medium tracking-[-0.01em] text-[#1d1d1f]">GankAIGC</span>
-                <span className="hidden sm:inline text-[#6e6e73]">会话详情</span>
-              </div>
+        <nav className="apple-global-nav aurora-session-topbar">
+          <div className="mx-auto flex min-h-[68px] max-w-[1840px] items-center justify-between gap-4 px-5 sm:px-8 lg:px-12">
+            <div className="flex min-w-0 items-center gap-4">
+              <BrandLogo size="md" showText className="aurora-session-brand" />
+              <span className="hidden text-[16px] font-light leading-none text-slate-400 sm:block">›</span>
+              <span className="hidden text-[12px] font-medium text-slate-500 sm:inline">会话详情</span>
+            </div>
 
+            <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={() => navigate('/workspace')}
-                className="inline-flex items-center gap-1 text-[12px] text-[#0066cc] transition hover:text-[#0071e3]"
+                className="aurora-detail-back-link"
               >
-                <ArrowLeft className="w-4 h-4" />
-                返回工作台
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">返回工作台</span>
               </button>
-            </div>
-          </div>
-        </nav>
-        <div className="apple-subnav">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center min-h-[52px] gap-4">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-[17px] font-semibold tracking-[-0.022em] text-[#1d1d1f]">
-                    会话详情
-                  </h1>
-                  <span className="hidden text-[13px] text-[#6e6e73] sm:inline">
-                    {formatChinaDate(session.created_at)}
-                  </span>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-3">
               {session.status === 'completed' && (
                 <>
-                  <div className="hidden sm:flex items-center gap-1.5 text-ios-green bg-green-50 px-2 py-1 rounded-md">
-                    <CheckCircle className="w-4 h-4" />
-                    <span className="text-[13px] font-medium">已完成</span>
+                  <div className="aurora-status-pill aurora-status-pill-success">
+                    <CheckCircle className="h-4 w-4" />
+                    <span>已完成</span>
                   </div>
-                  
+
                   <button
                     onClick={() => setShowExportModal(true)}
-                    className="apple-action-pill gank-primary-button flex items-center gap-1.5 min-h-0 py-2 px-4 text-[15px] font-semibold transition-all active:scale-[0.95]"
+                    className="aurora-export-button apple-action-pill gank-primary-button"
                   >
-                    <Download className="w-4 h-4" />
+                    <Download className="h-4 w-4" />
                     导出
                   </button>
                 </>
               )}
-              
+
               {session.status === 'failed' && (
-                <div className="flex items-center gap-1.5 text-ios-red bg-red-50 px-2 py-1 rounded-md">
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-[13px] font-medium">处理失败</span>
+                <div className="aurora-status-pill aurora-status-pill-danger">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>处理失败</span>
                 </div>
               )}
 
               {session.status === 'stopped' && (
-                <div className="flex items-center gap-1.5 text-[#6e6e73] bg-[#f5f5f7] px-2 py-1 rounded-md">
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-[13px] font-medium">已停止</span>
+                <div className="aurora-status-pill aurora-status-pill-muted">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>已停止</span>
                 </div>
               )}
 
               {(session.status === 'processing' || session.status === 'queued') && (
                 <button
                   onClick={handleStop}
-                  className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 font-semibold py-1.5 px-4 rounded-full transition-all active:scale-[0.98] text-[15px]"
+                  className="aurora-stop-button"
                 >
-                  <Square className="w-4 h-4 fill-current" />
+                  <Square className="h-4 w-4 fill-current" />
                   停止
                 </button>
               )}
             </div>
           </div>
-        </div>
-        </div>
+        </nav>
       </header>
 
       {/* 主内容 */}
-      <div className="relative z-[1] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
-        {/* iOS Segmented Control */}
-        <div className="flex justify-center mb-6">
-          <div className="gank-segmented-control p-1 rounded-2xl inline-flex w-full max-w-md">
-            <button
-              onClick={() => setActiveTab('result')}
-              className={`flex-1 py-1.5 px-4 rounded-[9px] text-[13px] font-medium transition-all duration-200 ${
-                activeTab === 'result'
-                  ? 'bg-white text-black shadow-sm'
-                  : 'text-gray-600 hover:text-black'
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <FileText className="w-4 h-4" />
+      <div className="aurora-session-shell relative z-[1] mx-auto max-w-[1480px] px-5 pb-8 pt-4 sm:px-8 lg:px-0">
+        <div className="aurora-session-title-row mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.04em] text-slate-950 sm:text-[27px]">
+              会话详情
+            </h1>
+            <span className="text-[12px] font-medium text-slate-500">
+              {formatChinaDate(session.created_at)}
+            </span>
+          </div>
+
+          <div className="flex justify-center lg:absolute lg:left-1/2 lg:-translate-x-1/2">
+            <div className="aurora-detail-tabs gank-segmented-control inline-flex w-full max-w-xl p-1">
+              <button
+                onClick={() => setActiveTab('result')}
+                className={`aurora-detail-tab ${activeTab === 'result' ? 'aurora-detail-tab-active' : ''}`}
+              >
                 优化结果
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('compare')}
-              className={`flex-1 py-1.5 px-4 rounded-[9px] text-[13px] font-medium transition-all duration-200 ${
-                activeTab === 'compare'
-                  ? 'bg-white text-black shadow-sm'
-                  : 'text-gray-600 hover:text-black'
-              }`}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <GitCompare className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setActiveTab('compare')}
+                className={`aurora-detail-tab ${activeTab === 'compare' ? 'aurora-detail-tab-active' : ''}`}
+              >
                 变更对照
-              </div>
-            </button>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* 内容区域 */}
-        <div className="space-y-6">
+        <div className="aurora-session-stack space-y-5">
           {session.status === 'failed' && (
             <div className="gank-liquid-section px-5 py-4 text-red-800">
               <div className="flex items-start gap-3">
@@ -478,301 +709,407 @@ const SessionDetailPage = () => {
           {activeTab === 'result' && (
             <>
               {zhuqueReport && (
-                <div className="apple-report-stage gank-liquid-panel gank-report-shell overflow-hidden">
-                  <div className="p-5 bg-[#fafafc] border-b border-[#e0e0e0] flex items-center justify-between gap-4 flex-wrap">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-blue-50 text-[#0066cc] flex items-center justify-center">
-                        <BarChart3 className="w-5 h-5" />
+                <section className="aurora-detail-report apple-report-stage gank-liquid-panel gank-report-shell overflow-hidden">
+                  <div className="aurora-detail-report-head">
+                    <div className="flex items-center gap-4">
+                      <div className="aurora-detail-icon aurora-detail-icon-blue">
+                        <FileText className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="gank-eyebrow mb-1">DETECTION REPORT</p>
-                        <h3 className="text-[22px] font-semibold tracking-[-0.03em] text-black">检测报告预览</h3>
-                        <p className="text-[12px] text-ios-gray mt-0.5">
+                        <p className="gank-eyebrow mb-2">DETECTION REPORT</p>
+                        <h3 className="text-[17px] font-semibold leading-tight tracking-[-0.025em] text-slate-950">检测报告预览</h3>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">
                           朱雀 AI 报告，全文合并检测，阈值 {zhuqueThreshold}%，检测不消耗啤酒
                         </p>
                       </div>
                     </div>
-                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-semibold ${
-                      zhuquePassed ? 'bg-green-50 text-ios-green' : 'bg-red-50 text-ios-red'
-                    }`}>
-                      {zhuquePassed ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                      {zhuqueReport.finalRate === null ? '暂无报告' : (zhuquePassed ? '已达标' : '未达标')}
+                    <div className={`aurora-report-status ${zhuquePassed ? 'aurora-report-status-success' : 'aurora-report-status-danger'}`}>
+                      {zhuquePassed ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                      {zhuqueReport.finalRate === null ? (zhuqueReport.isInvalid ? '检测无效' : '暂无报告') : (zhuquePassed ? '已达标' : '未达标')}
                     </div>
                   </div>
 
-                  <div className="p-5 space-y-5">
-                    <div className="gank-glass-status-grid grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="apple-utility-card apple-metric-card px-4 py-3">
-                        <p className="text-[12px] text-ios-gray mb-1">最终风险率</p>
-                        <p className="text-[24px] font-bold text-black tracking-tight">
-                          {formatRate(zhuqueReport.finalRate)}
-                        </p>
+                  <div className="aurora-detail-report-body">
+                    <div className="aurora-report-metrics gank-glass-status-grid">
+                      <div className="aurora-report-metric apple-utility-card apple-metric-card">
+                        <div className="aurora-metric-icon aurora-metric-icon-blue">
+                          <Shield className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p>最终风险率</p>
+                          <strong className="aurora-metric-value-blue">{formatRate(zhuqueReport.finalRate)}</strong>
+                        </div>
                       </div>
-                      <div className="apple-utility-card apple-metric-card px-4 py-3">
-                        <p className="text-[12px] text-ios-gray mb-1">朱雀检测</p>
-                        <p className="text-[24px] font-bold text-black tracking-tight">
-                          {zhuqueReport.detectCount}
-                          <span className="text-[13px] font-medium text-ios-gray ml-1">次</span>
-                        </p>
+                      <div className="aurora-report-metric apple-utility-card apple-metric-card">
+                        <div className="aurora-metric-icon aurora-metric-icon-sky">
+                          <Search className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p>朱雀检测</p>
+                          <strong className="aurora-metric-value-blue">{zhuqueReport.detectCount}<span>次</span></strong>
+                        </div>
                       </div>
-                      <div className="apple-utility-card apple-metric-card px-4 py-3">
-                        <p className="text-[12px] text-ios-gray mb-1">降重轮次</p>
-                        <p className="text-[24px] font-bold text-black tracking-tight">
-                          {zhuqueReport.reduceRounds}
-                          <span className="text-[13px] font-medium text-ios-gray ml-1">轮</span>
-                        </p>
+                      <div className="aurora-report-metric apple-utility-card apple-metric-card">
+                        <div className="aurora-metric-icon aurora-metric-icon-green">
+                          <RefreshCw className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p>降重轮次</p>
+                          <strong className="aurora-metric-value-green">{zhuqueReport.reduceRounds}<span>轮</span></strong>
+                        </div>
                       </div>
-                      <div className="apple-utility-card apple-metric-card px-4 py-3">
-                        <p className="text-[12px] text-ios-gray mb-1">朱雀剩余</p>
-                        <p className="text-[24px] font-bold text-black tracking-tight">
-                          {zhuqueReport.result?.remaining_uses ?? '--'}
-                          <span className="text-[13px] font-medium text-ios-gray ml-1">次</span>
-                        </p>
+                      <div className="aurora-report-metric apple-utility-card apple-metric-card">
+                        <div className="aurora-metric-icon aurora-metric-icon-purple">
+                          <Database className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p>朱雀剩余</p>
+                          <strong className="aurora-metric-value-purple">{zhuqueReport.result?.remaining_uses ?? '--'}<span>次</span></strong>
+                        </div>
                       </div>
                     </div>
 
-                    {(zhuqueLabelsRatio || zhuqueReport.result?.message || zhuqueReport.result?.text_length) && (
-                      <div className="gank-liquid-section px-4 py-3 text-[13px] text-gray-700 leading-6">
-                        {zhuqueLabelsRatio && <p>分类占比：{zhuqueLabelsRatio}</p>}
-                        {zhuqueReport.result?.text_length != null && <p>检测字数：{zhuqueReport.result.text_length}</p>}
-                        {zhuqueReport.result?.message && <p>朱雀提示：{zhuqueReport.result.message}</p>}
+                    {(ratioChipData.length > 0 || zhuqueLabelsRatio || zhuqueReport.result?.message || zhuqueReport.result?.text_length) && (
+                      <div className="aurora-report-meta gank-liquid-section">
+                        <div className="aurora-report-meta-item aurora-report-meta-ratios">
+                          <span className="aurora-report-meta-label">分类占比：</span>
+                          {zhuqueReport.isInvalid || !zhuqueLabelsRatio ? (
+                            <span>暂无有效占比</span>
+                          ) : ratioChipData.length > 0 ? ratioChipData.map(([label, value, tone]) => (
+                            <span key={label} className={`aurora-report-chip aurora-report-chip-${tone}`}>
+                              {label} {formatRatioChipValue(value)}
+                            </span>
+                          )) : <span>{zhuqueLabelsRatio}</span>}
+                        </div>
+                        {zhuqueReport.result?.text_length != null && (
+                          <div className="aurora-report-meta-item">
+                            <span className="aurora-report-meta-label">检测字数：</span>
+                            <span>{Number(zhuqueReport.result.text_length).toLocaleString()} 字</span>
+                          </div>
+                        )}
+                        {zhuqueReport.result?.message && (
+                          <div className="aurora-report-meta-item aurora-report-meta-message">
+                            <span className="aurora-report-meta-label">朱雀提示：</span>
+                            <span>{zhuqueReport.result.message}</span>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Activity className="w-4 h-4 text-ios-blue" />
-                        <h4 className="text-[14px] font-semibold text-black">处理过程</h4>
-                      </div>
-                      <div className="gank-glass-status-grid grid grid-cols-1 md:grid-cols-4 gap-3">
-                          <div className="apple-utility-card px-4 py-3">
-                          <p className="text-[13px] font-semibold text-black">1. 全文检测</p>
-                          <p className="text-[12px] text-ios-gray mt-1">
-                            合并 {zhuqueReport.segmentCount} 段调用朱雀
-                          </p>
+                    <div className="aurora-process-wrap">
+                      <div className="aurora-process-rail" aria-label="处理过程">
+                        <span className="sr-only">处理过程</span>
+                        <div className="aurora-process-step">
+                          <span>1</span>
+                          <p>全文检测</p>
+                          <span>合并 {zhuqueReport.segmentCount} 段调用朱雀</span>
                         </div>
-                        <div className="apple-utility-card px-4 py-3">
-                          <p className="text-[13px] font-semibold text-black">2. 论文润色</p>
-                          <p className="text-[12px] text-ios-gray mt-1">
-                            {zhuqueReport.reduceRounds > 0 ? `已执行 ${zhuqueReport.reduceRounds} 轮` : '风险率未超阈值，未调用'}
-                          </p>
+                        <div className="aurora-process-step">
+                          <span>2</span>
+                          <p>论文润色</p>
+                          <span>{zhuqueReport.reduceRounds > 0 ? `已执行 ${zhuqueReport.reduceRounds} 轮` : '风险率未超阈值，未调用'}</span>
                         </div>
-                        <div className="apple-utility-card px-4 py-3">
-                          <p className="text-[13px] font-semibold text-black">3. 论文增强</p>
-                          <p className="text-[12px] text-ios-gray mt-1">
-                            {zhuqueReport.reduceRounds > 0 ? '使用增强结果作为最终文本' : '保留原文'}
-                          </p>
+                        <div className="aurora-process-step">
+                          <span>3</span>
+                          <p>论文增强</p>
+                          <span>{zhuqueReport.reduceRounds > 0 ? '使用增强结果作为最终文本' : '保留原文'}</span>
                         </div>
-                        <div className="apple-utility-card px-4 py-3">
-                          <p className="text-[13px] font-semibold text-black">4. 全文复检</p>
-                          <p className="text-[12px] text-ios-gray mt-1">
-                            {zhuqueReport.detectCount > 1 ? `已复检 ${zhuqueReport.detectCount - 1} 次` : '无需复检'}
-                          </p>
+                        <div className="aurora-process-step">
+                          <span>4</span>
+                          <p>全文复检</p>
+                          <span>{zhuqueReport.detectCount > 1 ? `已复检 ${zhuqueReport.detectCount - 1} 次` : '无需复检'}</span>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                </section>
               )}
 
-              {session?.processing_mode === 'ai_detect_reduce' && (zhuqueAgentTrace || zhuqueLiveEvents.length > 0) && (
-                <div className="apple-utility-card gank-liquid-panel overflow-hidden">
-                  <div className="p-4 bg-[#fafafc] border-b border-[#e0e0e0] flex items-center justify-between gap-4 flex-wrap">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#0066cc] flex items-center justify-center">
-                        <Activity className="w-5 h-5" />
+              {session?.processing_mode === 'ai_detect_reduce' && (zhuqueAgentTrace || zhuqueTimelineEvents.length > 0) && (
+                <section className="aurora-agent-panel apple-utility-card gank-liquid-panel overflow-hidden">
+                  <div className="aurora-agent-head">
+                    <div className="flex items-center gap-4">
+                      <div className="aurora-detail-icon aurora-detail-icon-pulse">
+                        <Activity className="h-5 w-5" />
                       </div>
                       <div>
-                        <h3 className="text-[16px] font-semibold text-black">Agent 决策轨迹</h3>
-                        <p className="text-[12px] text-ios-gray mt-0.5">
+                        <h3 className="text-[15px] font-semibold leading-tight tracking-[-0.02em] text-slate-950">Agent 决策轨迹</h3>
+                        <p className="mt-0.5 text-[11px] leading-5 text-slate-500">
                           记录朱雀检测、策略选择、命中段落和风险率变化
                         </p>
                       </div>
                     </div>
                     {zhuqueAgentTrace?.final?.diagnosis && (
-                      <div className="rounded-full bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700">
+                      <div className="aurora-diagnosis-pill">
                         诊断建议：{zhuqueAgentTrace.final.diagnosis}
                       </div>
                     )}
                   </div>
 
-                  <div className="gank-agent-scroll p-5 space-y-4 max-h-[560px] overflow-y-auto custom-scrollbar">
-                    {(zhuqueAgentTrace?.events || []).map((event, index) => (
-                      <div key={`${event.type}-${event.round}-${index}`} className="gank-liquid-section px-4 py-3">
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <p className="text-[14px] font-semibold text-black">
-                            {event.type === 'detect'
-                              ? '全文检测'
-                              : event.type === 'reflection'
-                                ? `第 ${event.round} 轮收敛反思`
-                                : event.type === 'plateau_exit'
-                                  ? `第 ${event.round} 轮卡点退出`
-                                  : event.type === 'prompt_evolution'
-                                    ? `第 ${event.round} 轮 Agent 学习结果`
-                                    : `第 ${event.round} 轮降 AI`}
-                          </p>
-                          {event.strategy && (
-                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-ios-blue">
-                              {event.strategy}
-                            </span>
-                          )}
-                          {event.current_strategy && (
-                            <span className="rounded-full bg-[#f5f5f7] px-2.5 py-1 text-[12px] font-semibold text-[#6e6e73]">
-                              当前：{event.current_strategy}
-                            </span>
-                          )}
-                          {event.next_strategy && (
-                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-[#0066cc]">
-                              下一轮：{event.next_strategy}
-                            </span>
-                          )}
-                          {event.rewrite_mode && (
-                            <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${
-                              event.rewrite_mode === 'breakthrough'
-                                ? 'bg-red-50 text-ios-red'
-                                : event.rewrite_mode === 'paper_reconstruction'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}>
-                              {event.rewrite_mode === 'breakthrough'
-                                ? '逃逸改写'
-                                : event.rewrite_mode === 'paper_reconstruction'
-                                  ? '论文重构'
-                                  : `rewrite_mode：${event.rewrite_mode}`}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-2 grid grid-cols-1 gap-2 text-[13px] text-gray-600 md:grid-cols-3">
-                          {event.rate !== undefined && <p>风险率：{formatRate(event.rate)}</p>}
-                          {(event.old_rate !== undefined || event.new_rate !== undefined) && (
-                            <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
-                          )}
-                          {event.selected_segment_indices && (
-                            <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
-                          )}
-                          {event.stubborn_segment_indices && (
-                            <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
-                          )}
-                          {event.stagnation_count !== undefined && (
-                            <p>连续停滞：{event.stagnation_count} 轮</p>
-                          )}
-                          {event.decision && <p>决策：{event.decision}</p>}
-                          {event.action && <p>动作：{event.action}</p>}
-                          {event.source && <p>来源：{event.source === 'memory' ? '历史记忆' : event.source}</p>}
-                          {event.safety_status && <p>安全校验：{event.safety_status}</p>}
-                          {event.paper_language && <p>论文语言：{event.paper_language === 'zh' ? '中文' : 'English'}</p>}
-                          {event.paper_section && <p>论文章节：{event.paper_section}</p>}
-                          {event.candidate_count !== undefined && <p>候选数量：{event.candidate_count}</p>}
-                          {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
-                          {event.rollback_applied && (
-                            <p>回滚保护：{formatRate(event.rolled_back_from_rate)} → {formatRate(event.rolled_back_to_rate)}</p>
-                          )}
-                        </div>
-                        {event.rollback_applied && (
-                          <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] leading-6 text-red-800">
-                            <p className="font-semibold">回滚保护</p>
-                            <p>
-                              本轮改写未取得更低风险率，已恢复上一版文本。
-                              {Array.isArray(event.restored_segment_indices) && event.restored_segment_indices.length > 0
-                                ? ` 恢复段落：${event.restored_segment_indices.join('、')}`
-                                : ''}
-                            </p>
+                  <div className="gank-agent-scroll aurora-agent-scroll custom-scrollbar max-h-[560px]">
+                    {zhuqueTimelineEvents.map((event, index) => {
+                      const eventTitle = getAgentEventTitle(event);
+                      const rewriteModeLabel = event.rewrite_mode === 'breakthrough'
+                        ? '逃逸改写'
+                        : event.rewrite_mode === 'paper_reconstruction'
+                          ? '论文重构'
+                          : `rewrite_mode: ${event.rewrite_mode}`;
+                      const isReflectionDrawer = index === reflectionDrawerIndex && hasReflectionDrawer;
+                      const showStandaloneRollback = event.rollback_applied && event !== reflectionRollbackEvent;
+                      const showStandaloneRootCause = event.root_causes && event.root_causes.length > 0 && event !== reflectionLearningEvent;
+                      const hasPaperAiPatterns = Array.isArray(event.paper_ai_patterns) && event.paper_ai_patterns.length > 0;
+                      const hasLengthAdjustments = Array.isArray(event.length_adjustments) && event.length_adjustments.length > 0;
+                      const hasExpandableDetails = Boolean(
+                        isReflectionDrawer
+                        || showStandaloneRollback
+                        || event.type === 'plateau_exit'
+                        || hasPaperAiPatterns
+                        || showStandaloneRootCause
+                        || event.prompt_patch
+                        || hasLengthAdjustments
+                        || event.summary
+                        || event.message
+                      );
+                      const eventKey = getZhuqueEventKey(event, index);
+                      const eventDetailId = getZhuqueEventDetailId(eventKey, index);
+                      const isEventCollapsed = hasExpandableDetails && collapsedZhuqueEventKeys.has(eventKey);
+
+                      return (
+                        <article key={eventKey} className="aurora-agent-event">
+                          <div className="aurora-agent-node" aria-hidden="true">{index + 1}</div>
+                          <div className="aurora-agent-card gank-liquid-section">
+                            <div className="aurora-agent-row-main">
+                              <h4>{eventTitle}</h4>
+                              <div className="aurora-agent-chip-row">
+                                {event.strategy && (
+                                  <span className="aurora-agent-chip aurora-agent-chip-blue">{event.strategy}</span>
+                                )}
+                                {event.status && (
+                                  <span className={`aurora-agent-chip ${
+                                    ['failed', 'error', 'warning'].includes(event.status)
+                                      ? 'aurora-agent-chip-red'
+                                      : event.status === 'accepted'
+                                        ? 'aurora-agent-chip-green'
+                                        : 'aurora-agent-chip-muted'
+                                  }`}>
+                                    {getAgentEventStatusLabel(event.status)}
+                                  </span>
+                                )}
+                                {event.current_strategy && (
+                                  <span className="aurora-agent-chip aurora-agent-chip-muted">当前：{event.current_strategy}</span>
+                                )}
+                                {event.next_strategy && (
+                                  <span className="aurora-agent-chip aurora-agent-chip-blue">下一轮：{event.next_strategy}</span>
+                                )}
+                                {event.rewrite_mode && (
+                                  <span className={`aurora-agent-chip ${
+                                    event.rewrite_mode === 'breakthrough'
+                                      ? 'aurora-agent-chip-red'
+                                      : event.rewrite_mode === 'paper_reconstruction'
+                                        ? 'aurora-agent-chip-green'
+                                        : 'aurora-agent-chip-muted'
+                                  }`}>
+                                    {rewriteModeLabel}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="aurora-agent-meta-grid">
+                                {event.rate !== undefined && <p>风险率：{formatRate(event.rate)}</p>}
+                                {(event.old_rate !== undefined || event.new_rate !== undefined) && (
+                                  <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
+                                )}
+                                {event.selected_segment_indices && (
+                                  <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
+                                )}
+                                {event.stubborn_segment_indices && (
+                                  <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
+                                )}
+                                {event.stagnation_count !== undefined && (
+                                  <p>连续停滞：{event.stagnation_count} 轮</p>
+                                )}
+                                {event.decision && <p>决策：{event.decision}</p>}
+                                {event.action && <p>动作：{event.action}</p>}
+                                {event.source && <p>来源：{event.source === 'memory' ? '历史记忆' : event.source}</p>}
+                                {event.safety_status && <p>安全校验：{event.safety_status}</p>}
+                                {event.paper_language && <p>论文语言：{event.paper_language === 'zh' ? '中文' : 'English'}</p>}
+                                {event.paper_section && <p>论文章节：{event.paper_section}</p>}
+                                {event.candidate_count !== undefined && <p>候选数量：{event.candidate_count}</p>}
+                                {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
+                                {Array.isArray(event.candidate_rates) && <p>候选复检：{event.candidate_rates.length} 次</p>}
+                                {event.recommended_threshold !== undefined && <p>建议阈值：{formatRate(event.recommended_threshold)}</p>}
+                              </div>
+
+                              {hasExpandableDetails ? (
+                                <button
+                                  type="button"
+                                  className="aurora-agent-chevron"
+                                  onClick={() => toggleZhuqueEvent(eventKey)}
+                                  aria-expanded={!isEventCollapsed}
+                                  aria-controls={eventDetailId}
+                                  aria-label={`${isEventCollapsed ? '展开' : '收起'}${eventTitle}详情`}
+                                >
+                                  {isEventCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                                </button>
+                              ) : (
+                                <span className="aurora-agent-chevron aurora-agent-chevron-placeholder" aria-hidden="true" />
+                              )}
+                            </div>
+
+                            {(!isEventCollapsed || !hasExpandableDetails) && (
+                              <div id={hasExpandableDetails ? eventDetailId : undefined}>
+                            <div className="aurora-agent-meta-grid aurora-agent-meta-grid-mobile">
+                              {event.rate !== undefined && <p>风险率：{formatRate(event.rate)}</p>}
+                              {(event.old_rate !== undefined || event.new_rate !== undefined) && (
+                                <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
+                              )}
+                              {event.selected_segment_indices && (
+                                <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
+                              )}
+                              {event.stubborn_segment_indices && (
+                                <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
+                              )}
+                              {event.stagnation_count !== undefined && (
+                                <p>连续停滞：{event.stagnation_count} 轮</p>
+                              )}
+                              {event.decision && <p>决策：{event.decision}</p>}
+                              {event.action && <p>动作：{event.action}</p>}
+                              {event.source && <p>来源：{event.source === 'memory' ? '历史记忆' : event.source}</p>}
+                              {event.safety_status && <p>安全校验：{event.safety_status}</p>}
+                              {event.paper_language && <p>论文语言：{event.paper_language === 'zh' ? '中文' : 'English'}</p>}
+                              {event.paper_section && <p>论文章节：{event.paper_section}</p>}
+                              {event.candidate_count !== undefined && <p>候选数量：{event.candidate_count}</p>}
+                              {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
+                              {Array.isArray(event.candidate_rates) && <p>候选复检：{event.candidate_rates.length} 次</p>}
+                              {event.recommended_threshold !== undefined && <p>建议阈值：{formatRate(event.recommended_threshold)}</p>}
+                            </div>
+
+                            {isReflectionDrawer && (
+                              <div className="aurora-agent-drawer">
+                                {reflectionRollbackEvent && (
+                                  <div className="aurora-agent-note aurora-agent-note-red">
+                                    <p className="font-semibold">回滚保护</p>
+                                    <p>
+                                      本轮改写未取得更低风险率，已恢复上一版文本，避免风险率反弹。
+                                      {Array.isArray(reflectionRollbackEvent.restored_segment_indices) && reflectionRollbackEvent.restored_segment_indices.length > 0
+                                        ? ` 恢复段落：${reflectionRollbackEvent.restored_segment_indices.join('、')}`
+                                        : ''}
+                                    </p>
+                                  </div>
+                                )}
+                                {reflectionLearningEvent && (
+                                  <div className="aurora-agent-note aurora-agent-note-blue">
+                                    <p className="font-semibold">失败原因</p>
+                                    <p>{reflectionLearningEvent.root_causes.join('；')}</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {showStandaloneRollback && (
+                              <div className="aurora-agent-note aurora-agent-note-red">
+                                <p className="font-semibold">回滚保护</p>
+                                <p>
+                                  本轮改写未取得更低风险率，已恢复上一版文本。
+                                  {Array.isArray(event.restored_segment_indices) && event.restored_segment_indices.length > 0
+                                    ? ` 恢复段落：${event.restored_segment_indices.join('、')}`
+                                    : ''}
+                                </p>
+                              </div>
+                            )}
+                            {event.type === 'plateau_exit' && (
+                              <div className="aurora-agent-note aurora-agent-note-muted">
+                                <p className="font-semibold">卡点退出</p>
+                                <p>已保留上一版最低风险文本，建议人工微调顽固段落或调整阈值后复检。</p>
+                              </div>
+                            )}
+                            {hasPaperAiPatterns && (
+                              <div className="aurora-agent-note aurora-agent-note-green">
+                                <p className="font-semibold">论文 AI 痕迹</p>
+                                <p>{event.paper_ai_patterns.join('；')}</p>
+                                {event.candidate_selector && <p>候选选择：{event.candidate_selector}</p>}
+                              </div>
+                            )}
+                            {showStandaloneRootCause && (
+                              <div className="aurora-agent-note aurora-agent-note-blue">
+                                <p className="font-semibold">失败原因</p>
+                                <p>{event.root_causes.join('；')}</p>
+                              </div>
+                            )}
+                            {event.prompt_patch && (
+                              <details className="aurora-agent-note aurora-agent-note-purple">
+                                <summary className="cursor-pointer font-semibold text-purple-700">查看 prompt_patch</summary>
+                                <pre className="mt-2 whitespace-pre-wrap font-sans leading-6">{event.prompt_patch}</pre>
+                              </details>
+                            )}
+                            {hasLengthAdjustments && (
+                              <div className="aurora-agent-note aurora-agent-note-blue">
+                                <p className="font-semibold">长度校正</p>
+                                {event.length_adjustments.map((item, adjustIndex) => (
+                                  <p key={`length-adjustment-${adjustIndex}`}>
+                                    段落 {item.segment_index}：
+                                    原文 {item.original_length} 字，
+                                    校正前 {item.before_length} 字，
+                                    校正后 {item.after_length} 字
+                                    {item.lower_bound !== undefined && item.upper_bound !== undefined
+                                      ? `（目标 ${item.lower_bound}-${item.upper_bound} 字）`
+                                      : ''}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                            {(event.summary || event.message) && (
+                              <p className="mt-2 text-[11px] leading-5 text-slate-500">{event.summary || event.message}</p>
+                            )}
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {event.type === 'plateau_exit' && (
-                          <div className="mt-2 rounded-lg bg-[#f5f5f7] px-3 py-2 text-[13px] leading-6 text-[#1d1d1f]">
-                            <p className="font-semibold">卡点退出</p>
-                            <p>已保留上一版最低风险文本，建议人工微调顽固段落或调整阈值后复检。</p>
-                          </div>
-                        )}
-                        {Array.isArray(event.paper_ai_patterns) && event.paper_ai_patterns.length > 0 && (
-                          <div className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-[13px] leading-6 text-emerald-800">
-                            <p className="font-semibold">论文 AI 痕迹</p>
-                            <p>{event.paper_ai_patterns.join('；')}</p>
-                            {event.candidate_selector && <p>候选选择：{event.candidate_selector}</p>}
-                          </div>
-                        )}
-                        {event.root_causes && event.root_causes.length > 0 && (
-                          <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-[13px] leading-6 text-blue-800">
-                            <p className="font-semibold">失败原因</p>
-                            <p>{event.root_causes.join('；')}</p>
-                          </div>
-                        )}
-                        {event.prompt_patch && (
-                          <details className="mt-2 rounded-lg border border-purple-100 bg-purple-50/40 px-3 py-2 text-[13px] text-gray-700">
-                            <summary className="cursor-pointer font-semibold text-purple-700">查看 prompt_patch</summary>
-                            <pre className="mt-2 whitespace-pre-wrap font-sans leading-6">{event.prompt_patch}</pre>
-                          </details>
-                        )}
-                        {Array.isArray(event.length_adjustments) && event.length_adjustments.length > 0 && (
-                          <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-[13px] leading-6 text-blue-800">
-                            <p className="font-semibold">长度校正</p>
-                            {event.length_adjustments.map((item, adjustIndex) => (
-                              <p key={`length-adjustment-${adjustIndex}`}>
-                                段落 {item.segment_index}：
-                                原文 {item.original_length} 字，
-                                校正前 {item.before_length} 字，
-                                校正后 {item.after_length} 字
-                                {item.lower_bound !== undefined && item.upper_bound !== undefined
-                                  ? `（目标 ${item.lower_bound}-${item.upper_bound} 字）`
-                                  : ''}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {event.message && (
-                          <p className="mt-2 text-[13px] leading-6 text-gray-500">{event.message}</p>
-                        )}
-                      </div>
-                    ))}
+                        </article>
+                      );
+                    })}
 
                     {zhuqueLiveEvents.length > 0 && (
-                      <div className="gank-liquid-section px-4 py-3">
-                        <p className="text-[14px] font-semibold text-black mb-2">实时 Agent 状态</p>
-                        <div className="space-y-1 text-[13px] text-gray-700">
+                      <div className="aurora-agent-live gank-liquid-section">
+                        <p className="mb-2 text-[11px] font-semibold text-slate-950">实时 Agent 状态</p>
+                        <div className="space-y-1 text-[11px] leading-5 text-slate-700">
                           {zhuqueLiveEvents.map((event, index) => (
-                            <p key={`${event.type}-${index}`}>
-                              {event.type === 'zhuque_detect'
+                            <p key={getZhuqueEventKey(event, index)}>
+                              {event.type === 'detect'
                                 ? `朱雀检测：${formatRate(event.rate)}`
-                                : `朱雀降重：第 ${event.round} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}${event.length_adjustments?.length ? `，长度校正 ${event.length_adjustments.length} 段` : ''}`}
+                                : `朱雀降重：第 ${event.round ?? '--'} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}${event.length_adjustments?.length ? `，长度校正 ${event.length_adjustments.length} 段` : ''}`}
                             </p>
                           ))}
                         </div>
                       </div>
                     )}
                   </div>
-                </div>
+                </section>
               )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="apple-reading-panel gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/90 border-b border-[#e0e0e0] flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-[15px] font-semibold text-black ml-2">
-                        {shouldShowResultSwitch()
+              <div className="aurora-reading-grid grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="aurora-reading-card apple-reading-panel gank-text-panel overflow-hidden">
+                  <div className="aurora-reading-head">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="aurora-reading-icon aurora-reading-icon-blue">
+                        <FileText className="h-3.5 w-3.5" />
+                      </div>
+                      <h3>
+                        {shouldShowResultSwitch
                           ? (resultViewMode === 'enhanced' ? '增强后的文本' : '润色后的文本')
                           : '优化后的文本'}
                       </h3>
 
-                      {shouldShowResultSwitch() && (
-                        <div className="gank-segmented-control p-0.5 rounded-lg inline-flex">
+                      {shouldShowResultSwitch && (
+                        <div className="aurora-mini-tabs gank-segmented-control inline-flex p-0.5">
                           <button
                             onClick={() => setResultViewMode('polished')}
-                            className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
-                              resultViewMode === 'polished'
-                                ? 'bg-white text-black shadow-sm'
-                                : 'text-gray-600 hover:text-black'
-                            }`}
+                            className={resultViewMode === 'polished' ? 'aurora-mini-tab-active' : ''}
                           >
                             润色
                           </button>
                           <button
                             onClick={() => setResultViewMode('enhanced')}
-                            className={`py-1 px-3 rounded-md text-[12px] font-medium transition-all ${
-                              resultViewMode === 'enhanced'
-                                ? 'bg-white text-black shadow-sm'
-                                : 'text-gray-600 hover:text-black'
-                            }`}
+                            className={resultViewMode === 'enhanced' ? 'aurora-mini-tab-active' : ''}
                           >
                             增强
                           </button>
@@ -781,7 +1118,7 @@ const SessionDetailPage = () => {
                     </div>
 
                     <button
-                      className="apple-action-pill min-h-0 px-3 py-1.5 text-[13px] font-semibold"
+                      className="aurora-copy-button apple-action-pill"
                       onClick={() => {
                         navigator.clipboard.writeText(getDisplayText());
                         toast.success('已复制到剪贴板');
@@ -790,21 +1127,24 @@ const SessionDetailPage = () => {
                       复制全文
                     </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-5 bg-white/90 custom-scrollbar">
-                    <pre className="whitespace-pre-wrap font-sans text-[16px] text-black leading-relaxed">
+                  <div className="aurora-reading-body custom-scrollbar">
+                    <pre className="whitespace-pre-wrap font-sans">
                       {getDisplayText()}
                     </pre>
                   </div>
                 </div>
-              
-                <div className="apple-reading-panel gank-text-panel overflow-hidden flex flex-col h-[calc(100vh-180px)]">
-                  <div className="p-3 bg-white/90 border-b border-[#e0e0e0]">
-                    <h3 className="text-[15px] font-semibold text-gray-500 ml-2">
-                      原始文本
-                    </h3>
+
+                <div className="aurora-reading-card aurora-reading-card-muted apple-reading-panel gank-text-panel overflow-hidden">
+                  <div className="aurora-reading-head">
+                    <div className="flex items-center gap-3">
+                      <div className="aurora-reading-icon aurora-reading-icon-muted">
+                        <FileText className="h-3.5 w-3.5" />
+                      </div>
+                      <h3>原始文本</h3>
+                    </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-5 bg-white/72 custom-scrollbar">
-                    <pre className="whitespace-pre-wrap font-sans text-[15px] text-gray-500 leading-relaxed">
+                  <div className="aurora-reading-body custom-scrollbar">
+                    <pre className="whitespace-pre-wrap font-sans">
                       {getOriginalText()}
                     </pre>
                   </div>
