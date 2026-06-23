@@ -944,8 +944,8 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
             ok, message, cdp_endpoint = launch_windows_chrome_for_cdp(browser_executable)
             print(f"  [browser] {message}")
             if not ok:
-                print("  [browser] 回退到 Playwright 内置/本机 Chromium")
-                windows_chrome_mode = False
+                write_logged_out_status(message)
+                return {"status": "windows_chrome_cdp_unavailable", "message": message}
 
         if windows_chrome_mode:
             browser = await pw.chromium.connect_over_cdp(cdp_endpoint)

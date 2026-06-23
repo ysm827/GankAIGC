@@ -434,6 +434,46 @@ def test_zhuque_wechat_capture_prefers_windows_chrome_on_wsl(monkeypatch, tmp_pa
     assert popen_calls[0]["env"]["ZHUQUE_CDP_PORT"] == "9333"
 
 
+def test_zhuque_capture_does_not_fallback_after_windows_chrome_cdp_failure(monkeypatch):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_no_fallback", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class FakePlaywrightManager:
+        async def start(self):
+            return self
+
+        @property
+        def chromium(self):
+            raise AssertionError("Playwright Chromium must not launch when Windows Chrome CDP is unavailable")
+
+        async def stop(self):
+            pass
+
+    messages = []
+    monkeypatch.setattr(module, "async_playwright", lambda: FakePlaywrightManager())
+    monkeypatch.setattr(module, "find_browser_executable", lambda: "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
+    monkeypatch.setattr(module, "_is_wsl", lambda: True)
+    monkeypatch.setattr(module, "is_windows_browser_executable", lambda executable: True)
+    monkeypatch.setattr(
+        module,
+        "launch_windows_chrome_for_cdp",
+        lambda executable: (False, "Windows Chrome 已启动但调试端口 9333 未就绪", ""),
+    )
+    monkeypatch.setattr(module, "write_logged_out_status", lambda message, auth_state=None: messages.append(message))
+
+    result = asyncio.run(module.capture_flow(sync_session=True))
+
+    assert result == {
+        "status": "windows_chrome_cdp_unavailable",
+        "message": "Windows Chrome 已启动但调试端口 9333 未就绪",
+    }
+    assert messages == ["Windows Chrome 已启动但调试端口 9333 未就绪"]
+
+
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
