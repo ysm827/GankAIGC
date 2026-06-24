@@ -915,12 +915,154 @@ def test_zhuque_api_login_placeholder_does_not_reuse_anonymous_quota(tmp_path):
 
     assert status["connected"] is False
     assert status["has_token"] is False
+    assert status["has_anonymous_fp"] is True
     assert status["remaining_uses"] == -1
     assert status["button_enabled"] is True
     assert status["user_name"] == ""
 
 
-def test_zhuque_api_missing_access_token_uses_page_fallback(monkeypatch, tmp_path):
+def test_zhuque_api_loads_anonymous_fp_from_logged_out_session_status(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    (tmp_path / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "persisted-fp",
+                "remaining_uses": -1,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    status = ZhuqueAPI(credentials_file=creds_file).credential_status()
+
+    assert status["connected"] is False
+    assert status["has_token"] is False
+    assert status["has_anonymous_fp"] is True
+    assert status["remaining_uses"] == -1
+
+
+def test_zhuque_api_logged_out_session_status_overrides_stale_token_for_peek(monkeypatch, tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "stale-token",
+                "fp": "stale-fp",
+                "userName": "old-user",
+                "remainingUses": 99,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "logged-out-fp",
+                "remaining_uses": -1,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    api = ZhuqueAPI(credentials_file=creds_file)
+    sent_payloads = []
+
+    class FakeWS:
+        async def send(self, payload):
+            sent_payloads.append(json.loads(payload))
+
+        async def recv(self):
+            return json.dumps({"availableUses": 12}, ensure_ascii=False)
+
+        async def close(self):
+            pass
+
+    async def fake_connect(headers):
+        return FakeWS()
+
+    monkeypatch.setattr(api, "_connect", fake_connect)
+
+    remaining = asyncio.run(api.peek_remaining_uses(allow_anonymous=True))
+
+    assert remaining == 12
+    assert sent_payloads[0] == {"fp": "logged-out-fp"}
+
+
+def test_zhuque_api_loads_anonymous_fp_from_browser_state_without_token(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    (tmp_path / "browser_state.json").write_text(
+        json.dumps(
+            {
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "state-fp"},
+                            {"name": "language", "value": "en"},
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    status = ZhuqueAPI(credentials_file=creds_file).credential_status()
+
+    assert status["connected"] is False
+    assert status["has_token"] is False
+    assert status["has_anonymous_fp"] is True
+    assert status["remaining_uses"] == -1
+
+
+def test_zhuque_api_ignores_browser_state_fp_when_token_is_present(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    (tmp_path / "browser_state.json").write_text(
+        json.dumps(
+            {
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "state-fp"},
+                            {"name": "aiGenAccessToken", "value": "stale-token"},
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    status = ZhuqueAPI(credentials_file=creds_file).credential_status()
+
+    assert status["connected"] is False
+    assert status["has_token"] is False
+    assert status["has_anonymous_fp"] is False
+    assert status["remaining_uses"] == -1
+
+
+def test_zhuque_api_missing_access_token_uses_anonymous_fp_before_page_fallback(monkeypatch, tmp_path):
     from app.services.zhuque_api import ZhuqueAPI
 
     creds_file = tmp_path / "creds_latest.json"
@@ -938,6 +1080,21 @@ def test_zhuque_api_missing_access_token_uses_page_fallback(monkeypatch, tmp_pat
     )
     api = ZhuqueAPI(credentials_file=creds_file)
     calls = []
+    sent_payloads = []
+
+    class FakeWS:
+        async def send(self, payload):
+            sent_payloads.append(json.loads(payload))
+
+        async def recv(self):
+            await asyncio.sleep(0)
+            return json.dumps({"availableUses": 16}, ensure_ascii=False)
+
+        async def close(self):
+            pass
+
+    async def fake_connect(headers):
+        return FakeWS()
 
     async def fake_detect_with_page(text, timeout, *, reason=""):
         calls.append({"text": text, "timeout": timeout, "reason": reason})
@@ -951,14 +1108,14 @@ def test_zhuque_api_missing_access_token_uses_page_fallback(monkeypatch, tmp_pat
             "source": "page_fallback",
         }
 
+    monkeypatch.setattr(api, "_connect", fake_connect)
     monkeypatch.setattr(api, "_detect_with_page", fake_detect_with_page)
 
-    result = asyncio.run(api.detect("汉" * 500))
+    remaining = asyncio.run(api.peek_remaining_uses(allow_anonymous=True))
 
-    assert result["success"] is True
-    assert result["source"] == "page_fallback"
-    assert calls
-    assert "未找到可用 token" in calls[0]["reason"]
+    assert remaining == 16
+    assert sent_payloads[0] == {"fp": "anonymous-fp"}
+    assert calls == []
 
 
 def test_zhuque_api_treats_websocket_label_one_as_human():
@@ -1212,20 +1369,37 @@ def test_zhuque_remote_login_logout_removes_user_credential_files(tmp_path, monk
     monkeypatch.setattr(remote_module, "zhuque_user_dir", lambda user_id: tmp_path / f"user_{user_id}")
     user_dir = tmp_path / "user_9"
     user_dir.mkdir(parents=True)
-    for filename in ("creds_latest.json", "browser_state.json", "qrcode_latest.png"):
+    for filename in ("creds_latest.json", "qrcode_latest.png"):
         (user_dir / filename).write_text("x", encoding="utf-8")
+    (user_dir / "browser_state.json").write_text(
+        json.dumps(
+            {
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [{"name": "fp", "value": "anonymous-fp"}],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     service = remote_module.ZhuqueRemoteLoginService()
     payload = asyncio.run(service.logout(9))
 
     assert payload["status"] == "logged_out"
     assert "免费次数" in payload["message"]
+    assert payload["has_anonymous_fp"] is True
     assert not (user_dir / "creds_latest.json").exists()
-    assert not (user_dir / "browser_state.json").exists()
+    assert (user_dir / "browser_state.json").exists()
     assert not (user_dir / "qrcode_latest.png").exists()
     session_status = json.loads((user_dir / "session_status.json").read_text(encoding="utf-8"))
     assert session_status["connected"] is False
     assert session_status["has_token"] is False
+    assert session_status["has_anonymous_fp"] is True
+    assert session_status["anonymous_fp"] == "anonymous-fp"
     assert "免费次数" in session_status["message"]
 
 

@@ -251,6 +251,7 @@ class ZhuqueBrowserLaunchResponse(BaseModel):
     connected: bool = False
     ready: bool = False
     has_token: bool = False
+    has_anonymous_fp: bool = False
     remaining_uses: int = -1
     user_name: str = ""
     quota_text: str = ""
@@ -262,6 +263,7 @@ class ZhuqueBrowserStatusResponse(BaseModel):
     connected: bool
     ready: bool = False
     has_token: bool = False
+    has_anonymous_fp: bool = False
     remaining_uses: int = -1
     button_enabled: bool = False
     auth_mode: str = "headless_api"
@@ -289,6 +291,7 @@ class ZhuqueReadinessResponse(BaseModel):
     connected: bool
     page_found: bool
     has_token: bool
+    has_anonymous_fp: bool = False
     remaining_uses: int = -1
     button_enabled: bool
     text_length: Optional[int] = None

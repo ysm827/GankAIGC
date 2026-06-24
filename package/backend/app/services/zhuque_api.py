@@ -245,6 +245,7 @@ def _extract_credentials(raw: dict) -> dict:
     if _is_login_prompt_text(user_name):
         user_name = ""
     logged_out_placeholder = not access_token and not user_name
+    has_anonymous_fp = bool(fp) and not access_token
     remaining_uses = _coerce_remaining_uses(
         raw.get("remaining_uses"),
         raw.get("remainingUses"),
@@ -253,13 +254,16 @@ def _extract_credentials(raw: dict) -> dict:
         raw.get("quotaText"),
     )
     if logged_out_placeholder:
-        fp = ""
+        # Keep the anonymous page fingerprint for no-consume WebSocket quota
+        # probes. It is not a logged-in credential, so never reuse the static
+        # page quota from this snapshot as an account quota.
         cookies = ""
         remaining_uses = -1
 
     return {
         "access_token": access_token,
         "fp": fp,
+        "has_anonymous_fp": has_anonymous_fp,
         "cookies": cookies or "",
         "user_name": user_name,
         "quota_text": raw.get("quota_text") or raw.get("quotaText") or "",
@@ -466,7 +470,22 @@ class ZhuqueAPI:
     def load_credentials(self, *, refresh: bool = False) -> dict:
         if self._credentials_cache is not None and not refresh:
             return dict(self._credentials_cache)
+        session_status = self._read_session_status()
+        if (
+            session_status
+            and session_status.get("connected") is False
+            and not session_status.get("has_token")
+        ):
+            anonymous_creds = self._load_anonymous_credentials()
+            if anonymous_creds:
+                self._credentials_cache = anonymous_creds
+                return dict(anonymous_creds)
+            raise RuntimeError("朱雀网页显示未登录")
         if not self.credentials_file.exists():
+            anonymous_creds = self._load_anonymous_credentials()
+            if anonymous_creds:
+                self._credentials_cache = anonymous_creds
+                return dict(anonymous_creds)
             raise RuntimeError(
                 f"未找到朱雀微信登录凭证: {self.credentials_file}。"
                 "请先点击“微信扫码登录朱雀”或运行 zhuque_pkg/capture_zhuque_creds.py"
@@ -477,6 +496,10 @@ class ZhuqueAPI:
             raise RuntimeError(f"朱雀凭证文件不是有效 JSON: {self.credentials_file}") from exc
         creds = _extract_credentials(raw)
         if not creds.get("access_token") and not creds.get("fp"):
+            anonymous_creds = self._load_anonymous_credentials()
+            if anonymous_creds:
+                self._credentials_cache = anonymous_creds
+                return dict(anonymous_creds)
             raise RuntimeError("朱雀凭证缺少 access_token/fp，请重新微信扫码登录")
         self._credentials_cache = creds
         return dict(creds)
@@ -500,14 +523,105 @@ class ZhuqueAPI:
             return None
         return status
 
+    def _local_storage_from_browser_state(self, browser_state: dict) -> dict:
+        if not isinstance(browser_state, dict):
+            return {}
+        direct = browser_state.get("localStorage") or browser_state.get("local_storage")
+        if isinstance(direct, dict):
+            return direct
+        origins = browser_state.get("origins")
+        if isinstance(origins, list):
+            for origin in origins:
+                if not isinstance(origin, dict):
+                    continue
+                origin_name = str(origin.get("origin") or "")
+                storage_items = origin.get("localStorage") or origin.get("local_storage")
+                if "matrix.tencent.com" not in origin_name and not storage_items:
+                    continue
+                if isinstance(storage_items, list):
+                    values = {
+                        str(item.get("name")): str(item.get("value") or "")
+                        for item in storage_items
+                        if isinstance(item, dict) and item.get("name")
+                    }
+                    if values:
+                        return values
+                if isinstance(storage_items, dict):
+                    return storage_items
+        return {}
+
+    def _load_anonymous_credentials(self) -> Optional[dict]:
+        """Load a persisted logged-out fingerprint for anonymous quota peeks.
+
+        The anonymous fp is not a logged-in credential. It may be persisted by
+        the real-page sync/logout path in session_status.json, or recovered from
+        a browser_state.json that has no access token. Static quota numbers from
+        these snapshots are intentionally ignored; live WebSocket/page probes own
+        freshness.
+        """
+        status = self._read_session_status() or {}
+        status_has_token = bool(status.get("has_token"))
+        status_connected = bool(status.get("connected") or status.get("ready"))
+        fp = ""
+        if not status_has_token and not status_connected:
+            fp = str(status.get("anonymous_fp") or status.get("fp") or "").strip()
+
+        if not fp:
+            state_file = self.credentials_file.parent / "browser_state.json"
+            if state_file.exists():
+                try:
+                    browser_state = json.loads(state_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    browser_state = {}
+                local_storage = self._local_storage_from_browser_state(browser_state)
+                token = ""
+                for key in ("aiGenAccessToken", "access_token", "accessToken", "token", "authToken"):
+                    token = _unwrap_token_value(local_storage.get(key))
+                    if token:
+                        break
+                if not token:
+                    for key, value in local_storage.items():
+                        lower_key = str(key).lower()
+                        if "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
+                            token = _unwrap_token_value(value)
+                            if token:
+                                break
+                if not token:
+                    fp = str(local_storage.get("fp") or "").strip()
+
+        if not fp and self.credentials_file.exists():
+            try:
+                raw_credentials = json.loads(self.credentials_file.read_text(encoding="utf-8"))
+                candidate_creds = _extract_credentials(raw_credentials)
+            except (OSError, json.JSONDecodeError):
+                candidate_creds = {}
+            if not candidate_creds.get("access_token"):
+                fp = str(candidate_creds.get("fp") or "").strip()
+
+        if not fp:
+            return None
+        return {
+            "access_token": "",
+            "fp": fp,
+            "has_anonymous_fp": True,
+            "cookies": "",
+            "user_name": "",
+            "quota_text": "",
+            "remaining_uses": -1,
+            "captured_at": status.get("updated_at") or "",
+            "raw": {"anonymous_fp": fp, "source": "session_status"},
+        }
+
     def _status_from_session_file(self, status: dict) -> dict:
         connected = bool(status.get("connected") or status.get("ready"))
         remaining_uses = _coerce_remaining_uses(status.get("remaining_uses"), status.get("quota_text"))
+        has_anonymous_fp = bool(status.get("has_anonymous_fp") or status.get("anonymous_fp") or status.get("fp"))
         return {
             "ready": connected,
             "connected": connected,
             "page_found": connected,
             "has_token": bool(status.get("has_token")) if connected else False,
+            "has_anonymous_fp": has_anonymous_fp,
             "remaining_uses": remaining_uses,
             "button_enabled": connected or remaining_uses != 0,
             "credential_file": str(self.credentials_file),
@@ -536,6 +650,7 @@ class ZhuqueAPI:
                 "connected": False,
                 "page_found": False,
                 "has_token": False,
+                "has_anonymous_fp": False,
                 "remaining_uses": -1,
                 "button_enabled": True,
                 "credential_file": str(self.credentials_file),
@@ -549,6 +664,7 @@ class ZhuqueAPI:
 
         quota_text = creds.get("quota_text") or ""
         has_token = bool(creds.get("access_token"))
+        has_anonymous_fp = bool(creds.get("has_anonymous_fp") or (creds.get("fp") and not has_token))
         remaining_uses = (
             _coerce_remaining_uses(creds.get("remaining_uses"), quota_text)
             if has_token
@@ -559,6 +675,7 @@ class ZhuqueAPI:
             "connected": has_token,
             "page_found": has_token,
             "has_token": has_token,
+            "has_anonymous_fp": has_anonymous_fp,
             "remaining_uses": remaining_uses,
             "button_enabled": has_token or remaining_uses != 0,
             "credential_file": str(self.credentials_file),
@@ -874,13 +991,18 @@ class ZhuqueAPI:
 
     async def peek_quota_status(self, timeout: float = 3.0, *, allow_anonymous: bool = False) -> dict:
         """Return live quota state, preserving button availability when count is hidden."""
+        creds = None
         if allow_anonymous:
             try:
-                self.load_credentials(refresh=True)
+                creds = self.load_credentials(refresh=True)
             except RuntimeError:
+                return await self._peek_quota_status_with_page(timeout=timeout)
+            if not creds.get("access_token") and not creds.get("fp"):
                 return await self._peek_quota_status_with_page(timeout=timeout)
         remaining_uses = await self.peek_remaining_uses(timeout=timeout, allow_anonymous=allow_anonymous)
         remaining_uses = _coerce_remaining_uses(remaining_uses)
+        if allow_anonymous and remaining_uses < 0 and creds and not creds.get("access_token"):
+            return await self._peek_quota_status_with_page(timeout=timeout)
         return {
             "remaining_uses": remaining_uses,
             "button_enabled": remaining_uses > 0 if remaining_uses >= 0 else False,
@@ -898,6 +1020,10 @@ class ZhuqueAPI:
         try:
             creds = self.load_credentials(refresh=True)
         except RuntimeError:
+            if allow_anonymous:
+                return await self._peek_remaining_uses_with_page(timeout=timeout)
+            return None
+        if not creds.get("access_token") and not creds.get("fp"):
             if allow_anonymous:
                 return await self._peek_remaining_uses_with_page(timeout=timeout)
             return None

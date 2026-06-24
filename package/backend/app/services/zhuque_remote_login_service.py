@@ -156,12 +156,14 @@ def _auth_state_from_browser_snapshot(browser_state: dict, cookies: list) -> dic
         remaining_uses = int(remaining_uses)
     except (TypeError, ValueError):
         remaining_uses = _parse_remaining_uses(quota_text)
+    has_anonymous_fp = bool((local_storage.get("fp") or browser_state.get("fp")) and not token)
     ready = bool(token or user_name)
     return {
         "ready": ready,
         "token": token,
         "tokenSource": token_source,
         "fp": local_storage.get("fp") or browser_state.get("fp") or "",
+        "hasAnonymousFp": has_anonymous_fp,
         "userName": user_name,
         "quotaText": quota_text,
         "submitButtonText": browser_state.get("submitButtonText") or "",
@@ -341,6 +343,7 @@ class ZhuqueRemoteLoginSession:
     message: str = "正在启动朱雀扫码会话"
     connected: bool = False
     has_token: bool = False
+    has_anonymous_fp: bool = False
     user_name: str = ""
     remaining_uses: int = -1
     quota_text: str = ""
@@ -382,6 +385,7 @@ class ZhuqueRemoteLoginSession:
             "connected": self.connected,
             "ready": self.connected,
             "has_token": self.has_token,
+            "has_anonymous_fp": self.has_anonymous_fp,
             "user_name": self.user_name,
             "remaining_uses": self.remaining_uses,
             "quota_text": self.quota_text,
@@ -400,6 +404,8 @@ class ZhuqueRemoteLoginService:
             "connected": bool(status.get("connected")),
             "ready": bool(status.get("ready")),
             "has_token": bool(status.get("has_token")),
+            "has_anonymous_fp": bool(status.get("has_anonymous_fp") or status.get("hasAnonymousFp")),
+            "anonymous_fp": status.get("anonymous_fp") or status.get("fp") or "",
             "remaining_uses": status.get("remaining_uses", -1),
             "user_name": status.get("user_name") or "",
             "quota_text": status.get("quota_text") or "",
@@ -440,6 +446,7 @@ class ZhuqueRemoteLoginService:
                 "connected": False,
                 "ready": False,
                 "has_token": False,
+                "has_anonymous_fp": False,
                 "user_name": "",
                 "remaining_uses": -1,
                 "quota_text": "",
@@ -483,9 +490,33 @@ class ZhuqueRemoteLoginService:
                 await session.task
         user_dir = zhuque_user_dir(user_id)
         user_dir.mkdir(parents=True, exist_ok=True)
+        anonymous_fp = ""
+        state_has_token = False
+        state_file = user_dir / "browser_state.json"
+        if state_file.exists():
+            with contextlib.suppress(Exception):
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                origins = state.get("origins") if isinstance(state, dict) else []
+                for origin in origins or []:
+                    if not isinstance(origin, dict):
+                        continue
+                    for item in origin.get("localStorage") or []:
+                        if not isinstance(item, dict):
+                            continue
+                        name = str(item.get("name") or "")
+                        value = str(item.get("value") or "")
+                        if "token" in name.lower() and value:
+                            state_has_token = True
+                        if name == "fp":
+                            anonymous_fp = value
+                            break
+                    if anonymous_fp or state_has_token:
+                        break
+        if state_has_token:
+            anonymous_fp = ""
         for filename in (
             "creds_latest.json",
-            "browser_state.json",
+            *(("browser_state.json",) if state_has_token else ()),
             "qrcode_latest.png",
         ):
             with contextlib.suppress(FileNotFoundError):
@@ -495,6 +526,8 @@ class ZhuqueRemoteLoginService:
             "connected": False,
             "ready": False,
             "has_token": False,
+            "has_anonymous_fp": bool(anonymous_fp),
+            "anonymous_fp": anonymous_fp,
             "remaining_uses": -1,
             "user_name": "",
             "quota_text": "",
@@ -513,6 +546,7 @@ class ZhuqueRemoteLoginService:
             message=payload["message"],
             connected=False,
             has_token=False,
+            has_anonymous_fp=bool(anonymous_fp),
             remaining_uses=-1,
         )
         self._sessions[user_id] = logged_out
@@ -604,6 +638,8 @@ class ZhuqueRemoteLoginService:
                 "connected": False,
                 "ready": False,
                 "has_token": False,
+                "has_anonymous_fp": bool(initial_state.get("hasAnonymousFp") or initial_state.get("fp")),
+                "anonymous_fp": initial_state.get("fp") or "",
                 "remaining_uses": -1,
                 "user_name": "",
                 "quota_text": "",
@@ -654,6 +690,7 @@ class ZhuqueRemoteLoginService:
         session.status = "logged_in"
         session.connected = True
         session.has_token = bool(creds.get("access_token"))
+        session.has_anonymous_fp = bool(creds.get("fp") and not session.has_token)
         session.user_name = creds.get("userName") or ""
         session.remaining_uses = remaining_uses
         session.quota_text = creds.get("quotaText") or creds.get("submitButtonText") or ""
@@ -663,6 +700,8 @@ class ZhuqueRemoteLoginService:
             "connected": True,
             "ready": True,
             "has_token": session.has_token,
+            "has_anonymous_fp": bool(creds.get("fp") and not session.has_token),
+            "anonymous_fp": creds.get("fp") if not session.has_token else "",
             "remaining_uses": session.remaining_uses,
             "user_name": session.user_name,
             "quota_text": session.quota_text,

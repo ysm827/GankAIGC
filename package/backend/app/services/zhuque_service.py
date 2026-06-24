@@ -235,15 +235,45 @@ class ZhuqueService:
             "probe_state": {},
         }
 
+    def _anonymous_fp_from_api(self, api: ZhuqueAPI, status: dict | None = None) -> str:
+        """Return persisted anonymous fp without treating it as login credentials."""
+        if isinstance(status, dict) and not status.get("has_token"):
+            fp = str(status.get("anonymous_fp") or status.get("fp") or "").strip()
+            if fp:
+                return fp
+        load_credentials = getattr(api, "load_credentials", None)
+        if not callable(load_credentials):
+            return ""
+        try:
+            creds = load_credentials(refresh=False)
+        except RuntimeError:
+            return ""
+        if creds.get("access_token"):
+            return ""
+        return str(creds.get("fp") or "").strip()
+
     def _write_logged_out_quota_status(self, api: ZhuqueAPI, remaining_uses: int, message: str) -> None:
         """Persist non-secret logged-out quota UI state for the current user."""
         if remaining_uses < 0:
             return
         status_file = Path(api.credentials_file).parent / "session_status.json"
+        existing_status = {}
+        if status_file.exists():
+            try:
+                existing_status = json.loads(status_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing_status = {}
+        anonymous_fp = ""
+        if isinstance(existing_status, dict) and not existing_status.get("has_token"):
+            anonymous_fp = str(existing_status.get("anonymous_fp") or existing_status.get("fp") or "").strip()
+        if not anonymous_fp:
+            anonymous_fp = self._anonymous_fp_from_api(api, existing_status if isinstance(existing_status, dict) else None)
         payload = {
             "connected": False,
             "ready": False,
             "has_token": False,
+            "has_anonymous_fp": bool(anonymous_fp),
+            "anonymous_fp": anonymous_fp,
             "remaining_uses": remaining_uses,
             "user_name": "",
             "quota_text": f"剩余 {remaining_uses} 次",
@@ -355,6 +385,7 @@ class ZhuqueService:
             "connected": False,
             "page_found": False,
             "has_token": False,
+            "has_anonymous_fp": False,
             "remaining_uses": -1,
             "button_enabled": False,
             "text_length": text_length,
@@ -374,6 +405,7 @@ class ZhuqueService:
         api = self._ensure_api()
         status = api.credential_status()
         has_token = bool(status.get("has_token"))
+        has_anonymous_fp = bool(status.get("has_anonymous_fp") or (not has_token and self._anonymous_fp_from_api(api, status)))
         credential_remaining_uses = self._coerce_remaining_uses(status.get("remaining_uses"))
         remaining_uses = credential_remaining_uses
         button_enabled = bool(status.get("button_enabled"))
@@ -477,6 +509,7 @@ class ZhuqueService:
             "connected": has_token,
             "page_found": page_found or has_token or can_use_quota,
             "has_token": has_token,
+            "has_anonymous_fp": has_anonymous_fp,
             "remaining_uses": remaining_uses,
             "button_enabled": can_use_quota,
             "text_length": text_length,
@@ -530,6 +563,7 @@ class ZhuqueService:
             "connected": has_token,
             "page_found": bool(status.get("page_found")) or has_token or quota_status["page_found"] or ready,
             "has_token": has_token,
+            "has_anonymous_fp": bool(status.get("has_anonymous_fp") or (not has_token and self._anonymous_fp_from_api(api, status))),
             "remaining_uses": remaining_uses,
             "button_enabled": button_enabled,
             "text_length": None,
