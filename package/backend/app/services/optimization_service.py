@@ -27,6 +27,14 @@ from app.utils.time import utcnow
 MAX_ERROR_MESSAGE_LENGTH = 500
 logger = logging.getLogger(__name__)
 
+
+
+def _zhuque_service_for_user_id(user_id: int):
+    """Return per-user Zhuque service; fallback keeps monkeypatched tests working."""
+    for_user = getattr(zhuque_service, "for_user", None)
+    return for_user(user_id) if callable(for_user) else zhuque_service
+
+
 ZHUQUE_HUMANIZE_STRATEGIES = [
     {
         "name": "轻度自然化",
@@ -409,8 +417,9 @@ class OptimizationService:
         existing_rounds = max((seg.zhuque_reduce_attempt or 0) for seg in segments) if segments else 0
         has_reduced_text = any((seg.zhuque_reduced_text or "").strip() for seg in segments)
 
+        user_zhuque_service = _zhuque_service_for_user_id(self.session_obj.user_id)
         try:
-            await zhuque_service.start()
+            await user_zhuque_service.start()
         except Exception as e:
             raise RuntimeError(
                 "朱雀检测启动失败：微信扫码凭证不可用或已过期。"
@@ -999,7 +1008,7 @@ class OptimizationService:
     ) -> dict:
         detect_text = self._join_segment_texts(segments, prefer_reduced=prefer_reduced)
         try:
-            result = await zhuque_service.detect(detect_text)
+            result = await _zhuque_service_for_user_id(self.session_obj.user_id).detect(detect_text)
             result_success = bool(result.get("success"))
             detect_rate = self._get_zhuque_risk_rate(result) if result_success else None
             result_json = json.dumps(result, ensure_ascii=False)

@@ -30,7 +30,7 @@ import asyncio, json, sys, time, os, re, subprocess, tempfile, urllib.error, url
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
-TEMP = Path(__file__).parent.resolve()
+TEMP = Path(os.environ.get("ZHUQUE_CAPTURE_DIR") or Path(__file__).parent).resolve()
 MATRIX_URL = "https://matrix.tencent.com/ai-detect/"
 WAIT_TIMEOUT = 180  # 等待扫码的秒数（超时则退出）
 POLL_INTERVAL = 0.35

@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import logging
 import os
 import random
 import string
@@ -20,6 +22,8 @@ from typing import Any, Dict, Optional
 
 import httpx
 import websockets
+
+logger = logging.getLogger(__name__)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -104,7 +108,22 @@ def _zhuque_failure_message(data: dict) -> Optional[str]:
 def _parse_remaining_uses(text: str) -> int:
     import re
 
-    match = re.search(r"(\d+)", text or "")
+    text = str(text or "")
+    if re.search(r"(-1|unknown|unavailable|检测后同步|未知|不可用)", text, re.IGNORECASE):
+        return -1
+    quota_patterns = [
+        r"(?:今日)?剩余\s*(\d+)\s*次",
+        r"可用\s*(\d+)\s*次",
+        r"(\d+)\s*(?:left|uses?|次)",
+        r"(?:left|uses?|remaining|available|quota)[^\d]{0,12}(\d+)",
+    ]
+    for pattern in quota_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    if re.fullmatch(r"\s*\d+\s*", text):
+        return int(text.strip())
+    match = re.search(r"(?:Detect now|立即检测)[^\d]{0,16}(\d+)", text, re.IGNORECASE)
     return int(match.group(1)) if match else -1
 
 
@@ -556,7 +575,321 @@ class ZhuqueAPI:
         """兼容旧 status()，返回无头 API 凭证状态。"""
         return self.credential_status()
 
-    async def peek_remaining_uses(self, timeout: float = 3.0) -> Optional[int]:
+    def _quota_probe_artifact_paths(self) -> tuple[Path, Path]:
+        base = self.credentials_file.parent
+        return base / "quota_probe_latest.txt", base / "quota_probe_latest.png"
+
+    async def _write_quota_probe_artifacts(self, page, *, reason: str, quota_state: dict | None = None) -> None:
+        """Persist non-secret probe evidence for local troubleshooting.
+
+        The anonymous quota probe does not persist cookies/tokens. It stores the
+        visible page text and a screenshot only when parsing fails, so we can see
+        whether Tencent changed DOM text, blocked rendering, or hid the quota.
+        """
+        try:
+            text_file, screenshot_file = self._quota_probe_artifact_paths()
+            text_file.parent.mkdir(parents=True, exist_ok=True)
+            body_text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+            payload = {
+                "reason": reason,
+                "url": page.url,
+                "title": await page.title(),
+                "quota_state": quota_state or {},
+                "body_text": body_text[:12000],
+            }
+            text_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            await page.screenshot(path=str(screenshot_file), full_page=True)
+        except Exception:
+            logger.debug("Failed to persist Zhuque quota probe artifacts", exc_info=True)
+
+    async def _peek_quota_status_with_page(self, timeout: float = 5.0) -> dict:
+        """Read anonymous/free quota state from the real Zhuque page.
+
+        Logged-in quota is usually captured with credentials, but after the VPS
+        remote-QR flow there is no long-lived local Chrome window to mirror the
+        logged-out page. This method opens a hidden Chromium page, inspects the
+        same Vue state and submit button the real UI uses, and never clicks the
+        Detect button, so it does not consume a Zhuque detection.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:
+            return {
+                "remaining_uses": -1,
+                "button_enabled": False,
+                "page_found": False,
+                "quota_text": "",
+                "message": f"Playwright 不可用，无法打开朱雀页面探测免费次数: {exc}",
+            }
+
+        state_file = self.credentials_file.parent / "browser_state.json"
+
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(self._playwright_browsers_path()))
+        pw = None
+        browser = None
+        last_state: dict = {}
+        try:
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
+            ctx_kwargs = {
+                "viewport": {"width": 1280, "height": 720},
+                "user_agent": DEFAULT_USER_AGENT,
+            }
+            if state_file.exists():
+                ctx_kwargs["storage_state"] = str(state_file)
+            ctx = await browser.new_context(**ctx_kwargs)
+            page = await ctx.new_page()
+            page_timeout_ms = int(max(timeout, 5.0) * 1000)
+            await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=page_timeout_ms)
+            await page.wait_for_timeout(1200)
+
+            async def collect_quota_state() -> dict:
+                return await page.evaluate(
+                    r"""() => {
+                        const candidates = [];
+                        const vueSignals = [];
+                        const pushCandidate = (value, source) => {
+                            if (value === undefined || value === null || typeof value === 'boolean') return;
+                            const text = String(value).replace(/\s+/g, ' ').trim();
+                            if (!text) return;
+                            const item = { value: text, source: String(source || '') };
+                            if (!candidates.some((x) => x.value === item.value && x.source === item.source)) candidates.push(item);
+                        };
+                        const pushSignal = (key, value, source) => {
+                            if (value === undefined || value === null || typeof value === 'function') return;
+                            const text = typeof value === 'object' ? '[object]' : String(value).replace(/\s+/g, ' ').trim();
+                            vueSignals.push({ key: String(key || ''), value: text, source: String(source || '') });
+                        };
+                        const maybeQuotaText = (text) => (
+                            /(\d+\s*(left|次)|今日剩余|剩余|可用|remaining|available|quota|uses?)/i.test(text || '')
+                        );
+                        const quotaKey = (key) => (
+                            /^(aiGenTxtRemainingCount|availableUses|available_uses|remainingUses|remaining_uses|quotaText|quota_text|available|quota|left)$/i.test(key || '')
+                        );
+                        const walkObject = (obj, source, depth = 0, seen = new Set()) => {
+                            if (!obj || depth > 3 || seen.has(obj)) return;
+                            seen.add(obj);
+                            for (const key of Object.keys(obj)) {
+                                let value;
+                                try { value = obj[key]; } catch (_) { continue; }
+                                const keyText = String(key || '');
+                                const keyLooksLikeQuota = quotaKey(keyText);
+                                const keyIsExtraAttemptCounter = /^remainingRequests$/i.test(keyText);
+                                if (typeof value === 'string' || typeof value === 'number') {
+                                    if (keyLooksLikeQuota) pushCandidate(value, `${source}.${keyText}`);
+                                    else if (keyIsExtraAttemptCounter) pushSignal(keyText, value, source);
+                                    else if (maybeQuotaText(String(value))) pushCandidate(value, `${source}.${keyText}`);
+                                    continue;
+                                }
+                                if (value && typeof value === 'object') {
+                                    if (keyLooksLikeQuota || /remain|remaining|available|quota|uses?|left/i.test(keyText)) {
+                                        pushSignal(keyText, value, source);
+                                        walkObject(value, `${source}.${keyText}`, depth + 1, seen);
+                                    }
+                                }
+                            }
+                        };
+                        const selectorList = [
+                            '.submit-btn',
+                            '.detect-btn',
+                            '.quota',
+                            '.quota-text',
+                            '[class*="quota"]',
+                            '[class*="remain"]',
+                            '[class*="usage"]'
+                        ];
+                        for (const selector of selectorList) {
+                            document.querySelectorAll(selector).forEach((el) => {
+                                const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                                if (maybeQuotaText(text)) pushCandidate(text, selector);
+                            });
+                        }
+                        const submitBtn = document.querySelector('.submit-btn')
+                            || [...document.querySelectorAll('button')].find((button) => /Detect|检测/i.test(button.textContent || ''));
+                        const submitButtonText = submitBtn ? (submitBtn.textContent || '').replace(/\s+/g, ' ').trim() : '';
+                        const submitButtonVisible = !!submitBtn && !!(submitBtn.offsetWidth || submitBtn.offsetHeight || submitBtn.getClientRects().length);
+                        const submitButtonDisabled = !!submitBtn && (
+                            submitBtn.disabled
+                            || submitBtn.classList.contains('is-disabled')
+                            || submitBtn.getAttribute('aria-disabled') === 'true'
+                        );
+                        if (submitButtonText && maybeQuotaText(submitButtonText)) pushCandidate(submitButtonText, 'submitButtonText');
+                        document.querySelectorAll('button').forEach((button) => {
+                            const text = (button.textContent || '').replace(/\s+/g, ' ').trim();
+                            if (/Detect|检测|剩余|left|remain|quota|次|uses?/i.test(text) && maybeQuotaText(text)) {
+                                pushCandidate(text, 'button');
+                            }
+                        });
+                        document.querySelectorAll('*').forEach((el, index) => {
+                            const text = (el.textContent || '').trim();
+                            if (text.length <= 120 && maybeQuotaText(text)) pushCandidate(text, `node:${index}`);
+                            if (el.__vue__) walkObject(el.__vue__, `vue:${index}`);
+                            if (el.__vueParentComponent) {
+                                walkObject(el.__vueParentComponent.props, `vue3:${index}.props`);
+                                walkObject(el.__vueParentComponent.setupState, `vue3:${index}.setupState`);
+                                walkObject(el.__vueParentComponent.ctx, `vue3:${index}.ctx`);
+                            }
+                        });
+                        if (document.body) {
+                            document.body.innerText
+                                .split(/\n+/)
+                                .map((line) => line.trim())
+                                .filter((line) => line.length <= 120 && maybeQuotaText(line))
+                                .forEach((line) => pushCandidate(line, 'body'));
+                        }
+                        const textHostFound = !!document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]')
+                            || [...document.querySelectorAll('*')].some((el) => el.__vue__ && Object.prototype.hasOwnProperty.call(el.__vue__, 'text'));
+                        return {
+                            quota_texts: candidates.slice(0, 48).map((item) => item.value),
+                            quota_sources: candidates.slice(0, 48),
+                            vue_signals: vueSignals.slice(0, 48),
+                            submit_button_text: submitButtonText,
+                            button_enabled: Boolean(submitBtn && submitButtonVisible && !submitButtonDisabled && /Detect|检测/i.test(submitButtonText || 'Detect')),
+                            page_found: Boolean(document.body),
+                            text_host_found: textHostFound,
+                            body_preview: document.body ? document.body.innerText.slice(0, 1000) : '',
+                        };
+                    }"""
+                )
+
+            async def fill_probe_text() -> str:
+                return await page.evaluate(
+                    r"""async (text) => {
+                        const results = [];
+                        const setElementText = (el) => {
+                            if (!el) return false;
+                            if ('value' in el) {
+                                const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                                if (setter) setter.call(el, text);
+                                else el.value = text;
+                            } else {
+                                el.textContent = text;
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            return true;
+                        };
+                        const textEl = document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]');
+                        if (setElementText(textEl)) results.push('SET_ELEMENT');
+                        const vueHosts = [...document.querySelectorAll('*')]
+                            .filter((el) => el.__vue__ && Object.prototype.hasOwnProperty.call(el.__vue__, 'text'));
+                        for (const host of vueHosts) {
+                            const vm = host.__vue__;
+                            try {
+                                vm.text = text;
+                                results.push('SET_VUE_TEXT');
+                                if (typeof vm.$forceUpdate === 'function') vm.$forceUpdate();
+                                if (typeof vm.$nextTick === 'function') {
+                                    await new Promise((resolve) => vm.$nextTick(resolve));
+                                }
+                                if (typeof vm.getInitialRemainingCount === 'function') {
+                                    const maybePromise = vm.getInitialRemainingCount();
+                                    if (maybePromise && typeof maybePromise.then === 'function') {
+                                        await Promise.race([maybePromise.catch(() => null), new Promise((resolve) => setTimeout(resolve, 800))]);
+                                    }
+                                    results.push('CALL_getInitialRemainingCount');
+                                }
+                            } catch (error) {
+                                results.push('VUE_ERROR:' + (error && error.message ? error.message : String(error)));
+                            }
+                        }
+                        return results.join('|') || 'NO_TEXT_HOST';
+                    }""",
+                    "朱雀免费次数探测文本。" * 80,
+                )
+
+            deadline = time.time() + max(timeout, 1.0)
+            probe_text_filled = False
+            while time.time() < deadline:
+                last_state = await collect_quota_state()
+                remaining_uses = _coerce_remaining_uses(*(last_state.get("quota_texts") or []))
+                if remaining_uses >= 0:
+                    return {
+                        "remaining_uses": remaining_uses,
+                        "button_enabled": remaining_uses > 0,
+                        "page_found": bool(last_state.get("page_found")),
+                        "quota_text": " | ".join(last_state.get("quota_texts") or []),
+                        "probe_state": last_state,
+                        "message": "朱雀页面剩余次数已解析",
+                    }
+                if not probe_text_filled:
+                    probe_text_filled = True
+                    last_state["fill_result"] = await fill_probe_text()
+                    await page.wait_for_timeout(1200)
+                    continue
+                if last_state.get("button_enabled"):
+                    return {
+                        "remaining_uses": -1,
+                        "button_enabled": True,
+                        "page_found": bool(last_state.get("page_found")),
+                        "quota_text": last_state.get("submit_button_text") or "Detect now",
+                        "probe_state": last_state,
+                        "message": "朱雀页面检测入口可用，但当前页面未暴露剩余次数数字",
+                    }
+                await page.wait_for_timeout(500)
+
+            await self._write_quota_probe_artifacts(page, reason="quota_not_found", quota_state=last_state)
+            return {
+                "remaining_uses": -1,
+                "button_enabled": bool(last_state.get("button_enabled")),
+                "page_found": bool(last_state.get("page_found")),
+                "quota_text": last_state.get("submit_button_text") or "",
+                "probe_state": last_state,
+                "message": "朱雀页面未暴露剩余次数数字",
+            }
+        except Exception as exc:
+            logger.warning(
+                "[ZhuqueAPI] anonymous quota page probe failed | credential_dir=%s | error=%s",
+                self.credentials_file.parent,
+                exc,
+                exc_info=True,
+            )
+            return {
+                "remaining_uses": -1,
+                "button_enabled": False,
+                "page_found": False,
+                "quota_text": "",
+                "message": f"朱雀页面探测失败: {exc}",
+            }
+        finally:
+            if browser is not None:
+                with contextlib.suppress(Exception):
+                    await browser.close()
+            if pw is not None:
+                with contextlib.suppress(Exception):
+                    await pw.stop()
+
+    async def _peek_remaining_uses_with_page(self, timeout: float = 5.0) -> Optional[int]:
+        """Compatibility wrapper returning only a known numeric anonymous quota."""
+        status = await self._peek_quota_status_with_page(timeout=timeout)
+        remaining_uses = _coerce_remaining_uses(status.get("remaining_uses"), status.get("quota_text"))
+        return remaining_uses if remaining_uses >= 0 else None
+
+    async def peek_quota_status(self, timeout: float = 3.0, *, allow_anonymous: bool = False) -> dict:
+        """Return live quota state, preserving button availability when count is hidden."""
+        if allow_anonymous:
+            try:
+                self.load_credentials(refresh=True)
+            except RuntimeError:
+                return await self._peek_quota_status_with_page(timeout=timeout)
+        remaining_uses = await self.peek_remaining_uses(timeout=timeout, allow_anonymous=allow_anonymous)
+        remaining_uses = _coerce_remaining_uses(remaining_uses)
+        return {
+            "remaining_uses": remaining_uses,
+            "button_enabled": remaining_uses > 0 if remaining_uses >= 0 else False,
+            "page_found": remaining_uses >= 0,
+            "quota_text": f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else "",
+            "message": "朱雀剩余次数已同步" if remaining_uses >= 0 else "暂未探测到朱雀剩余次数",
+        }
+
+    async def peek_remaining_uses(self, timeout: float = 3.0, *, allow_anonymous: bool = False) -> Optional[int]:
         """Read live Zhuque quota from the initial WebSocket auth frames.
 
         This sends only the saved access token/fp and closes the connection before
@@ -565,6 +898,8 @@ class ZhuqueAPI:
         try:
             creds = self.load_credentials(refresh=True)
         except RuntimeError:
+            if allow_anonymous:
+                return await self._peek_remaining_uses_with_page(timeout=timeout)
             return None
 
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
@@ -713,17 +1048,45 @@ class ZhuqueAPI:
             )
             await page.wait_for_timeout(500)
             set_result = await page.evaluate(
-                """(text) => {
-                    const ta = document.querySelector('.el-textarea__inner');
-                    if (!ta) return 'NO_TEXTAREA';
-                    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-                    setter.call(ta, text);
-                    ta.dispatchEvent(new Event('input', {bubbles: true}));
-                    return 'SET:' + ta.value.length;
+                r"""async (text) => {
+                    const results = [];
+                    const setElementText = (el) => {
+                        if (!el) return false;
+                        if ('value' in el) {
+                            const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                            if (setter) setter.call(el, text);
+                            else el.value = text;
+                        } else {
+                            el.textContent = text;
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                    };
+                    const textEl = document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]');
+                    if (setElementText(textEl)) results.push('SET_ELEMENT');
+                    const vueHosts = [...document.querySelectorAll('*')]
+                        .filter((el) => el.__vue__ && Object.prototype.hasOwnProperty.call(el.__vue__, 'text'));
+                    for (const host of vueHosts) {
+                        const vm = host.__vue__;
+                        try {
+                            vm.text = text;
+                            results.push('SET_VUE_TEXT');
+                            if (typeof vm.$forceUpdate === 'function') vm.$forceUpdate();
+                            if (typeof vm.$nextTick === 'function') {
+                                await new Promise((resolve) => vm.$nextTick(resolve));
+                            }
+                        } catch (error) {
+                            results.push('VUE_ERROR:' + (error && error.message ? error.message : String(error)));
+                        }
+                    }
+                    return results.join('|') || 'NO_TEXT_HOST';
                 }""",
                 text,
             )
-            if "NO_TEXTAREA" in str(set_result):
+            if "NO_TEXT_HOST" in str(set_result):
+                await self._write_quota_probe_artifacts(page, reason="detect_text_host_not_found", quota_state={"set_result": str(set_result)})
                 return self._failure("朱雀真实页面兜底失败：找不到文本输入框", len(text))
 
             await page.wait_for_timeout(500)

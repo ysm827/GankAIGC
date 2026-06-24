@@ -245,6 +245,15 @@ class ZhuqueBrowserLaunchResponse(BaseModel):
     sync_session: bool = True
     command: Optional[str] = None
     message: str
+    session_id: str = ""
+    qr_image_data: str = ""
+    expires_at: str = ""
+    connected: bool = False
+    ready: bool = False
+    has_token: bool = False
+    remaining_uses: int = -1
+    user_name: str = ""
+    quota_text: str = ""
 
 
 class ZhuqueBrowserStatusResponse(BaseModel):
@@ -262,6 +271,9 @@ class ZhuqueBrowserStatusResponse(BaseModel):
     quota_text: str = ""
     captured_at: str = ""
     message: str
+    session_id: str = ""
+    qr_image_data: str = ""
+    expires_at: str = ""
 
 
 class ZhuquePreflightRequest(BaseModel):

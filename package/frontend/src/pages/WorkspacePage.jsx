@@ -5,7 +5,7 @@ import {
   FileText, History,
   ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Pencil, ExternalLink,
   Sparkles, TrendingUp, ShieldCheck, Heart, Layers, Link as LinkIcon, Folder,
-  Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput
+  Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput, QrCode, RefreshCw
 } from 'lucide-react';
 import { optimizationAPI, projectAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
@@ -72,6 +72,7 @@ const ZHUQUE_PROCESS_STEPS = ['朱雀检测', '论文重构', '全文复检'];
 const ZHUQUE_STATUS_POLL_INTERVAL_MS = 1000;
 const ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 350;
 const ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 12000;
+const ZHUQUE_LOGIN_POLL_INTERVAL_MS = 700;
 const ZHUQUE_READINESS_SOFT_TIMEOUT_MS = 2500;
 const WORKSPACE_QUEUE_POLL_INTERVAL_MS = 15000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 6000;
@@ -133,7 +134,17 @@ const parseZhuqueRemainingUses = (value) => {
   if (Number.isFinite(numeric)) {
     return numeric >= 0 ? Math.trunc(numeric) : undefined;
   }
-  const match = text.match(/(\d+)/);
+  if (/(^|\D)-1(\D|$)|unknown|unavailable|检测后同步|未知|不可用/i.test(text)) {
+    return undefined;
+  }
+  const patterns = [
+    /(?:今日)?剩余\s*(\d+)\s*次/i,
+    /可用\s*(\d+)\s*次/i,
+    /(\d+)\s*(?:left|uses?|次)/i,
+    /(?:left|uses?|remaining|available|quota)[^\d]{0,12}(\d+)/i,
+    /(?:Detect now|立即检测)[^\d]{0,16}(\d+)/i,
+  ];
+  const match = patterns.map((pattern) => text.match(pattern)).find(Boolean);
   return match ? Number(match[1]) : undefined;
 };
 
@@ -410,13 +421,17 @@ const WorkspacePage = () => {
   const [taskTitle, setTaskTitle] = useState('');
   const [announcements, setAnnouncements] = useState([]);
   const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
+  const [isRefreshingZhuqueQuota, setIsRefreshingZhuqueQuota] = useState(false);
   const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
+  const [zhuqueLoginSession, setZhuqueLoginSession] = useState(null);
+  const [showZhuqueLoginModal, setShowZhuqueLoginModal] = useState(false);
   const [zhuqueLastKnownLoggedOutRemaining, setZhuqueLastKnownLoggedOutRemaining] = useState(undefined);
   const [zhuqueFastPollUntil, setZhuqueFastPollUntil] = useState(0);
   const activeProjectIdRef = useRef(null);
   const isLoadingZhuqueStatusRef = useRef(false);
   const zhuqueLastKnownLoggedOutRemainingRef = useRef(undefined);
+  const zhuqueLoginSessionIdRef = useRef('');
   const navigate = useNavigate();
 
   const rememberZhuqueLoggedOutRemaining = useCallback((value) => {
@@ -427,6 +442,11 @@ const WorkspacePage = () => {
     zhuqueLastKnownLoggedOutRemainingRef.current = remaining;
     setZhuqueLastKnownLoggedOutRemaining((current) => (current === remaining ? current : remaining));
     return remaining;
+  }, []);
+
+  const clearZhuqueLoggedOutRemaining = useCallback(() => {
+    zhuqueLastKnownLoggedOutRemainingRef.current = undefined;
+    setZhuqueLastKnownLoggedOutRemaining(undefined);
   }, []);
 
   const activeProject = useMemo(() => (
@@ -795,6 +815,67 @@ const WorkspacePage = () => {
     return () => clearInterval(interval);
   }, [loadZhuqueStatusPanel, processingMode, zhuqueFastPollUntil]);
 
+  const mergeZhuqueLoginSession = useCallback((payload) => {
+    if (!payload) {
+      return;
+    }
+    setZhuqueLoginSession((current) => ({ ...(current || {}), ...payload }));
+    if (payload.session_id) {
+      zhuqueLoginSessionIdRef.current = payload.session_id;
+    }
+    if (payload.connected || payload.has_token || payload.status === 'logged_in') {
+      mergeZhuqueAuthStatus({
+        ...payload,
+        status: 'connected',
+        connected: true,
+        ready: true,
+        has_token: payload.has_token ?? true,
+        button_enabled: true,
+      });
+      mergeZhuqueReadiness({
+        ...payload,
+        ready: true,
+        connected: true,
+        page_found: true,
+        has_token: payload.has_token ?? true,
+        button_enabled: true,
+        text_length_ok: true,
+      });
+    }
+  }, [mergeZhuqueAuthStatus, mergeZhuqueReadiness]);
+
+  useEffect(() => {
+    if (!showZhuqueLoginModal || !zhuqueLoginSession?.session_id) {
+      return;
+    }
+    const terminalStatuses = new Set(['logged_in', 'expired', 'error', 'cancelled', 'manual_required', 'not_found']);
+    if (terminalStatuses.has(zhuqueLoginSession.status)) {
+      return;
+    }
+
+    const pollLoginStatus = async () => {
+      try {
+        const response = await optimizationAPI.getZhuqueLoginStatus(zhuqueLoginSession.session_id);
+        mergeZhuqueLoginSession(response.data);
+        if (response.data?.status === 'logged_in') {
+          setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+          await loadZhuqueStatusPanel();
+          toast.success('朱雀扫码登录成功');
+        }
+      } catch (error) {
+        mergeZhuqueLoginSession({
+          session_id: zhuqueLoginSession.session_id,
+          status: 'error',
+          message: error.response?.data?.detail || '朱雀扫码状态同步失败',
+        });
+      }
+    };
+
+    pollLoginStatus();
+    const interval = setInterval(pollLoginStatus, ZHUQUE_LOGIN_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadZhuqueStatusPanel, mergeZhuqueLoginSession, showZhuqueLoginModal, zhuqueLoginSession?.session_id, zhuqueLoginSession?.status]);
+
   const handleCreateProject = useCallback(async (e) => {
     e.preventDefault();
     if (!projectTitle.trim()) {
@@ -1009,24 +1090,112 @@ const WorkspacePage = () => {
     if (isStartingZhuqueLogin) {
       return;
     }
+    if (zhuqueConnected) {
+      toast('朱雀已登录；如需使用免费次数或换号，请先点右侧退出');
+      return;
+    }
 
     try {
       setIsStartingZhuqueLogin(true);
-      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true });
+      setShowZhuqueLoginModal(true);
+      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true, mode: 'remote_qr' });
+      mergeZhuqueLoginSession(response.data);
       setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
       await loadZhuqueStatusPanel();
-      const launchMessage = response.data?.message || '已打开朱雀扫码登录小窗；请在弹出的 Chrome 窗口内登录或退出';
-      if (response.data?.status === 'started') {
-        toast.success(launchMessage);
+      const launchMessage = response.data?.message || '请使用微信扫描页面中的朱雀登录二维码';
+      if (response.data?.status === 'logged_in') {
+        toast.success('朱雀已登录');
+      } else if (response.data?.status === 'manual_required' || response.data?.status === 'error') {
+        toast.error(launchMessage);
       } else {
         toast(launchMessage);
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || '微信扫码登录朱雀失败');
+      setShowZhuqueLoginModal(false);
     } finally {
       setIsStartingZhuqueLogin(false);
     }
-  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel]);
+  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueLoginSession, zhuqueConnected]);
+
+  const handleLogoutZhuque = useCallback(async () => {
+    if (isStartingZhuqueLogin) {
+      return;
+    }
+    const shouldLogout = window.confirm('确认退出当前朱雀登录？退出后会回到未登录免费次数路径。');
+    if (!shouldLogout) {
+      return;
+    }
+    try {
+      setIsStartingZhuqueLogin(true);
+      const response = await optimizationAPI.logoutZhuque();
+      mergeZhuqueAuthStatus({
+        ...response.data,
+        connected: false,
+        ready: false,
+        has_token: false,
+        user_name: '',
+        remaining_uses: response.data?.remaining_uses ?? -1,
+      });
+      mergeZhuqueReadiness({
+        ...response.data,
+        connected: false,
+        ready: false,
+        has_token: false,
+        page_found: false,
+        user_name: '',
+        remaining_uses: response.data?.remaining_uses ?? -1,
+      });
+      setZhuqueLoginSession(null);
+      zhuqueLoginSessionIdRef.current = '';
+      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+      toast.success(response.data?.message || '已退出朱雀登录');
+      await loadZhuqueStatusPanel();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '退出朱雀登录失败');
+    } finally {
+      setIsStartingZhuqueLogin(false);
+    }
+  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueAuthStatus, mergeZhuqueReadiness]);
+
+  const handleRefreshZhuqueFreeQuota = useCallback(async () => {
+    if (isRefreshingZhuqueQuota || isStartingZhuqueLogin) {
+      return;
+    }
+    try {
+      setIsRefreshingZhuqueQuota(true);
+      const response = await optimizationAPI.refreshZhuqueFreeQuota();
+      const remaining = extractZhuqueRemainingUses(response.data);
+      if (remaining === undefined && response.data?.connected === false && response.data?.has_token === false) {
+        clearZhuqueLoggedOutRemaining();
+      }
+      mergeZhuqueReadiness(response.data);
+      if (remaining !== undefined) {
+        toast.success(`${response.data?.has_token ? '朱雀剩余次数' : '朱雀免费次数'}：${remaining} 次`);
+      } else if (response.data?.button_enabled || response.data?.ready) {
+        toast.success(response.data?.message || '朱雀免费检测入口可用，剩余次数将在检测后同步');
+      } else {
+        toast.error(response.data?.message || '暂未探测到朱雀免费次数，请扫码登录或稍后再刷新');
+      }
+      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '刷新朱雀次数失败');
+    } finally {
+      setIsRefreshingZhuqueQuota(false);
+    }
+  }, [clearZhuqueLoggedOutRemaining, isRefreshingZhuqueQuota, isStartingZhuqueLogin, mergeZhuqueReadiness]);
+
+  const handleCloseZhuqueLoginModal = useCallback(async () => {
+    const sessionId = zhuqueLoginSessionIdRef.current;
+    setShowZhuqueLoginModal(false);
+    if (sessionId && zhuqueLoginSession?.status && !['logged_in', 'expired', 'error', 'cancelled', 'manual_required'].includes(zhuqueLoginSession.status)) {
+      try {
+        await optimizationAPI.cancelZhuqueLogin(sessionId);
+      } catch {
+        // 关闭弹窗失败不影响主流程，服务端会按超时清理。
+      }
+    }
+  }, [zhuqueLoginSession?.status]);
 
   const handleDeleteSession = useCallback(async (session) => {
     const confirmDelete = window.confirm('确认删除该会话及其结果吗?');
@@ -1284,31 +1453,45 @@ const WorkspacePage = () => {
                           </span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleStartZhuqueLogin}
-                        disabled={isStartingZhuqueLogin}
-                        className={`aurora-zhuque-login-button ${zhuqueConnected ? 'is-ready' : ''}`}
-                        aria-label={zhuqueConnected ? '朱雀已登录，点击打开朱雀扫码登录小窗同步状态' : '扫码登录朱雀'}
-                        title={zhuqueConnected ? '点击打开朱雀扫码登录小窗；只有在朱雀网页内退出后才会清除登录态' : '打开 Chrome 小窗扫码登录朱雀'}
-                      >
-                        {isStartingZhuqueLogin ? (
-                          <>
-                            <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-                            打开中
-                          </>
-                        ) : zhuqueConnected ? (
-                          <>
-                            <CheckCircle className="h-6 w-6" />
-                            已登录
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink className="h-5 w-5" />
-                            扫码登录
-                          </>
+                      <div className="aurora-zhuque-actions">
+                        <button
+                          type="button"
+                          onClick={handleStartZhuqueLogin}
+                          disabled={isStartingZhuqueLogin}
+                          className={`aurora-zhuque-login-button ${zhuqueConnected ? 'is-ready' : ''}`}
+                          aria-label={zhuqueConnected ? '朱雀已登录' : '扫码登录朱雀'}
+                          title={zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码'}
+                        >
+                          {isStartingZhuqueLogin ? (
+                            <>
+                              <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                              处理中
+                            </>
+                          ) : zhuqueConnected ? (
+                            <>
+                              <CheckCircle className="h-6 w-6" />
+                              已登录
+                            </>
+                          ) : (
+                            <>
+                              <ExternalLink className="h-5 w-5" />
+                              扫码登录
+                            </>
+                          )}
+                        </button>
+                        {zhuqueConnected && (
+                          <button
+                            type="button"
+                            onClick={handleLogoutZhuque}
+                            disabled={isStartingZhuqueLogin}
+                            className="aurora-zhuque-logout-button"
+                            aria-label="退出朱雀登录"
+                            title="清除当前用户保存的朱雀凭证，回到未登录免费次数"
+                          >
+                            退出
+                          </button>
                         )}
-                      </button>
+                      </div>
                       <div className="aurora-zhuque-metrics gank-glass-status-grid">
                         <div className="aurora-zhuque-metric">
                           <span>连接状态</span>
@@ -1319,7 +1502,20 @@ const WorkspacePage = () => {
                         </div>
                         <div className="aurora-zhuque-metric">
                           <span>剩余次数</span>
-                          <strong>{zhuqueRemainingLabel}</strong>
+                          <div className="aurora-zhuque-quota-inline">
+                            <strong>{zhuqueRemainingLabel}</strong>
+                            <button
+                              type="button"
+                              onClick={handleRefreshZhuqueFreeQuota}
+                              disabled={isRefreshingZhuqueQuota || isStartingZhuqueLogin}
+                              className="aurora-zhuque-quota-refresh"
+                              aria-label="刷新朱雀剩余次数"
+                              title={zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数'}
+                            >
+                              <RefreshCw className={isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
+                              刷新次数
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1619,6 +1815,104 @@ const WorkspacePage = () => {
           </section>
         )}
       </main>
+
+      {showZhuqueLoginModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center px-4 py-8">
+          <div
+            className="absolute inset-0 bg-slate-950/35 backdrop-blur-md"
+            onClick={handleCloseZhuqueLoginModal}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="zhuque-login-dialog-title"
+            className="aurora-zhuque-login-modal relative w-full max-w-[440px] overflow-hidden"
+          >
+            <button
+              type="button"
+              onClick={handleCloseZhuqueLoginModal}
+              className="aurora-zhuque-login-close"
+              aria-label="关闭朱雀扫码登录"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="aurora-zhuque-login-glow aurora-zhuque-login-glow-one" />
+            <div className="aurora-zhuque-login-glow aurora-zhuque-login-glow-two" />
+            <div className="relative p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="aurora-zhuque-login-icon">
+                  <QrCode className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 id="zhuque-login-dialog-title" className="text-[20px] font-semibold tracking-[-0.03em] text-slate-950">
+                    朱雀扫码登录
+                  </h3>
+                  <p className="mt-1 text-[13px] text-slate-500">每个 GankAIGC 用户独立保存朱雀凭证</p>
+                </div>
+              </div>
+
+              <div className="aurora-zhuque-qr-frame">
+                {zhuqueLoginSession?.qr_image_data ? (
+                  <img
+                    src={zhuqueLoginSession.qr_image_data}
+                    alt="朱雀微信扫码登录二维码"
+                    className="aurora-zhuque-qr-image"
+                  />
+                ) : zhuqueLoginSession?.status === 'logged_in' ? (
+                  <div className="aurora-zhuque-qr-success">
+                    <CheckCircle className="h-12 w-12" />
+                    <span>登录成功</span>
+                  </div>
+                ) : (
+                  <div className="aurora-zhuque-qr-loading">
+                    <RefreshCw className="h-9 w-9 animate-spin" />
+                    <span>{isStartingZhuqueLogin ? '正在启动二维码' : '等待二维码加载'}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="aurora-zhuque-login-stat">
+                  <span>状态</span>
+                  <strong>{zhuqueLoginSession?.status === 'logged_in' ? '已登录' : zhuqueLoginSession?.status === 'expired' ? '已超时' : zhuqueLoginSession?.status === 'error' ? '异常' : '待扫码'}</strong>
+                </div>
+                <div className="aurora-zhuque-login-stat">
+                  <span>用户</span>
+                  <strong>{zhuqueLoginSession?.user_name || zhuqueAccountName || '--'}</strong>
+                </div>
+                <div className="aurora-zhuque-login-stat">
+                  <span>剩余</span>
+                  <strong>{formatZhuqueRemainingUses(zhuqueLoginSession?.remaining_uses ?? zhuqueRemainingValue)}</strong>
+                </div>
+              </div>
+
+              <p className={`aurora-zhuque-login-message ${zhuqueLoginSession?.status === 'error' || zhuqueLoginSession?.status === 'expired' ? 'is-danger' : ''}`}>
+                {zhuqueLoginSession?.message || '请使用微信扫描二维码，登录成功后会自动同步状态'}
+              </p>
+
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={handleCloseZhuqueLoginModal}
+                  className="aurora-zhuque-login-secondary"
+                >
+                  {zhuqueLoginSession?.status === 'logged_in' ? '完成' : '关闭'}
+                </button>
+                {(zhuqueLoginSession?.status === 'expired' || zhuqueLoginSession?.status === 'error' || zhuqueLoginSession?.status === 'manual_required') && (
+                  <button
+                    type="button"
+                    onClick={handleStartZhuqueLogin}
+                    disabled={isStartingZhuqueLogin}
+                    className="aurora-zhuque-login-primary"
+                  >
+                    重新生成
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {retryDialogSession && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">

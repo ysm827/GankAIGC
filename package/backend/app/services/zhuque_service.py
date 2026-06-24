@@ -1,11 +1,16 @@
 """
 朱雀检测服务 — 微信扫码凭证 + 无头 API 串行检测队列
 """
+from __future__ import annotations
+
 import asyncio
+import json
 import logging
 import time
+from pathlib import Path
 from uuid import uuid4
-from typing import List, Dict, Optional, Callable, Any
+from typing import List, Optional, Callable, Any
+
 from app.services.zhuque_api import ZhuqueAPI
 from app.config import settings
 
@@ -21,27 +26,37 @@ def _recent_quota_cache_valid(last_checked_at: float) -> bool:
     )
 
 
+def zhuque_user_data_root() -> Path:
+    """Return the root directory for per-user Zhuque credentials/runtime state."""
+    configured = getattr(settings, "ZHUQUE_USER_DATA_DIR", "") or ""
+    if configured.strip():
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parents[4] / "zhuque_pkg" / "users"
+
+
+def zhuque_user_dir(user_id: int | str) -> Path:
+    safe_user_id = str(user_id).strip()
+    if not safe_user_id.isdigit():
+        raise ValueError("user_id must be numeric for Zhuque credential isolation")
+    return zhuque_user_data_root() / f"user_{safe_user_id}"
+
+
+def zhuque_user_credentials_file(user_id: int | str) -> Path:
+    return zhuque_user_dir(user_id) / "creds_latest.json"
+
+
 class ZhuqueService:
-    """单例: 管理朱雀无头 API 凭证 + 序列化检测请求"""
+    """Per-credential Zhuque API service with serialized detect queue."""
 
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self):
-        if self._initialized:
-            return
+    def __init__(self, *, credentials_file: str | Path | None = None, owner_label: str = "global"):
+        self.credentials_file = Path(credentials_file).expanduser() if credentials_file else None
+        self.owner_label = owner_label
         self.api: Optional[ZhuqueAPI] = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._ready: bool = False
         self._consumer_task: Optional[asyncio.Task] = None
         self._last_remaining_uses: Optional[int] = None
         self._last_remaining_checked_at: float = 0.0
-        self._initialized = True
 
     def _coerce_remaining_uses(self, value) -> int:
         try:
@@ -64,13 +79,10 @@ class ZhuqueService:
         current_remaining: int = -1,
         force: bool = False,
         timeout: float = 2.5,
+        allow_anonymous: bool = False,
+        allow_stale_fallback: bool = True,
     ) -> int:
-        """Refresh Zhuque quota through a no-text WebSocket auth probe.
-
-        The value stored in creds_latest.json is captured at login time and can
-        become stale. This probe only sends auth data and closes before captcha
-        or text submission, so it does not consume a detection use.
-        """
+        """Refresh Zhuque quota through a no-text WebSocket auth probe."""
         current_remaining = self._coerce_remaining_uses(current_remaining)
         now = time.monotonic()
         if (
@@ -83,18 +95,177 @@ class ZhuqueService:
 
         peek_remaining = getattr(api, "peek_remaining_uses", None)
         if not callable(peek_remaining):
-            return self._last_remaining_uses if self._last_remaining_uses is not None else current_remaining
+            if allow_stale_fallback:
+                return self._last_remaining_uses if self._last_remaining_uses is not None else current_remaining
+            if current_remaining >= 0:
+                self._remember_remaining_uses(current_remaining)
+                return current_remaining
+            return -1
 
         self._last_remaining_checked_at = now
-        live_remaining = await peek_remaining(timeout=timeout)
+        try:
+            live_remaining = await peek_remaining(timeout=timeout, allow_anonymous=allow_anonymous)
+        except TypeError:
+            live_remaining = await peek_remaining(timeout=timeout)
         remembered = self._remember_remaining_uses(live_remaining)
         if remembered >= 0:
             return remembered
+        if not allow_stale_fallback:
+            if current_remaining >= 0:
+                self._remember_remaining_uses(current_remaining)
+                return current_remaining
+            self._last_remaining_uses = None
+            self._last_remaining_checked_at = 0.0
+            return -1
         return self._last_remaining_uses if self._last_remaining_uses is not None else current_remaining
+
+
+    def _quota_status_from_payload(self, payload: dict | None) -> dict:
+        payload = payload or {}
+        remaining_uses = self._coerce_remaining_uses(payload.get("remaining_uses"))
+        button_enabled = bool(payload.get("button_enabled"))
+        return {
+            "remaining_uses": remaining_uses,
+            "button_enabled": button_enabled if remaining_uses < 0 else remaining_uses > 0,
+            "page_found": bool(payload.get("page_found")) or button_enabled or remaining_uses >= 0,
+            "quota_text": payload.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
+            "message": payload.get("message", ""),
+            "probe_state": payload.get("probe_state") or {},
+        }
+
+    async def _refresh_live_quota_status(
+        self,
+        api: ZhuqueAPI,
+        *,
+        current_remaining: int = -1,
+        force: bool = False,
+        timeout: float = 2.5,
+        allow_anonymous: bool = False,
+        allow_stale_fallback: bool = True,
+    ) -> dict:
+        """Refresh Zhuque quota and preserve anonymous button availability.
+
+        A negative remaining count means the numeric quota is hidden/unknown,
+        not necessarily unusable. Current Zhuque anonymous pages can show a
+        clickable `Detect now` button while hiding the count, so callers need
+        both `remaining_uses` and `button_enabled`.
+        """
+        current_remaining = self._coerce_remaining_uses(current_remaining)
+        now = time.monotonic()
+        if (
+            not force
+            and self._last_remaining_uses is not None
+            and self._last_remaining_checked_at > 0
+            and now - self._last_remaining_checked_at < ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS
+        ):
+            return {
+                "remaining_uses": self._last_remaining_uses,
+                "button_enabled": self._last_remaining_uses > 0,
+                "page_found": True,
+                "quota_text": f"剩余 {self._last_remaining_uses} 次",
+                "message": "使用最近一次朱雀剩余次数缓存",
+                "probe_state": {},
+            }
+
+        peek_quota_status = getattr(api, "peek_quota_status", None)
+        if callable(peek_quota_status):
+            self._last_remaining_checked_at = now
+            try:
+                live_status = await peek_quota_status(timeout=timeout, allow_anonymous=allow_anonymous)
+            except TypeError:
+                live_status = await peek_quota_status(timeout=timeout)
+            quota_status = self._quota_status_from_payload(live_status)
+            remembered = self._remember_remaining_uses(quota_status["remaining_uses"])
+            if remembered >= 0:
+                quota_status["remaining_uses"] = remembered
+                quota_status["button_enabled"] = remembered > 0
+                return quota_status
+            if quota_status["button_enabled"]:
+                self._last_remaining_uses = None
+                self._last_remaining_checked_at = 0.0
+                return quota_status
+            if not allow_stale_fallback:
+                if current_remaining >= 0:
+                    self._remember_remaining_uses(current_remaining)
+                    return {
+                        "remaining_uses": current_remaining,
+                        "button_enabled": current_remaining > 0,
+                        "page_found": True,
+                        "quota_text": f"剩余 {current_remaining} 次",
+                        "message": "使用当前朱雀剩余次数",
+                        "probe_state": {},
+                    }
+                self._last_remaining_uses = None
+                self._last_remaining_checked_at = 0.0
+                return quota_status
+            if self._last_remaining_uses is not None:
+                return {
+                    "remaining_uses": self._last_remaining_uses,
+                    "button_enabled": self._last_remaining_uses > 0,
+                    "page_found": True,
+                    "quota_text": f"剩余 {self._last_remaining_uses} 次",
+                    "message": "使用最近一次朱雀剩余次数缓存",
+                    "probe_state": {},
+                }
+            if current_remaining >= 0:
+                return {
+                    "remaining_uses": current_remaining,
+                    "button_enabled": current_remaining > 0,
+                    "page_found": True,
+                    "quota_text": f"剩余 {current_remaining} 次",
+                    "message": "使用当前朱雀剩余次数",
+                    "probe_state": {},
+                }
+            return quota_status
+
+        remaining_uses = await self._refresh_live_remaining_uses(
+            api,
+            current_remaining=current_remaining,
+            force=force,
+            timeout=timeout,
+            allow_anonymous=allow_anonymous,
+            allow_stale_fallback=allow_stale_fallback,
+        )
+        return {
+            "remaining_uses": remaining_uses,
+            "button_enabled": remaining_uses > 0 if remaining_uses >= 0 else False,
+            "page_found": remaining_uses >= 0,
+            "quota_text": f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else "",
+            "message": "朱雀剩余次数已同步" if remaining_uses >= 0 else "暂未探测到朱雀剩余次数",
+            "probe_state": {},
+        }
+
+    def _write_logged_out_quota_status(self, api: ZhuqueAPI, remaining_uses: int, message: str) -> None:
+        """Persist non-secret logged-out quota UI state for the current user."""
+        if remaining_uses < 0:
+            return
+        status_file = Path(api.credentials_file).parent / "session_status.json"
+        payload = {
+            "connected": False,
+            "ready": False,
+            "has_token": False,
+            "remaining_uses": remaining_uses,
+            "user_name": "",
+            "quota_text": f"剩余 {remaining_uses} 次",
+            "message": message,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        try:
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = status_file.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            tmp_file.replace(status_file)
+        except OSError:
+            logger.warning(
+                "[ZhuqueService:%s] Failed to persist logged-out Zhuque quota status",
+                self.owner_label,
+                exc_info=True,
+            )
 
     def _ensure_api(self) -> ZhuqueAPI:
         if self.api is None:
-            self.api = ZhuqueAPI(debug=False)
+            self.api = ZhuqueAPI(debug=False, credentials_file=self.credentials_file)
         return self.api
 
     def reset_credentials_state(self) -> None:
@@ -108,7 +279,7 @@ class ZhuqueService:
         self._last_remaining_checked_at = 0.0
 
     async def start(self) -> None:
-        """启动服务: 校验微信扫码凭证, 启动消费循环"""
+        """启动服务: 校验微信扫码凭证或匿名免费检测能力，启动消费循环。"""
         if self._ready:
             return
         api = self._ensure_api()
@@ -116,18 +287,28 @@ class ZhuqueService:
         has_token = bool(status.get("has_token"))
         if not status.get("ready") and not status.get("button_enabled", True):
             raise RuntimeError(status.get("message") or "朱雀微信扫码凭证不可用")
-        if has_token:
-            status["remaining_uses"] = await self._refresh_live_remaining_uses(
-                api,
-                current_remaining=status.get("remaining_uses"),
-                force=True,
-                timeout=2.5,
-            )
+        quota_status = await self._refresh_live_quota_status(
+            api,
+            current_remaining=status.get("remaining_uses"),
+            force=False,
+            timeout=2.5 if has_token else 5.0,
+            allow_anonymous=not has_token,
+            allow_stale_fallback=False,
+        )
+        status.update({k: v for k, v in quota_status.items() if k in {"remaining_uses", "button_enabled", "page_found", "quota_text", "message"}})
+        remaining_uses = self._coerce_remaining_uses(status.get("remaining_uses"))
+        button_enabled = bool(status.get("button_enabled"))
+        if remaining_uses == 0 or (remaining_uses < 0 and not button_enabled):
+            if remaining_uses == 0:
+                raise RuntimeError("朱雀剩余次数不足，请切换微信账号或等待次数恢复")
+            raise RuntimeError("暂未探测到朱雀剩余次数，请先点击刷新次数或扫码登录后再开始检测")
+        self._remember_remaining_uses(remaining_uses)
         self._ready = True
         if self._consumer_task is None or self._consumer_task.done():
             self._consumer_task = asyncio.create_task(self._consumer())
         logger.info(
-            "[ZhuqueService] 无头 API 就绪 | logged_in=%s | remaining=%s | user=%s | Token: %s...",
+            "[ZhuqueService:%s] 无头 API 就绪 | logged_in=%s | remaining=%s | user=%s | Token: %s...",
+            self.owner_label,
             bool(status.get("has_token")),
             status.get("remaining_uses"),
             status.get("user_name", ""),
@@ -139,14 +320,25 @@ class ZhuqueService:
         while True:
             task_id, text, future = await self._queue.get()
             try:
+                before_remaining = self._last_remaining_uses
                 result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
+                if (
+                    result.get("success")
+                    and self._coerce_remaining_uses(result.get("remaining_uses")) < 0
+                    and before_remaining is not None
+                    and before_remaining > 0
+                ):
+                    result = {
+                        **result,
+                        "remaining_uses": max(before_remaining - 1, 0),
+                    }
                 self._remember_remaining_uses(result.get("remaining_uses"))
                 future.set_result(result)
             except Exception as e:
                 future.set_exception(e)
 
     async def detect(self, text: str) -> dict:
-        """入队检测, 返回结果"""
+        """入队检测, 返回结果。"""
         if not self._ready:
             await self.start()
         future: asyncio.Future = asyncio.Future()
@@ -179,52 +371,102 @@ class ZhuqueService:
             "captured_at": "",
         }
 
-        status = self._ensure_api().credential_status()
         api = self._ensure_api()
+        status = api.credential_status()
         has_token = bool(status.get("has_token"))
         credential_remaining_uses = self._coerce_remaining_uses(status.get("remaining_uses"))
         remaining_uses = credential_remaining_uses
+        button_enabled = bool(status.get("button_enabled"))
+        page_found = bool(status.get("page_found"))
+        quota_text = status.get("quota_text", "") or ""
+        live_quota_status = None
         if has_token:
-            # Passive workspace polling must stay instant. If the credential
-            # snapshot or recent live cache already carries a quota, reuse it
-            # and let preflight/start paths force a live no-text WebSocket probe.
-            # Unknown quota stays unknown on passive polling instead of risking
-            # UI stalls on WebSocket connect/close in WSL/Windows networks.
+            # Passive workspace polling and invalid-short-text preflight must stay
+            # instant. Only a valid task text forces a live no-text WebSocket probe.
             force_live_probe = bool(text is not None and text_length_ok)
-            if text is None:
+            if not force_live_probe:
                 if self._last_remaining_uses is not None and _recent_quota_cache_valid(self._last_remaining_checked_at):
                     remaining_uses = self._last_remaining_uses
+                    button_enabled = remaining_uses > 0
                 elif credential_remaining_uses >= 0:
                     remaining_uses = credential_remaining_uses
+                    button_enabled = remaining_uses > 0
                     self._remember_remaining_uses(credential_remaining_uses)
                 elif self._last_remaining_uses is not None:
                     remaining_uses = self._last_remaining_uses
+                    button_enabled = remaining_uses > 0
                 else:
                     remaining_uses = -1
+                    button_enabled = bool(status.get("button_enabled", True))
             else:
-                remaining_uses = await self._refresh_live_remaining_uses(
+                live_quota_status = await self._refresh_live_quota_status(
                     api,
                     current_remaining=credential_remaining_uses,
                     force=force_live_probe,
                     timeout=2.5,
+                    allow_stale_fallback=not force_live_probe,
                 )
+                remaining_uses = live_quota_status["remaining_uses"]
+                button_enabled = live_quota_status["button_enabled"]
+                page_found = page_found or live_quota_status["page_found"]
+                quota_text = live_quota_status.get("quota_text") or quota_text
+        elif text is not None and text_length_ok:
+            live_quota_status = await self._refresh_live_quota_status(
+                api,
+                current_remaining=credential_remaining_uses,
+                force=True,
+                timeout=5.0,
+                allow_anonymous=True,
+                allow_stale_fallback=False,
+            )
+            remaining_uses = live_quota_status["remaining_uses"]
+            button_enabled = live_quota_status["button_enabled"]
+            page_found = page_found or live_quota_status["page_found"]
+            quota_text = live_quota_status.get("quota_text") or quota_text
+        elif credential_remaining_uses >= 0:
+            remaining_uses = credential_remaining_uses
+            button_enabled = remaining_uses > 0
+            self._remember_remaining_uses(credential_remaining_uses)
+        elif self._last_remaining_uses is not None:
+            remaining_uses = self._last_remaining_uses
+            button_enabled = remaining_uses > 0
 
-        can_use_free_quota = remaining_uses != 0
-        ready = text_length_ok and can_use_free_quota
+        can_use_quota = remaining_uses > 0 or (remaining_uses < 0 and button_enabled)
+        ready = text_length_ok and remaining_uses != 0 and (has_token or can_use_quota)
         actions = []
         if not has_token:
-            actions.append("可直接使用朱雀未登录免费次数，或微信扫码登录获取账号次数")
+            if remaining_uses > 0:
+                actions.append("可直接使用朱雀未登录免费次数，或微信扫码登录获取账号次数")
+            elif button_enabled:
+                actions.append("朱雀免费检测入口可用，剩余次数将在检测后同步")
+                actions.append("也可微信扫码登录获取账号次数")
+            else:
+                actions.append("点击刷新次数检测朱雀免费次数，或微信扫码登录获取账号次数")
+        elif remaining_uses < 0 and text_length_ok and not button_enabled:
+            actions.append("刷新次数后再开始任务")
+            actions.append("重新扫码登录朱雀")
         if not text_length_ok:
             actions.append("补充文本到 350 字以上")
         if remaining_uses == 0:
             actions.append("切换朱雀微信账号或等待次数恢复")
+        if not has_token and remaining_uses < 0 and text_length_ok and not button_enabled:
+            actions.append("刷新次数后再开始任务")
 
         if ready:
-            message = "朱雀无头 API 已就绪" if has_token else "朱雀未登录，可尝试使用免费检测次数"
+            if remaining_uses < 0:
+                message = "朱雀微信凭证已就绪，剩余次数将在检测后同步" if has_token else "朱雀免费检测入口可用，剩余次数将在检测后同步"
+            else:
+                message = "朱雀无头 API 已就绪" if has_token else "朱雀未登录，可尝试使用免费检测次数"
         elif not text_length_ok:
             message = f"文本长度不足 350 字，当前 {text_length} 字"
         elif remaining_uses == 0:
             message = "朱雀剩余次数不足，请切换微信账号或等待次数恢复"
+        elif remaining_uses < 0:
+            message = (
+                "暂未探测到朱雀剩余次数；请点击刷新次数或重新扫码登录后再开始任务"
+                if has_token
+                else "暂未探测到朱雀免费次数；请点击刷新次数或扫码登录后再开始任务"
+            )
         else:
             message = status.get("message") or "未找到朱雀微信扫码凭证"
 
@@ -233,14 +475,81 @@ class ZhuqueService:
             **status,
             "ready": ready,
             "connected": has_token,
-            "page_found": bool(status.get("page_found")) or has_token,
+            "page_found": page_found or has_token or can_use_quota,
             "has_token": has_token,
             "remaining_uses": remaining_uses,
-            "button_enabled": can_use_free_quota,
+            "button_enabled": can_use_quota,
             "text_length": text_length,
             "text_length_ok": text_length_ok,
             "message": message,
             "actions": actions,
+            "quota_text": quota_text,
+        }
+
+    async def refresh_free_quota(self, timeout: float = 5.0) -> dict:
+        """Force-refresh live Zhuque remaining uses without submitting text."""
+        api = self._ensure_api()
+        status = api.credential_status()
+        has_token = bool(status.get("has_token"))
+        current_remaining = self._coerce_remaining_uses(status.get("remaining_uses"))
+        quota_status = await self._refresh_live_quota_status(
+            api,
+            current_remaining=current_remaining,
+            force=True,
+            timeout=timeout,
+            allow_anonymous=True,
+            allow_stale_fallback=False,
+        )
+        remaining_uses = quota_status["remaining_uses"]
+        button_enabled = bool(quota_status["button_enabled"])
+        ready = remaining_uses != 0 and button_enabled
+        if remaining_uses >= 0:
+            message = (
+                f"朱雀账号剩余次数已同步：{remaining_uses} 次"
+                if has_token
+                else f"朱雀免费次数已同步：{remaining_uses} 次"
+            )
+        elif button_enabled:
+            message = (
+                "朱雀账号检测入口可用，剩余次数将在检测后同步"
+                if has_token
+                else "朱雀免费检测入口可用，剩余次数将在检测后同步"
+            )
+        else:
+            message = (
+                "暂未探测到朱雀账号剩余次数；请重新扫码登录或稍后重试，当前不能开始朱雀检测"
+                if has_token
+                else "暂未探测到朱雀免费次数；请稍后重试或扫码登录，当前不能开始朱雀检测"
+            )
+
+        if not has_token and remaining_uses >= 0:
+            self._write_logged_out_quota_status(api, remaining_uses, message)
+
+        return {
+            "ready": ready,
+            "connected": has_token,
+            "page_found": bool(status.get("page_found")) or has_token or quota_status["page_found"] or ready,
+            "has_token": has_token,
+            "remaining_uses": remaining_uses,
+            "button_enabled": button_enabled,
+            "text_length": None,
+            "text_length_ok": True,
+            "estimated_first_round_credits": 0,
+            "estimated_max_round_credits": 0,
+            "message": message,
+            "actions": (
+                []
+                if remaining_uses > 0
+                else ["切换朱雀微信账号或等待次数恢复"] if remaining_uses == 0
+                else ["可直接开始检测，剩余次数检测后同步"] if button_enabled
+                else ["稍后刷新次数", "扫码登录朱雀"]
+            ),
+            "auth_mode": status.get("auth_mode", "headless_api"),
+            "login_mode": status.get("login_mode", "wechat_qr"),
+            "credential_file": status.get("credential_file", str(api.credentials_file)),
+            "user_name": status.get("user_name", "") if has_token else "",
+            "quota_text": quota_status.get("quota_text") or status.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
+            "captured_at": status.get("captured_at", ""),
         }
 
     async def detect_segments(
@@ -248,7 +557,7 @@ class ZhuqueService:
         segments: List[Any],
         progress_callback: Optional[Callable] = None,
     ) -> List[dict]:
-        """批量检测段落, 返回高AI段落结果列表"""
+        """批量检测段落, 返回高AI段落结果列表。"""
         results = []
         for i, seg in enumerate(segments):
             text = getattr(seg, "original_text", str(seg))
@@ -256,7 +565,6 @@ class ZhuqueService:
             results.append(result)
             if progress_callback:
                 await progress_callback(i, len(segments), result)
-            # 频率控制
             interval = max(settings.ZHUQUE_DETECT_INTERVAL, 0.1)
             if interval > 0 and i < len(segments) - 1:
                 await asyncio.sleep(interval)
@@ -267,5 +575,49 @@ class ZhuqueService:
         return self._ready
 
 
-# 全局单例
-zhuque_service = ZhuqueService()
+class ZhuqueServiceManager:
+    """Keeps one serialized ZhuqueService per GankAIGC user."""
+
+    def __init__(self):
+        self._services: dict[int, ZhuqueService] = {}
+        self._legacy_service = ZhuqueService(owner_label="legacy")
+
+    def for_user(self, user_id: int | str | None) -> ZhuqueService:
+        if user_id is None:
+            return self._legacy_service
+        numeric_user_id = int(user_id)
+        service = self._services.get(numeric_user_id)
+        if service is None:
+            service = ZhuqueService(
+                credentials_file=zhuque_user_credentials_file(numeric_user_id),
+                owner_label=f"user_{numeric_user_id}",
+            )
+            self._services[numeric_user_id] = service
+        return service
+
+    def reset_user(self, user_id: int | str | None) -> None:
+        self.for_user(user_id).reset_credentials_state()
+
+    # Legacy passthroughs keep existing tests/imports usable until all callers
+    # are migrated. New request/session code must call ``for_user(user.id)``.
+    def _ensure_api(self) -> ZhuqueAPI:
+        return self._legacy_service._ensure_api()
+
+    def reset_credentials_state(self) -> None:
+        self._legacy_service.reset_credentials_state()
+
+    async def start(self) -> None:
+        await self._legacy_service.start()
+
+    async def detect(self, text: str) -> dict:
+        return await self._legacy_service.detect(text)
+
+    async def readiness(self, text: Optional[str] = None) -> dict:
+        return await self._legacy_service.readiness(text)
+
+    async def refresh_free_quota(self, timeout: float = 5.0) -> dict:
+        return await self._legacy_service.refresh_free_quota(timeout=timeout)
+
+
+# 全局管理器；每个用户隔离在 zhuque_pkg/users/user_<id>/ 下。
+zhuque_service = ZhuqueServiceManager()

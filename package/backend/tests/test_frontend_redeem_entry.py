@@ -276,6 +276,8 @@ def test_session_detail_does_not_render_failed_zhuque_detection_as_zero_percent(
 
     assert "result?.success === false" in session_detail
     assert "zhuqueReport.isInvalid" in session_detail
+    assert "formatRemainingUses" in session_detail
+    assert "number < 0" in session_detail
     assert "检测无效" in session_detail
     assert "暂无有效占比" in session_detail
 
@@ -1026,11 +1028,22 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "aurora-zhuque-title-icon" not in zhuque_panel
     assert "aurora-zhuque-metrics" in zhuque_panel
     assert "aurora-zhuque-login-button" in zhuque_panel
+    assert "aurora-zhuque-logout-button" in zhuque_panel
+    assert "handleLogoutZhuque" in workspace
+    assert "logoutZhuque" in api
+    assert "/optimization/zhuque/browser/logout" in api
+    assert "handleRefreshZhuqueFreeQuota" in workspace
+    assert "refreshZhuqueFreeQuota" in api
+    assert "/optimization/zhuque/free-quota/refresh" in api
     assert zhuque_panel.index("朱雀 AI 检测") < zhuque_panel.index("aurora-zhuque-login-button")
     assert zhuque_panel.index("aurora-zhuque-login-button") < zhuque_panel.index("连接状态")
     assert zhuque_panel.index("连接状态") < zhuque_panel.index("剩余次数")
     assert "aurora-zhuque-account" in zhuque_panel
     assert "登录用户" in zhuque_panel
+    assert "aurora-zhuque-login-modal" in workspace
+    assert "aurora-zhuque-qr-frame" in workspace
+    assert "qr_image_data" in workspace
+    assert "每个 GankAIGC 用户独立保存朱雀凭证" in workspace
     assert "zhuqueAccountName" in workspace
     assert "zhuqueAccountLabel" in workspace
     assert "zhuqueConnected" in workspace
@@ -1041,16 +1054,18 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "朱雀免费检测次数可用" in workspace
     assert "disabled={isStartingZhuqueLogin}" in workspace
     assert "disabled={isStartingZhuqueLogin || zhuqueConnected}" not in workspace
-    assert "startZhuqueLogin({ syncSession: true })" in workspace
+    assert "startZhuqueLogin({ syncSession: true, mode: 'remote_qr' })" in workspace
     assert "setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS)" in workspace
     assert "response.data?.switch_account" not in workspace
-    assert "params: { sync_session: syncSession }" in api
+    assert "params: { sync_session: syncSession, mode }" in api
     assert "params: { switch_account: switchAccount }" not in api
-    assert "点击打开朱雀扫码登录小窗；只有在朱雀网页内退出后才会清除登录态" in workspace
-    assert "打开 Chrome 小窗扫码登录朱雀" in workspace
+    assert "朱雀已登录；如需换号或使用未登录免费次数，请点退出" in workspace
+    assert "回到未登录免费次数路径" in workspace
+    assert "在当前页面打开朱雀微信扫码二维码" in workspace
     assert "startZhuqueBrowser" in workspace
-    assert "loadZhuqueBrowserStatus" in workspace
-    assert "zhuqueBrowserStatus?.connected" in workspace
+    assert "zhuqueLoginSession" in workspace
+    assert "getZhuqueLoginStatus" in workspace
+    assert "cancelZhuqueLogin" in workspace
     assert "未登录也可使用朱雀免费次数" not in zhuque_panel
     assert "次数不足时请登录或切换账号" not in zhuque_panel
     assert "可在下方一键启动朱雀检测浏览器" not in zhuque_panel
@@ -1058,7 +1073,12 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert ".aurora-zhuque-status-card" in index_css
     assert ".aurora-zhuque-metric" in index_css
     assert ".aurora-zhuque-login-button" in index_css
+    assert ".aurora-zhuque-logout-button" in index_css
+    assert ".aurora-zhuque-quota-refresh" in index_css
     assert ".aurora-zhuque-account" in index_css
+    assert ".aurora-zhuque-login-modal" in index_css
+    assert ".aurora-zhuque-qr-frame" in index_css
+    assert ".aurora-zhuque-login-stat" in index_css
     assert "grid-template-columns: minmax(9.5rem" not in index_css
     assert "flex-wrap: wrap" in index_css
     assert "font-size: 14px;" in index_css
@@ -1087,6 +1107,8 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "getZhuqueBrowserStatus" in api
     assert "/optimization/zhuque/browser/start" in api
     assert "/optimization/zhuque/browser/status" in api
+    assert "/optimization/zhuque/browser/login-status" in api
+    assert "/optimization/zhuque/browser/cancel" in api
 
 
 def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
@@ -1117,6 +1139,11 @@ def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
     assert ": '检测后同步'" in workspace
     assert ": zhuqueConnected ? '检测后同步' : '免费次数'" not in workspace
     assert "const zhuqueRemainingValue = zhuqueConnected" not in workspace
+    assert "clearZhuqueLoggedOutRemaining" in workspace
+    assert "remaining === undefined && response.data?.connected === false" in workspace
+    assert "response.data?.button_enabled || response.data?.ready" in workspace
+    assert "朱雀免费检测入口可用，剩余次数将在检测后同步" in workspace
+    assert "检测后同步|未知|不可用" in workspace
 
 
 def test_session_detail_shows_zhuque_agent_trace():

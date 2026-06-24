@@ -327,6 +327,14 @@ const SessionDetailPage = () => {
     return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
   };
 
+  const formatRemainingUses = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) {
+      return '--';
+    }
+    return String(Math.trunc(number));
+  };
+
   const normalizeZhuqueLiveEvent = (data) => {
     if (!data || typeof data !== 'object') {
       return null;
@@ -763,7 +771,7 @@ const SessionDetailPage = () => {
                         </div>
                         <div>
                           <p>朱雀剩余</p>
-                          <strong className="aurora-metric-value-purple">{zhuqueReport.result?.remaining_uses ?? '--'}<span>次</span></strong>
+                          <strong className="aurora-metric-value-purple">{formatRemainingUses(zhuqueReport.result?.remaining_uses)}<span>次</span></strong>
                         </div>
                       </div>
                     </div>

@@ -117,6 +117,7 @@ class StatusOnlyZhuqueAPI:
     def __init__(self, status_payload):
         self.status_payload = status_payload
         self.status_calls = 0
+        self.peek_calls = []
 
     async def status(self):
         self.status_calls += 1
@@ -133,6 +134,23 @@ class StatusOnlyZhuqueAPI:
             "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
             "remaining_uses": 4,
             "text_length": len(text),
+        }
+
+    async def peek_remaining_uses(self, timeout=3.0, *, allow_anonymous=False):
+        self.peek_calls.append({"timeout": timeout, "allow_anonymous": allow_anonymous})
+        return self.status_payload.get("peek_remaining_uses")
+
+    async def peek_quota_status(self, timeout=3.0, *, allow_anonymous=False):
+        try:
+            remaining = await self.peek_remaining_uses(timeout=timeout, allow_anonymous=allow_anonymous)
+        except TypeError:
+            remaining = await self.peek_remaining_uses(timeout=timeout)
+        return {
+            "remaining_uses": remaining if remaining is not None else -1,
+            "button_enabled": self.status_payload.get("peek_button_enabled", self.status_payload.get("button_enabled", remaining is not None and remaining > 0)),
+            "page_found": self.status_payload.get("peek_page_found", True),
+            "quota_text": self.status_payload.get("peek_quota_text", ""),
+            "message": self.status_payload.get("peek_message", ""),
         }
 
 
@@ -331,7 +349,10 @@ def test_zhuque_wechat_capture_launches_sync_session_script(monkeypatch, tmp_pat
     monkeypatch.setattr(optimization_route, "_zhuque_playwright_browser_ready", lambda: True)
     monkeypatch.setattr(optimization_route.subprocess, "Popen", FakePopen)
 
-    result = optimization_route._start_zhuque_wechat_capture()
+    fake_user = type("FakeUser", (), {"id": 42})()
+    monkeypatch.setattr(optimization_route, "zhuque_user_dir", lambda user_id: tmp_path / "users" / f"user_{user_id}")
+
+    result = optimization_route._start_zhuque_wechat_capture(user=fake_user)
 
     assert result["status"] == "started"
     assert result["auth_mode"] == "headless_api"
@@ -343,6 +364,7 @@ def test_zhuque_wechat_capture_launches_sync_session_script(monkeypatch, tmp_pat
     assert popen_calls[0]["args"] == [optimization_route.sys.executable, str(script_path), "--sync-session"]
     assert popen_calls[0]["cwd"] == str(script_path.parent)
     assert "PLAYWRIGHT_BROWSERS_PATH" in popen_calls[0]["env"]
+    assert popen_calls[0]["env"]["ZHUQUE_CAPTURE_DIR"].endswith("users/user_42")
     assert popen_calls[0]["start_new_session"] is True
 
 
@@ -724,6 +746,23 @@ def test_zhuque_api_parses_remaining_uses_from_button_text():
     assert result["remaining_uses"] == 18
 
 
+def test_zhuque_api_does_not_parse_unknown_minus_one_as_quota():
+    from app.services.zhuque_api import normalize_zhuque_result
+
+    result = normalize_zhuque_result(
+        {
+            "confidence": 0,
+            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+            "quotaText": "remaining_uses: -1",
+            "button_text": "检测后同步",
+        },
+        text_length=738,
+        source="page_fallback",
+    )
+
+    assert result["remaining_uses"] == -1
+
+
 def test_zhuque_api_invalid_request_is_not_zero_risk_success():
     from app.services.zhuque_api import normalize_zhuque_result
 
@@ -1016,13 +1055,63 @@ def test_zhuque_api_classify_uses_websocket_label_mapping():
     assert human_result["verdict_label"] == "人工编写"
 
 
-def test_zhuque_browser_start_endpoint_starts_wechat_capture(client, monkeypatch, tmp_path):
+def test_zhuque_browser_start_endpoint_defaults_to_remote_qr_per_user(client, monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    credential_file = str(tmp_path / "users" / f"user_{user_id}" / "creds_latest.json")
+    calls = []
+
+    class FakeRemoteLoginService:
+        async def start(self, current_user_id):
+            calls.append(current_user_id)
+            return {
+                "session_id": "remote-session-1",
+                "status": "qr_ready",
+                "auth_mode": "headless_api",
+                "login_mode": "remote_wechat_qr",
+                "credential_file": credential_file,
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "remaining_uses": -1,
+                "user_name": "",
+                "quota_text": "",
+                "qr_image_data": "data:image/png;base64,abc",
+                "expires_at": "2026-06-24T00:00:00Z",
+                "message": "请使用微信扫描二维码登录朱雀",
+            }
+
+    class FakeZhuqueService:
+        def reset_user(self, current_user_id):
+            calls.append(("reset", current_user_id))
+
+    monkeypatch.setattr(optimization_route, "zhuque_remote_login_service", FakeRemoteLoginService())
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+
+    response = client.post(
+        "/api/optimization/zhuque/browser/start",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "qr_ready"
+    assert body["login_mode"] == "remote_wechat_qr"
+    assert body["credential_file"] == credential_file
+    assert body["session_id"] == "remote-session-1"
+    assert body["qr_image_data"].startswith("data:image/png;base64,")
+    assert body["sync_session"] is True
+    assert calls == [user_id, ("reset", user_id)]
+
+
+def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
     user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
     token = create_user_access_token(user_id, "zhuque-user")
     credential_file = str(tmp_path / "creds_latest.json")
-
     captured_sync_values = []
 
     def fake_start_zhuque_wechat_capture(*, sync_session=True):
@@ -1044,30 +1133,100 @@ def test_zhuque_browser_start_endpoint_starts_wechat_capture(client, monkeypatch
     )
 
     response = client.post(
-        "/api/optimization/zhuque/browser/start",
+        "/api/optimization/zhuque/browser/start?mode=local_window",
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "started",
-        "auth_mode": "headless_api",
-        "login_mode": "wechat_qr",
-        "credential_file": credential_file,
-        "sync_session": True,
-        "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
-        "message": "已打开朱雀真实网页状态同步窗口",
-    }
+    body = response.json()
+    assert body["status"] == "started"
+    assert body["login_mode"] == "wechat_qr"
+    assert body["credential_file"] == credential_file
+    assert body["sync_session"] is True
+    assert body["command"] == "python zhuque_pkg/capture_zhuque_creds.py --sync-session"
     assert captured_sync_values == [True]
 
     response = client.post(
-        "/api/optimization/zhuque/browser/start?sync_session=false",
+        "/api/optimization/zhuque/browser/start?sync_session=false&mode=local_window",
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
     assert response.json()["sync_session"] is False
     assert captured_sync_values == [True, False]
+
+
+def test_zhuque_browser_logout_endpoint_clears_user_credentials(client, monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    calls = []
+
+    class FakeRemoteLoginService:
+        async def logout(self, current_user_id):
+            calls.append(("logout", current_user_id))
+            return {
+                "session_id": "logout-session",
+                "status": "logged_out",
+                "auth_mode": "headless_api",
+                "login_mode": "remote_wechat_qr",
+                "credential_file": str(tmp_path / f"user_{current_user_id}" / "creds_latest.json"),
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "remaining_uses": -1,
+                "user_name": "",
+                "quota_text": "",
+                "qr_image_data": "",
+                "expires_at": "2026-06-24T00:00:00Z",
+                "message": "已退出朱雀登录，未登录时将使用朱雀免费次数",
+            }
+
+    class FakeZhuqueService:
+        def reset_user(self, current_user_id):
+            calls.append(("reset", current_user_id))
+
+    monkeypatch.setattr(optimization_route, "zhuque_remote_login_service", FakeRemoteLoginService())
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+
+    response = client.post(
+        "/api/optimization/zhuque/browser/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "logged_out"
+    assert body["connected"] is False
+    assert body["ready"] is False
+    assert body["has_token"] is False
+    assert body["button_enabled"] is True
+    assert "免费次数" in body["message"]
+    assert calls == [("logout", user_id), ("reset", user_id)]
+
+
+def test_zhuque_remote_login_logout_removes_user_credential_files(tmp_path, monkeypatch):
+    import app.services.zhuque_remote_login_service as remote_module
+
+    monkeypatch.setattr(remote_module, "zhuque_user_dir", lambda user_id: tmp_path / f"user_{user_id}")
+    user_dir = tmp_path / "user_9"
+    user_dir.mkdir(parents=True)
+    for filename in ("creds_latest.json", "browser_state.json", "qrcode_latest.png"):
+        (user_dir / filename).write_text("x", encoding="utf-8")
+
+    service = remote_module.ZhuqueRemoteLoginService()
+    payload = asyncio.run(service.logout(9))
+
+    assert payload["status"] == "logged_out"
+    assert "免费次数" in payload["message"]
+    assert not (user_dir / "creds_latest.json").exists()
+    assert not (user_dir / "browser_state.json").exists()
+    assert not (user_dir / "qrcode_latest.png").exists()
+    session_status = json.loads((user_dir / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is False
+    assert session_status["has_token"] is False
+    assert "免费次数" in session_status["message"]
 
 
 def test_zhuque_browser_status_endpoint_reports_ready_credentials(client, monkeypatch):
@@ -1144,6 +1303,169 @@ def test_zhuque_browser_status_endpoint_reports_missing_credentials(client, monk
     assert body["ready"] is False
     assert body["status"] == "missing_credentials"
     assert "微信登录凭证" in body["message"]
+
+
+def test_zhuque_free_quota_refresh_endpoint_uses_user_scoped_service(client, monkeypatch):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    calls = []
+
+    class FakeUserZhuqueService:
+        async def refresh_free_quota(self):
+            calls.append(("refresh_free_quota", user_id))
+            return {
+                "ready": True,
+                "connected": False,
+                "page_found": True,
+                "has_token": False,
+                "remaining_uses": 16,
+                "button_enabled": True,
+                "text_length": None,
+                "text_length_ok": True,
+                "estimated_first_round_credits": 0,
+                "estimated_max_round_credits": 0,
+                "message": "朱雀免费次数已同步：16 次",
+                "actions": [],
+                "auth_mode": "headless_api",
+                "login_mode": "wechat_qr",
+                "credential_file": "/tmp/user_1/creds_latest.json",
+                "user_name": "",
+                "quota_text": "剩余 16 次",
+                "captured_at": "",
+            }
+
+    class FakeZhuqueServiceManager:
+        def for_user(self, current_user_id):
+            calls.append(("for_user", current_user_id))
+            return FakeUserZhuqueService()
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueServiceManager())
+
+    response = client.post(
+        "/api/optimization/zhuque/free-quota/refresh",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connected"] is False
+    assert body["has_token"] is False
+    assert body["remaining_uses"] == 16
+    assert body["button_enabled"] is True
+    assert "免费次数" in body["message"]
+    assert calls == [("for_user", user_id), ("refresh_free_quota", user_id)]
+
+
+def test_zhuque_service_manager_uses_isolated_user_credential_files(tmp_path, monkeypatch):
+    import app.services.zhuque_service as zhuque_service_module
+
+    monkeypatch.setattr(zhuque_service_module.settings, "ZHUQUE_USER_DATA_DIR", str(tmp_path))
+    manager = zhuque_service_module.ZhuqueServiceManager()
+
+    user_one = manager.for_user(1)
+    user_two = manager.for_user(2)
+
+    assert user_one is manager.for_user(1)
+    assert user_two is not user_one
+    assert user_one.credentials_file == tmp_path / "user_1" / "creds_latest.json"
+    assert user_two.credentials_file == tmp_path / "user_2" / "creds_latest.json"
+
+
+def test_zhuque_remote_login_service_restarts_after_logged_in_session(tmp_path, monkeypatch):
+    import app.services.zhuque_remote_login_service as remote_module
+
+    monkeypatch.setattr(remote_module, "zhuque_user_dir", lambda user_id: tmp_path / f"user_{user_id}")
+
+    created_tasks = []
+
+    class FakeTask:
+        pass
+
+    def fake_create_task(coro):
+        # Close coroutine to avoid warnings; we only assert scheduling behavior.
+        coro.close()
+        task = FakeTask()
+        created_tasks.append(task)
+        return task
+
+    monkeypatch.setattr(remote_module.asyncio, "create_task", fake_create_task)
+    service = remote_module.ZhuqueRemoteLoginService()
+
+    first = asyncio.run(service.start(7))
+    service._sessions[7].status = "logged_in"
+    second = asyncio.run(service.start(7))
+
+    assert first["session_id"] != second["session_id"]
+    assert len(created_tasks) == 2
+    assert second["credential_file"].endswith("user_7/creds_latest.json")
+    assert service._sessions[7].force_login is True
+
+
+def test_zhuque_remote_login_uses_project_playwright_browser_cache(tmp_path, monkeypatch):
+    import app.services.zhuque_remote_login_service as remote_module
+
+    browser_root = tmp_path / ".playwright-browsers"
+    chromium = browser_root / "chromium-1223" / "chrome-linux64" / "chrome"
+    chromium.parent.mkdir(parents=True)
+    chromium.write_text("#!/bin/sh\n", encoding="utf-8")
+    chromium.chmod(0o755)
+
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.setattr(remote_module, "_playwright_browsers_path", lambda: browser_root)
+
+    assert remote_module._playwright_executable_path() == str(chromium)
+
+
+def test_zhuque_remote_login_does_not_capture_full_page_without_qr(tmp_path):
+    import app.services.zhuque_remote_login_service as remote_module
+
+    class FakePage:
+        async def query_selector(self, selector):
+            return None
+
+        async def screenshot(self, **kwargs):
+            raise AssertionError("full page screenshot must not be used as QR image")
+
+    session = remote_module.ZhuqueRemoteLoginSession(
+        session_id="s1",
+        user_id=1,
+        user_dir=tmp_path,
+    )
+    service = remote_module.ZhuqueRemoteLoginService()
+
+    asyncio.run(service._refresh_qr_image(session, FakePage()))
+
+    assert session.qr_image_data == ""
+    assert not session.qrcode_file.exists()
+
+
+def test_zhuque_trigger_login_flow_clicks_english_login_and_wechat(monkeypatch):
+    import app.services.zhuque_remote_login_service as remote_module
+
+    calls = []
+
+    class FakePage:
+        async def evaluate(self, script):
+            calls.append(script)
+            if "some(f => /open\\.weixin" in script:
+                return True
+            return True
+
+        async def wait_for_timeout(self, timeout):
+            calls.append(("wait", timeout))
+
+        async def wait_for_function(self, script, timeout):
+            calls.append(("wait_for_function", script, timeout))
+
+    opened = asyncio.run(remote_module.trigger_login_flow(FakePage()))
+
+    assert opened is True
+    joined = "\n".join(str(call) for call in calls)
+    assert "'Login'" in joined
+    assert "wechat|weixin" in joined
+    assert "wait_for_function" in joined
 
 
 def test_zhuque_service_starts_with_wechat_credentials(monkeypatch):
@@ -1227,7 +1549,16 @@ def test_zhuque_service_readiness_allows_anonymous_free_quota(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
 
-    fake_api = StatusOnlyZhuqueAPI(
+    class FakeAPI(StatusOnlyZhuqueAPI):
+        def __init__(self, status_payload):
+            super().__init__(status_payload)
+            self.peek_calls = 0
+
+        async def peek_remaining_uses(self, timeout=3.0, *, allow_anonymous=False):
+            self.peek_calls += 1
+            return 16 if allow_anonymous else None
+
+    fake_api = FakeAPI(
         {
             "ready": False,
             "connected": False,
@@ -1252,7 +1583,8 @@ def test_zhuque_service_readiness_allows_anonymous_free_quota(monkeypatch):
 
         assert result["connected"] is False
         assert result["has_token"] is False
-        assert result["remaining_uses"] == -1
+        assert fake_api.peek_calls == 1
+        assert result["remaining_uses"] == 16
         assert result["button_enabled"] is True
         assert result["ready"] is True
         assert "免费检测次数" in result["message"]
@@ -1264,6 +1596,185 @@ def test_zhuque_service_readiness_allows_anonymous_free_quota(monkeypatch):
         service._consumer_task = None
         service._last_remaining_uses = None
         service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_readiness_allows_hidden_anonymous_quota_when_button_enabled(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    class FakeAPI(StatusOnlyZhuqueAPI):
+        def __init__(self, status_payload):
+            super().__init__(status_payload)
+            self.peek_calls = 0
+
+        async def peek_remaining_uses(self, timeout=3.0, *, allow_anonymous=False):
+            self.peek_calls += 1
+            return None
+
+    fake_api = FakeAPI(
+        {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "未找到朱雀微信登录凭证",
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    service._last_remaining_uses = None
+    service._last_remaining_checked_at = 0
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    try:
+        result = asyncio.run(service.readiness("汉" * 500))
+
+        assert fake_api.peek_calls == 1
+        assert result["connected"] is False
+        assert result["has_token"] is False
+        assert result["remaining_uses"] == -1
+        assert result["button_enabled"] is True
+        assert result["ready"] is True
+        assert "检测后同步" in result["message"]
+        assert "朱雀免费检测入口可用，剩余次数将在检测后同步" in result["actions"]
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+        service._last_remaining_uses = None
+        service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_readiness_hidden_anonymous_quota_clears_stale_cache(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    class FakeAPI(StatusOnlyZhuqueAPI):
+        def __init__(self, status_payload):
+            super().__init__(status_payload)
+            self.peek_calls = 0
+
+        async def peek_remaining_uses(self, timeout=3.0, *, allow_anonymous=False):
+            self.peek_calls += 1
+            return None
+
+    fake_api = FakeAPI(
+        {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "未找到朱雀微信登录凭证",
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    service._last_remaining_uses = 16
+    service._last_remaining_checked_at = 0
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    try:
+        result = asyncio.run(service.readiness("汉" * 500))
+
+        assert fake_api.peek_calls == 1
+        assert result["remaining_uses"] == -1
+        assert result["button_enabled"] is True
+        assert result["ready"] is True
+        assert service._last_remaining_uses is None
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+        service._last_remaining_uses = None
+        service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_refresh_free_quota_probes_anonymous_and_persists_status(tmp_path, monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    creds_file = tmp_path / "user_5" / "creds_latest.json"
+    fake_api = StatusOnlyZhuqueAPI(
+        {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "credential_file": str(creds_file),
+            "message": "朱雀网页显示未登录",
+            "peek_remaining_uses": 16,
+        }
+    )
+    fake_api.credentials_file = creds_file
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_5")
+    service.api = None
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    result = asyncio.run(service.refresh_free_quota())
+
+    assert result["connected"] is False
+    assert result["has_token"] is False
+    assert result["remaining_uses"] == 16
+    assert result["button_enabled"] is True
+    assert result["ready"] is True
+    assert fake_api.peek_calls == [{"timeout": 5.0, "allow_anonymous": True}]
+
+    session_status = json.loads((tmp_path / "user_5" / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is False
+    assert session_status["has_token"] is False
+    assert session_status["remaining_uses"] == 16
+    assert "免费次数" in session_status["message"]
+
+
+def test_zhuque_service_refresh_free_quota_hidden_count_keeps_button_ready_without_stale_cache(tmp_path, monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    creds_file = tmp_path / "user_5" / "creds_latest.json"
+    fake_api = StatusOnlyZhuqueAPI(
+        {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "credential_file": str(creds_file),
+            "message": "朱雀网页显示未登录",
+            "peek_remaining_uses": None,
+        }
+    )
+    fake_api.credentials_file = creds_file
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_5")
+    service.api = None
+    service._last_remaining_uses = 16
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    result = asyncio.run(service.refresh_free_quota())
+
+    assert result["connected"] is False
+    assert result["has_token"] is False
+    assert result["remaining_uses"] == -1
+    assert result["button_enabled"] is True
+    assert result["ready"] is True
+    assert "检测后同步" in result["message"]
+    assert not (tmp_path / "user_5" / "session_status.json").exists()
 
 
 def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):

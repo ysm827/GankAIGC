@@ -102,3 +102,5 @@ output/
 
 # Removed tool leftovers
 .ace-tool.removed.*/
+# Per-user Zhuque credentials/session artifacts (VPS remote QR login)
+zhuque_pkg/users/

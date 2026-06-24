@@ -124,15 +124,29 @@ export const optimizationAPI = {
     api.post(`/optimization/sessions/${sessionId}/retry`, data, {
       timeout: 15000, // 15秒超时
     }),
-  startZhuqueLogin: ({ syncSession = true } = {}) =>
+  startZhuqueLogin: ({ syncSession = true, mode = 'remote_qr' } = {}) =>
     api.post('/optimization/zhuque/browser/start', null, {
-      params: { sync_session: syncSession },
-      timeout: 10000, // 10秒超时；打开朱雀真实网页状态同步窗口
+      params: { sync_session: syncSession, mode },
+      timeout: 10000, // 10秒超时；默认 VPS headless 生成二维码并在页面内弹窗展示
     }),
-  startZhuqueBrowser: ({ syncSession = true } = {}) =>
+  startZhuqueBrowser: ({ syncSession = true, mode = 'remote_qr' } = {}) =>
     api.post('/optimization/zhuque/browser/start', null, {
-      params: { sync_session: syncSession },
-      timeout: 10000, // 10秒超时；兼容旧命名，实际打开朱雀真实网页状态同步窗口
+      params: { sync_session: syncSession, mode },
+      timeout: 10000, // 10秒超时；兼容旧命名，默认远程二维码
+    }),
+  getZhuqueLoginStatus: (sessionId) =>
+    api.get('/optimization/zhuque/browser/login-status', {
+      params: sessionId ? { session_id: sessionId } : {},
+      timeout: 5000,
+    }),
+  cancelZhuqueLogin: (sessionId) =>
+    api.post('/optimization/zhuque/browser/cancel', null, {
+      params: sessionId ? { session_id: sessionId } : {},
+      timeout: 5000,
+    }),
+  logoutZhuque: () =>
+    api.post('/optimization/zhuque/browser/logout', null, {
+      timeout: 8000,
     }),
   getZhuqueAuthStatus: () =>
     api.get('/optimization/zhuque/browser/status', {
@@ -145,6 +159,10 @@ export const optimizationAPI = {
   getZhuqueReadiness: () =>
     api.get('/optimization/zhuque/readiness', {
       timeout: 5000, // 5秒超时
+    }),
+  refreshZhuqueFreeQuota: () =>
+    api.post('/optimization/zhuque/free-quota/refresh', null, {
+      timeout: 10000, // 真实页面/无文本探测可能需要等朱雀前端渲染
     }),
   preflightZhuqueTask: (data) =>
     api.post('/optimization/zhuque/preflight', data, {

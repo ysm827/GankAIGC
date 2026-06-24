@@ -24,7 +24,8 @@ from app.services.credit_service import CreditService, calculate_optimization_cr
 from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
-from app.services.zhuque_service import zhuque_service
+from app.services.zhuque_service import zhuque_service, zhuque_user_dir
+from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, split_text_into_segments
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
@@ -155,7 +156,11 @@ def _format_report_rate(rate: Optional[float]) -> str:
 
 
 def _format_report_number(value) -> str:
-    return "--" if value is None else str(value)
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return "--"
+    return "--" if number < 0 else str(number)
 
 
 def _safe_report_cell(value: object) -> str:
@@ -498,6 +503,14 @@ def _validate_request_model_base_url(config, label: str) -> str:
 
 
 
+
+
+def _zhuque_service_for_user(user: User):
+    """Return the Zhuque service scoped to the current user; keeps old tests compatible."""
+    for_user = getattr(zhuque_service, "for_user", None)
+    return for_user(user.id) if callable(for_user) else zhuque_service
+
+
 def _zhuque_capture_script_path() -> Optional[Path]:
     here = Path(__file__).resolve()
     candidates = [
@@ -606,18 +619,23 @@ def _zhuque_playwright_browser_ready() -> bool:
     return False
 
 
-def _zhuque_capture_env() -> dict:
+def _zhuque_capture_env(user: Optional[User] = None) -> dict:
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_zhuque_playwright_browsers_path()))
     env.setdefault("ZHUQUE_CDP_PORT", str(settings.ZHUQUE_CDP_PORT))
+    if user is not None:
+        capture_dir = zhuque_user_dir(user.id)
+        capture_dir.mkdir(parents=True, exist_ok=True)
+        env["ZHUQUE_CAPTURE_DIR"] = str(capture_dir)
     browser_executable = _zhuque_local_browser_executable()
     if browser_executable is not None:
         env.setdefault("ZHUQUE_CHROME_EXECUTABLE", str(browser_executable))
     return env
 
 
-def _start_zhuque_wechat_capture(*, sync_session: bool = True) -> dict:
-    status = zhuque_service._ensure_api().credential_status()
+def _start_zhuque_wechat_capture(*, sync_session: bool = True, user: Optional[User] = None) -> dict:
+    service = _zhuque_service_for_user(user) if user is not None else zhuque_service
+    status = service._ensure_api().credential_status()
     script_path = _zhuque_capture_script_path()
     if script_path is None:
         return {
@@ -641,7 +659,7 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True) -> dict:
             "credential_file": status.get("credential_file", str(script_path.parent / "creds_latest.json")),
             "sync_session": sync_session,
             "command": f'{sys.executable} -m pip install playwright && PLAYWRIGHT_BROWSERS_PATH="{browsers_path}" {sys.executable} -m playwright install chromium && {command}',
-            "message": "当前 Python 环境未安装 Playwright，无法自动打开朱雀真实网页状态同步窗口。请先安装 Playwright 并执行同步命令。",
+            "message": "当前 Python 环境未安装 Playwright，无法自动打开朱雀扫码授权页/真实网页状态同步窗口。请先安装 Playwright 并执行同步命令。",
         }
     if not _zhuque_playwright_browser_ready():
         browsers_path = _zhuque_playwright_browsers_path()
@@ -656,13 +674,15 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True) -> dict:
         }
 
     try:
-        log_path = script_path.parent / "capture_latest.log"
+        log_dir = zhuque_user_dir(user.id) if user is not None else script_path.parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "capture_latest.log"
         log_handle = open(log_path, "a", encoding="utf-8", buffering=1)
         log_handle.write(f"\n--- start {utcnow().isoformat()} sync_session={sync_session} ---\n")
         subprocess.Popen(
             [sys.executable, str(script_path), *launch_args],
             cwd=str(script_path.parent),
-            env=_zhuque_capture_env(),
+            env=_zhuque_capture_env(user),
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -692,8 +712,9 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True) -> dict:
         }
 
 
-def _get_zhuque_headless_status() -> dict:
-    status = zhuque_service._ensure_api().credential_status()
+def _get_zhuque_headless_status(user: Optional[User] = None) -> dict:
+    service = _zhuque_service_for_user(user) if user is not None else zhuque_service
+    status = service._ensure_api().credential_status()
     ready = bool(status.get("ready"))
     return {
         "status": "connected" if ready else "missing_credentials",
@@ -729,10 +750,10 @@ def _zhuque_preflight_error(readiness: dict) -> str:
     return message
 
 
-async def _run_zhuque_preflight_or_raise(text: str) -> dict:
+async def _run_zhuque_preflight_or_raise(text: str, user: User) -> dict:
     if len(text or "") < 350:
         raise HTTPException(status_code=400, detail=f"朱雀 AI 检测要求文本长度不少于 350 字，当前 {len(text or '')} 字")
-    readiness = _with_zhuque_cost_estimate(await zhuque_service.readiness(text), text)
+    readiness = _with_zhuque_cost_estimate(await _zhuque_service_for_user(user).readiness(text), text)
     if not readiness.get("ready"):
         raise HTTPException(status_code=400, detail=_zhuque_preflight_error(readiness))
     return readiness
@@ -809,7 +830,7 @@ async def start_optimization(
             provider_config = ProviderConfigService(db).get_runtime_config(user)
 
     if data.processing_mode == "ai_detect_reduce":
-        await _run_zhuque_preflight_or_raise(data.original_text)
+        await _run_zhuque_preflight_or_raise(data.original_text, user)
 
     polish_model = data.polish_config.model if data.polish_config else None
     polish_api_key = data.polish_config.api_key if data.polish_config else None
@@ -895,26 +916,151 @@ async def start_optimization(
 @router.post("/zhuque/browser/start", response_model=ZhuqueBrowserLaunchResponse)
 async def start_zhuque_browser(
     sync_session: bool = True,
+    mode: str = "remote_qr",
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """兼容旧路径：启动朱雀真实网页状态同步窗口。"""
-    return _start_zhuque_wechat_capture(sync_session=sync_session)
+    """兼容旧路径：默认启动 VPS 可用的远程二维码登录会话。
+
+    mode=local_window 时保留旧的服务端本机 Chrome 小窗同步能力，主要用于
+    本地开发；公网/VPS 默认不要依赖服务端桌面。
+    """
+    if mode == "local_window":
+        try:
+            return _start_zhuque_wechat_capture(sync_session=sync_session, user=user)
+        except TypeError:
+            # Test/extension compatibility for older monkeypatches that only accept sync_session.
+            return _start_zhuque_wechat_capture(sync_session=sync_session)
+    payload = await zhuque_remote_login_service.start(user.id)
+    getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
+    return {
+        "status": payload.get("status", "starting"),
+        "auth_mode": payload.get("auth_mode", "headless_api"),
+        "login_mode": payload.get("login_mode", "remote_wechat_qr"),
+        "credential_file": payload.get("credential_file", ""),
+        "sync_session": sync_session,
+        "command": None,
+        "message": payload.get("message", "请使用微信扫描二维码登录朱雀"),
+        "session_id": payload.get("session_id", ""),
+        "qr_image_data": payload.get("qr_image_data", ""),
+        "expires_at": payload.get("expires_at", ""),
+        "connected": bool(payload.get("connected")),
+        "ready": bool(payload.get("ready")),
+        "has_token": bool(payload.get("has_token")),
+        "remaining_uses": payload.get("remaining_uses", -1),
+        "user_name": payload.get("user_name", ""),
+        "quota_text": payload.get("quota_text", ""),
+    }
 
 
 @router.get("/zhuque/browser/status", response_model=ZhuqueBrowserStatusResponse)
 async def get_zhuque_browser_connection_status(
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """兼容旧路径：返回朱雀微信凭证 / 无头 API 状态。"""
-    return _get_zhuque_headless_status()
+    """兼容旧路径：返回当前用户自己的朱雀凭证 / 无头 API 状态。"""
+    return _get_zhuque_headless_status(user)
+
+
+@router.get("/zhuque/browser/login-status", response_model=ZhuqueBrowserStatusResponse)
+async def get_zhuque_remote_login_status(
+    session_id: str = "",
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """轮询 VPS headless 朱雀二维码登录会话。"""
+    payload = zhuque_remote_login_service.status(user.id, session_id or None)
+    if payload.get("status") == "logged_in":
+        getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
+    return {
+        "status": payload.get("status", "not_found"),
+        "connected": bool(payload.get("connected")),
+        "ready": bool(payload.get("ready")),
+        "has_token": bool(payload.get("has_token")),
+        "remaining_uses": payload.get("remaining_uses", -1),
+        "button_enabled": payload.get("remaining_uses", -1) != 0,
+        "auth_mode": payload.get("auth_mode", "headless_api"),
+        "login_mode": payload.get("login_mode", "remote_wechat_qr"),
+        "credential_file": payload.get("credential_file", ""),
+        "user_name": payload.get("user_name", ""),
+        "quota_text": payload.get("quota_text", ""),
+        "captured_at": "",
+        "message": payload.get("message", ""),
+        "session_id": payload.get("session_id", ""),
+        "qr_image_data": payload.get("qr_image_data", ""),
+        "expires_at": payload.get("expires_at", ""),
+    }
+
+
+@router.post("/zhuque/browser/cancel", response_model=ZhuqueBrowserStatusResponse)
+async def cancel_zhuque_remote_login(
+    session_id: str = "",
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """取消当前用户的 VPS headless 朱雀扫码会话。"""
+    payload = await zhuque_remote_login_service.cancel(user.id, session_id or None)
+    return {
+        "status": payload.get("status", "cancelled"),
+        "connected": bool(payload.get("connected")),
+        "ready": bool(payload.get("ready")),
+        "has_token": bool(payload.get("has_token")),
+        "remaining_uses": payload.get("remaining_uses", -1),
+        "button_enabled": payload.get("remaining_uses", -1) != 0,
+        "auth_mode": payload.get("auth_mode", "headless_api"),
+        "login_mode": payload.get("login_mode", "remote_wechat_qr"),
+        "credential_file": payload.get("credential_file", ""),
+        "user_name": payload.get("user_name", ""),
+        "quota_text": payload.get("quota_text", ""),
+        "captured_at": "",
+        "message": payload.get("message", ""),
+        "session_id": payload.get("session_id", ""),
+        "qr_image_data": payload.get("qr_image_data", ""),
+        "expires_at": payload.get("expires_at", ""),
+    }
+
+
+@router.post("/zhuque/browser/logout", response_model=ZhuqueBrowserStatusResponse)
+async def logout_zhuque_browser(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """清除当前用户保存的朱雀登录凭证，后续检测回到未登录免费次数路径。"""
+    payload = await zhuque_remote_login_service.logout(user.id)
+    getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
+    return {
+        "status": payload.get("status", "logged_out"),
+        "connected": False,
+        "ready": False,
+        "has_token": False,
+        "remaining_uses": -1,
+        "button_enabled": True,
+        "auth_mode": payload.get("auth_mode", "headless_api"),
+        "login_mode": payload.get("login_mode", "remote_wechat_qr"),
+        "credential_file": payload.get("credential_file", ""),
+        "user_name": "",
+        "quota_text": "",
+        "captured_at": "",
+        "message": payload.get("message", "已退出朱雀登录，未登录时将使用朱雀免费次数"),
+        "session_id": payload.get("session_id", ""),
+        "qr_image_data": "",
+        "expires_at": payload.get("expires_at", ""),
+    }
 
 
 @router.get("/zhuque/readiness", response_model=ZhuqueReadinessResponse)
 async def get_zhuque_readiness(
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
-    """读取朱雀页面是否可用于检测；不点击检测，不消耗朱雀次数。"""
-    return await zhuque_service.readiness()
+    """读取当前用户朱雀页面是否可用于检测；不点击检测，不消耗朱雀次数。"""
+    return await _zhuque_service_for_user(user).readiness()
+
+
+@router.post("/zhuque/free-quota/refresh", response_model=ZhuqueReadinessResponse)
+async def refresh_zhuque_free_quota(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """主动探测当前用户朱雀剩余次数；不提交文本，不消耗朱雀检测次数。"""
+    service = _zhuque_service_for_user(user)
+    refresh_free_quota = getattr(service, "refresh_free_quota", None)
+    if callable(refresh_free_quota):
+        return await refresh_free_quota()
+    return await service.readiness()
 
 
 @router.post("/zhuque/preflight", response_model=ZhuqueReadinessResponse)
@@ -944,7 +1090,7 @@ async def preflight_zhuque_task(
         ProviderConfigService(db).get_runtime_config(user)
 
     return _with_zhuque_cost_estimate(
-        await zhuque_service.readiness(payload.original_text),
+        await _zhuque_service_for_user(user).readiness(payload.original_text),
         payload.original_text,
     )
 
