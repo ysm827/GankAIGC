@@ -1553,7 +1553,6 @@ const AdminDashboard = () => {
           <div className="aurora-admin-section space-y-6">
             <div className="aurora-admin-section-head">
                       <div>
-                        <p className="gank-eyebrow">ADMIN OVERVIEW</p>
                         <span className="sr-only">平均输入规模</span>
                         <h1>数据面板</h1>
                         <p>系统运行总览与数据统计，统一观察用户、会话和降 AI 处理吞吐。</p>
@@ -1758,7 +1757,6 @@ const AdminDashboard = () => {
           <div className="aurora-admin-section aurora-admin-accounts-page space-y-6">
             <div className="aurora-admin-section-head">
               <div>
-                <p className="sr-only">ACCOUNT CONTROL</p>
                 <h2>用户管理</h2>
                 <p>检索、筛选并管理用户资产、角色状态和最近活动。</p>
               </div>
@@ -2513,7 +2511,6 @@ const AdminDashboard = () => {
             <div className="aurora-admin-section-head">
               <div>
                 <div className="aurora-admin-breadcrumb">首页 <span>/</span> 公告</div>
-                <p className="gank-eyebrow">BROADCAST</p>
                 <h2>公告</h2>
                 <p>创建、管理和发布平台公告，支持编辑区、预览效果和公告列表联动。</p>
               </div>
@@ -2714,7 +2711,6 @@ const AdminDashboard = () => {
           <div className="aurora-admin-section space-y-6">
             <div className="aurora-admin-section-head">
               <div>
-                <p className="gank-eyebrow">AUDIT LEDGER</p>
                 <h2>操作日志</h2>
                 <p>记录系统内所有管理员操作与重要事件，支持查询与审计追踪。</p>
               </div>

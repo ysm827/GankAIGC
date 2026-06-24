@@ -118,25 +118,12 @@ const ApiSettingsPage = () => {
       </header>
 
       <main className="aurora-page-shell aurora-account-shell relative z-[1] mx-auto max-w-[1180px] px-5 pb-12 pt-8 sm:px-8 lg:px-10">
-        <section className="aurora-account-hero">
-          <div>
-            <p className="gank-eyebrow">MODEL PROVIDER</p>
-            <h1>自带 API 配置</h1>
-            <p>配置自己的模型服务地址与模型名。API Key 加密保存，页面只显示后 4 位。</p>
-          </div>
-          <div className="aurora-account-chip-strip" aria-label="API 配置能力">
-            <span className="apple-config-chip">BYO API</span>
-            <span className="apple-config-chip">Encrypted</span>
-            <span className="apple-config-chip">Testable</span>
-          </div>
-        </section>
-
+        <h1 className="sr-only">自带 API 配置</h1>
         <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
           <aside className="apple-utility-card aurora-account-card aurora-api-summary">
             <div className="aurora-profile-avatar" aria-hidden="true">
               <KeyRound className="h-10 w-10" />
             </div>
-            <p className="gank-eyebrow">PRIVATE PROVIDER</p>
             <h2>模型服务接入</h2>
             <p>自带 API 模式会优先使用你保存的供应商配置，适合已有额度或私有模型网关。</p>
 
@@ -159,7 +146,6 @@ const ApiSettingsPage = () => {
           <section className="apple-utility-card aurora-account-card aurora-api-form-card">
             <div className="aurora-account-form-head">
               <div>
-                <p className="gank-eyebrow">CONFIGURATION</p>
                 <h2>供应商配置</h2>
               </div>
               {maskedKey && <span className="aurora-subtle-badge aurora-badge-success">已保存 ****{maskedKey}</span>}

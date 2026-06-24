@@ -87,6 +87,7 @@ Questions to answer:
 
 - Use Action Blue `#0066cc` as the only interactive accent for primary CTAs, active choices, links, and product-stage highlights. Do not reintroduce warm orange/black pill CTA as the main theme.
 - Workspace must include a light frosted `.apple-global-nav` plus frosted light `.apple-subnav`, followed by a full-width `.apple-product-tile.apple-paper-stage` hero containing `AI PAPER RECONSTRUCTION` and the paper flow chips: `Zhuque detection`, `paper reconstruction`, `full-text recheck`. Do not use a full-width black top bar for the workspace chrome.
+- Workspace processing mode and billing mode selections must both persist through refresh via localStorage keys (`gankaigc.workspace.processingMode`, `gankaigc.workspace.billingMode`). Billing cards should reuse the same `.aurora-mode-list` / `.aurora-mode-card` visual structure as processing-mode cards rather than a separate radio-dot layout.
 - Use product-tile contrast intentionally: light/parchment paper stage for the main workspace, optional local dark tile (`.apple-product-tile-dark`) only inside hero/report content, and white utility cards for forms/report metrics.
 - Primary actions should use `.apple-action-pill` and active press `scale(0.95)`. Secondary actions should use `.apple-ghost-pill` or a low-chrome text/link treatment.
 - Utility/report cards should be low chrome: `18px` radius, hairline borders, minimal/no shadow. Heavy generic shadows and decorative gradients are not part of this direction except the single product-preview resting shadow.
@@ -261,7 +262,7 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - When `processingMode === "ai_detect_reduce"`, show the Zhuque credential panel, call `getZhuqueAuthStatus()` immediately, then poll every 5 seconds while the mode remains selected.
 - The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, but the workspace visible card is intentionally compact: render `朱雀 AI 检测`, Zhuque login user name under the title, the scan-login/logged-in button, connection status, and remaining uses. Do not render page status, text-length readiness, auth method, credential filename, readiness message, action suggestions, or estimated credit details inside the workspace card.
 - Zhuque status polling must be lightweight: do not overlap in-flight status/readiness requests and pause polling when `document.visibilityState !== "visible"`. The backend may refresh quota through a throttled no-text WebSocket auth peek because `creds_latest.json` quota is stale after detections; frontend must not add extra client-side probes or tighten the polling cadence to force refresh.
-- If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state such as `检测后同步` for connected credentials or `免费次数` for logged-out anonymous mode; never show raw `-1` as a user-facing quota. If the backend status/readiness payload carries a logged-out live anonymous quota (for example from `Detect now(16 left)`), render the numeric count (`16 次`) even when `connected=false` / `has_token=false`.
+- If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state (`检测后同步`) and never show raw `-1` or a vague `免费次数` placeholder in the compact card. If the backend status/readiness payload carries a logged-out live anonymous quota (for example from `Detect now(16 left)`), render the numeric count (`16 次`) immediately even when `connected=false` / `has_token=false`. The workspace may cache the last known logged-out numeric quota only for smoothing a logout-page rerender gap; do not use a logged-in account quota as the logged-out fallback unless the backend has already persisted it into logged-out `session_status.json`.
 - Before starting an `ai_detect_reduce` task, call `preflightZhuqueTask({original_text, processing_mode, billing_mode})`; if `ready=false`, show the backend message and do not call `startOptimization`.
 - If preflight returns `estimated_max_round_credits`, it may be shown in a toast or start-flow feedback only. Do not put it back into the compact workspace credential card, and do not present it as a pre-held or guaranteed charge.
 - The login button calls `startZhuqueLogin({syncSession: true})` and keeps status based on the status/readiness endpoint's connected/token fields, not on the launch response alone. Its visible label is `扫码登录` before credentials are ready and `已登录` after credentials are ready. It must not be disabled merely because credentials are already connected; logged-in users can click the same button to reopen the real Zhuque page and sync login/logout/account-switch state. Only the in-flight launch state may disable it.
@@ -286,6 +287,7 @@ await optimizationAPI.listSessions(resolvedProjectId);
 ### 4. Validation & Error Matrix
 
 - Credential status endpoint fails -> show disconnected guidance, not a blocking crash.
+- Logged-out payload has a numeric quota -> update both auth/readiness state to logged out and render the number immediately; do not wait for a second readiness poll and do not flash `免费次数`.
 - Start login returns `manual_required` -> show backend message and command, making clear the missing dependency is for the QR authorization page only.
 - Readiness endpoint fails -> show a not-ready panel with action guidance, not a blocking crash.
 - Preflight returns `ready=false` -> do not start the task; toast/display `message` and `actions`.
@@ -301,7 +303,7 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - Good: the workspace can remember `ai_detect_reduce` across refresh without making the page sluggish; idle status refresh uses the backend's throttled readiness/status state, only one status/readiness pair can be in flight, and hidden tabs stop polling.
 - Good: route chunks show Workspace/SessionDetail/AdminDashboard split from the initial entry bundle, and SessionDetail batches SSE content/zhuque events before state updates.
 - Good: the workspace Zhuque card uses `.aurora-zhuque-status-card`, `.aurora-zhuque-metric`, `.aurora-zhuque-account`, and `.aurora-zhuque-login-button`, showing `朱雀 AI 检测`, `登录用户`, `扫码登录`/`已登录`, `连接状态`, and `剩余次数` in that order.
-- Good: when the backend cannot know live quota yet, readiness shows `检测后同步`/`免费次数` instead of `-1`, and switches to a numeric count once the live probe, session-status sync, or a detection result returns `remaining_uses`; logged-out anonymous quota may show as `16 次` without implying `已登录`.
+- Good: when the backend cannot know live quota yet, readiness shows `检测后同步` instead of `-1` or `免费次数`, and switches to a numeric count once the live probe, session-status sync, or a detection result returns `remaining_uses`; logged-out anonymous quota may show as `16 次` without implying `已登录`.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
 - Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Good: detail page shows Prompt Evolution learning rows explaining why the previous prompt failed and which safe patch was used next.
@@ -325,6 +327,7 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - Static/frontend tests should assert AIGC report export option strings (`aigc_report_docx`, `aigc_report_md`) are gated to `ai_detect_reduce` sessions and that the modal explains per-segment AI-rate reporting.
 - Static/frontend tests should assert readiness/preflight endpoint strings, compact workspace readiness rendering (`朱雀 AI 检测`, `连接状态`, `剩余次数`, `登录用户`, `扫码登录`/`已登录`, `.aurora-zhuque-status-card`, `.aurora-zhuque-account`, `.aurora-zhuque-login-button`), absence of the old complex workspace fields (`页面状态`, `文本长度`, `认证方式`, estimate/action rows), preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Static/frontend tests should assert negative/missing `remaining_uses` renders as an unknown/sync-pending label, not raw `-1`.
+- Static/frontend tests should assert the compact Zhuque card has no `: '免费次数'` fallback and uses a logged-out remaining-use normalizer/cache so logout can render a numeric quota from status/readiness immediately.
 - Static/frontend tests should assert Zhuque status polling has an in-flight guard, pauses when the document is hidden, and that workspace queue polling uses a named interval constant rather than an aggressive inline interval.
 - Static/frontend tests should assert route-level lazy loading, SSE batching refs/timer, and runtime CSS guardrails in both source CSS and the served static CSS bundle.
 - Static/frontend tests should assert Paper Reconstruction trace strings: `paper_reconstruction`, "论文重构", `paper_language`, `paper_section`, `paper_ai_patterns`, `candidate_count`, and `fact_card_count`.
@@ -365,7 +368,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
   - Page shell: `gank-app-page aurora-app-page aurora-account-page`.
   - Top navigation: `apple-global-nav aurora-topbar`, `aurora-brand-logo`, `aurora-account-back-link`.
   - Main shell: `aurora-page-shell aurora-account-shell`.
-  - Hero/metadata: `aurora-account-hero`, `apple-config-chip`.
+  - Hero/metadata: `aurora-account-hero` only when it contains useful content. Do not render an empty decorative account hero; keep the page title in an `sr-only` heading when the visible hero is removed.
   - Cards/forms: `apple-utility-card aurora-account-card`, `apple-metric-card`, `aurora-input`, `aurora-account-primary apple-action-pill`, `aurora-secondary-action`.
 - Static bundle location remains `package/static`; after build, `package/static/index.html` must reference the current hashed CSS/JS assets.
 
@@ -374,6 +377,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Profile, Credits, and API Settings pages must keep the same light Apple/Aurora chrome as the workspace: translucent-looking but runtime-opaque topbar, soft blue/cyan accents, low-shadow utility cards, rounded product surfaces, and Action Blue primary buttons.
 - `返回工作台` must be a visible themed control with an icon and button frame, not a plain text link.
 - Do not reintroduce `gank-glass-toolbar`, `gank-glass-card`, or a single narrow `gank-card rounded-[2rem]` island as the dominant layout for these pages.
+- Decorative English eyebrow labels above Chinese headings are intentionally removed on account/admin utility pages. Do not render text such as `ACCOUNT CONTROL`, `DISPLAY NAME`, `BEER BALANCE`, `MODEL PROVIDER`, or `CONFIGURATION`; keep the Chinese title and, if needed, an `sr-only` page heading instead.
 - Use `aurora-input` for form fields so focus rings and spacing match the workspace controls.
 - Long ledgers/history-style lists, such as credit transactions, must be bounded and scrollable (`custom-scrollbar`) instead of pushing the page indefinitely.
 - Keep business behavior unchanged: profile nickname/password/invite actions, credit redeem/load transactions, API save/test flows must keep existing API calls and validation messages.
@@ -382,20 +386,20 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 
 - Page misses `aurora-account-page` or `apple-global-nav aurora-topbar` -> static theme test fails.
 - Page keeps old `gank-glass-toolbar`/dominant old `gank-glass-card` -> visual regression; static tests should assert absence where practical.
-- Build succeeds but `package/static` is not synced -> static bundle assertions for `ACCOUNT CONTROL`, `BEER BALANCE`, `MODEL PROVIDER`, or `aurora-account-page` fail.
+- Build succeeds but `package/static` is not synced -> static bundle assertions for `aurora-account-page`, absence of `aurora-account-hero-blank`, and absence of decorative English labels fail.
 - Importing a Lucide icon not exported by the pinned `lucide-react` version -> `npm run build` fails; check local `node_modules/lucide-react/dist/esm/lucide-react.js` before choosing new icons.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: `ProfilePage.jsx` uses an account hero, profile card, two metric cards, themed forms, and keeps nickname/password/invite flows intact.
-- Good: `CreditsPage.jsx` uses a large balance card plus bounded ledger card and keeps `formatChinaDateTime(transaction.created_at)`.
+- Good: `CreditsPage.jsx` uses a balance card plus bounded ledger card, keeps `formatChinaDateTime(transaction.created_at)`, and uses a smaller `aurora-credit-balance-unlimited` style for the `无限啤酒` label so text does not dominate the card.
 - Good: `ApiSettingsPage.jsx` uses a provider summary card plus two-column config form and keeps encrypted-key copy.
 - Base: no transactions or no saved API key; page still shows a composed empty/notice state.
 - Bad: a plain max-width centered white card with default toolbar, old teal/orange primary accents, native-looking inputs, or unsynced static bundle.
 
 ### 6. Tests Required
 
-- Static frontend tests should assert each page uses `gank-app-page aurora-app-page aurora-account-page`, `apple-global-nav aurora-topbar`, `aurora-account-back-link`, `aurora-account-hero`, `apple-config-chip`, `apple-utility-card aurora-account-card`, and `aurora-input`.
+- Static frontend tests should assert each page uses `gank-app-page aurora-app-page aurora-account-page`, `apple-global-nav aurora-topbar`, `aurora-account-back-link`, `apple-utility-card aurora-account-card`, and `aurora-input`, while rejecting empty `aurora-account-hero-blank` placeholders and decorative English labels above Chinese headings.
 - Static frontend tests should assert source CSS includes `.aurora-account-page`, `.aurora-account-hero`, `.aurora-account-card.apple-utility-card`, `.aurora-account-primary.apple-action-pill`, `.aurora-ledger-item`, and `.aurora-api-form`.
 - Static frontend tests should read all served JS chunks in `package/static/assets` because route-level lazy pages may not be in the entry chunk.
 - Run `cd package/frontend && npm run build`, sync `dist` into `../static`, remove stale hashed assets, and verify `package/static/index.html` asset references exist.
@@ -424,7 +428,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
     <Link to="/workspace" className="aurora-account-back-link">返回工作台</Link>
   </nav>
   <main className="aurora-page-shell aurora-account-shell">
-    <section className="aurora-account-hero">...</section>
+    <h1 className="sr-only">账号资料</h1>
     <section className="apple-utility-card aurora-account-card">...</section>
   </main>
 </div>

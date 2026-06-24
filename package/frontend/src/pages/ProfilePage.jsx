@@ -159,19 +159,7 @@ const ProfilePage = () => {
       </header>
 
       <main className="aurora-page-shell aurora-account-shell relative z-[1] mx-auto max-w-[1280px] px-5 pb-12 pt-8 sm:px-8 lg:px-10">
-        <section className="aurora-account-hero">
-          <div>
-            <p className="gank-eyebrow">ACCOUNT CONTROL</p>
-            <h1>账号资料</h1>
-            <p>统一管理昵称、安全凭据、邀请码与啤酒余额，保持和工作台一致的轻量主题界面。</p>
-          </div>
-          <div className="aurora-account-chip-strip" aria-label="账号资料范围">
-            <span className="apple-config-chip">Profile</span>
-            <span className="apple-config-chip">Security</span>
-            <span className="apple-config-chip">Invite</span>
-          </div>
-        </section>
-
+        <h1 className="sr-only">账号资料</h1>
         {loading ? (
           <div className="apple-utility-card aurora-account-card aurora-loading-card">
             <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
@@ -230,7 +218,6 @@ const ProfilePage = () => {
               <form onSubmit={handleSubmit} className="apple-utility-card aurora-account-card aurora-account-form">
                 <div className="aurora-account-form-head">
                   <div>
-                    <p className="gank-eyebrow">DISPLAY NAME</p>
                     <h2>修改昵称</h2>
                   </div>
                 </div>
@@ -264,7 +251,6 @@ const ProfilePage = () => {
                       <KeyRound className="h-5 w-5" />
                     </span>
                     <div>
-                      <p className="gank-eyebrow">SECURITY</p>
                       <h2>修改密码</h2>
                     </div>
                   </div>
@@ -332,7 +318,6 @@ const ProfilePage = () => {
                       <UserPlus className="h-5 w-5" />
                     </span>
                     <div>
-                      <p className="gank-eyebrow">INVITE CODE</p>
                       <h2>我的邀请码</h2>
                     </div>
                   </div>

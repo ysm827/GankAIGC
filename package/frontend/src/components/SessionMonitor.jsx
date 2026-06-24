@@ -170,7 +170,6 @@ const SessionMonitor = ({ adminToken }) => {
     <div className="aurora-admin-section space-y-6 aurora-session-console">
       <div className="aurora-admin-section-head">
         <div>
-          <p className="gank-eyebrow">SESSION WATCH</p>
           <h2>会话监控</h2>
           <p>实时分析在线会话、活动队列、吞吐变化和最近任务时间线。</p>
         </div>

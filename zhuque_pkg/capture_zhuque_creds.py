@@ -26,7 +26,7 @@
     creds_latest.json        # 最新凭证
     qrcode_latest.png        # 二维码截图（供调试）
 """
-import asyncio, json, sys, time, os, re, subprocess, urllib.error, urllib.request
+import asyncio, json, sys, time, os, re, subprocess, tempfile, urllib.error, urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
@@ -174,6 +174,217 @@ def _wait_for_cdp(port: int, timeout: float = 8.0) -> str:
     return ""
 
 
+def _windows_cdp_available(port: int | None = None) -> bool:
+    if not _is_wsl():
+        return False
+    cdp_port = port or _cdp_port()
+    script = (
+        "$ProgressPreference='SilentlyContinue';"
+        f"try {{ $r = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:{cdp_port}/json/version' -TimeoutSec 2; "
+        "if ($r.StatusCode -eq 200) { exit 0 } else { exit 2 } } catch { exit 1 }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=4,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+WINDOWS_CDP_SNAPSHOT_SCRIPT = r"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+$Port = __PORT__
+$Base = "http://127.0.0.1:$Port"
+$EvalScript = @'
+(() => {
+  const localStorageValues = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    localStorageValues[k] = localStorage.getItem(k);
+  }
+  const un = document.querySelector('.user-name');
+  const ui = document.querySelector('.user-info');
+  let quotaEl = null, bestLen = Infinity;
+  const submitBtn = document.querySelector('.submit-btn')
+    || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+  const loginPromptVisible = [...document.querySelectorAll('.user-name, .user-info, button, a')]
+    .some(el => {
+      const rects = el.getClientRects ? el.getClientRects() : [];
+      const visible = rects && rects.length > 0;
+      const txt = (el.textContent || '').trim();
+      return visible && /^(Login|Log in|Sign in|登录|扫码登录|微信登录)$/i.test(txt);
+    });
+  for (const el of document.querySelectorAll('*')) {
+    const txt = (el.textContent || '').trim();
+    if (/(今日剩余|剩余.*次|可用.*次|\d+\s*left)/i.test(txt) && txt.length < bestLen && txt.length < 100) {
+      quotaEl = el; bestLen = txt.length;
+    }
+  }
+  return {
+    localStorage: localStorageValues,
+    userName: un ? un.textContent.trim() : '',
+    userInfoText: ui ? ui.textContent.trim() : '',
+    loginPromptVisible,
+    quotaText: quotaEl ? quotaEl.textContent.trim() : '',
+    submitButtonText: submitBtn ? submitBtn.textContent.trim() : '',
+    url: location.href,
+    timestamp: new Date().toISOString()
+  };
+})()
+'@
+
+function Write-Json($Object) {
+  $Object | ConvertTo-Json -Depth 20 -Compress
+}
+
+function Send-CdpCommand($Ws, [int]$Id, [string]$Method, $Params) {
+  $payload = [ordered]@{ id = $Id; method = $Method }
+  if ($null -ne $Params) { $payload.params = $Params }
+  $json = $payload | ConvertTo-Json -Depth 20 -Compress
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+  $segment = [ArraySegment[byte]]::new($bytes)
+  $Ws.SendAsync($segment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).Wait()
+  while ($true) {
+    $ms = [System.IO.MemoryStream]::new()
+    do {
+      $buffer = New-Object byte[] 65536
+      $receiveSegment = [ArraySegment[byte]]::new($buffer)
+      $result = $Ws.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None).Result
+      if ($result.Count -gt 0) { $ms.Write($buffer, 0, $result.Count) }
+    } while (-not $result.EndOfMessage)
+    $message = [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
+    if ([string]::IsNullOrWhiteSpace($message)) { continue }
+    $obj = $message | ConvertFrom-Json
+    if ($obj.id -eq $Id) { return $obj }
+  }
+}
+
+try {
+  $targets = Invoke-RestMethod -UseBasicParsing "$Base/json" -TimeoutSec 2
+  $target = $targets | Where-Object { $_.type -eq 'page' -and $_.url -like '*matrix.tencent.com/ai-detect*' } | Select-Object -First 1
+  if ($null -eq $target) {
+    Write-Json ([ordered]@{ ok = $false; error = 'target_not_found' })
+    exit 0
+  }
+  $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+  $ws.ConnectAsync([Uri]$target.webSocketDebuggerUrl, [Threading.CancellationToken]::None).Wait()
+  try {
+    [void](Send-CdpCommand $ws 1 'Runtime.enable' $null)
+    [void](Send-CdpCommand $ws 2 'Network.enable' $null)
+    $eval = Send-CdpCommand $ws 3 'Runtime.evaluate' @{
+      expression = $EvalScript
+      returnByValue = $true
+      awaitPromise = $true
+    }
+    $cookieResult = Send-CdpCommand $ws 4 'Network.getAllCookies' $null
+    $cookies = @()
+    if ($cookieResult.result.cookies) {
+      $cookies = @($cookieResult.result.cookies | Where-Object { $_.domain -like '*tencent.com' -or $_.domain -like '*qq.com' -or $_.domain -like '*weixin.qq.com' })
+    }
+    Write-Json ([ordered]@{
+      ok = $true
+      browserState = $eval.result.result.value
+      cookies = $cookies
+    })
+  } finally {
+    if ($ws) { $ws.Dispose() }
+  }
+} catch {
+  Write-Json ([ordered]@{ ok = $false; error = $_.Exception.Message })
+}
+"""
+
+
+def _powershell_json(script: str, timeout: float = 8.0) -> dict:
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".ps1", encoding="utf-8", delete=False) as script_file:
+            script_file.write(script)
+            script_path = script_file.name
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        if "script_path" in locals():
+            try:
+                Path(script_path).unlink()
+            except OSError:
+                pass
+
+    output = (completed.stdout or "").strip()
+    if not output:
+        return {"ok": False, "error": (completed.stderr or "PowerShell 未返回数据").strip()}
+    # Keep the last JSON-looking line; PowerShell can emit incidental progress/noise.
+    for line in reversed(output.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError as exc:
+                return {"ok": False, "error": f"PowerShell JSON 解析失败: {exc}"}
+    return {"ok": False, "error": output[-500:]}
+
+
+def _powershell_single_quoted(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _stop_windows_chrome_debug_profile(profile_dir: str, port: int) -> int:
+    """Stop only the dedicated GankAIGC Chrome profile if it blocks CDP startup.
+
+    Windows Chrome ignores a new ``--remote-debugging-port`` launch when the
+    same ``--user-data-dir`` is already open without CDP. That leaves the QR
+    window visible but unsynchronised. Killing the normal user Chrome would be
+    hostile, so this targets only processes whose command line references the
+    dedicated GankAIGC profile or the configured debug port.
+    """
+    if not _is_wsl():
+        return 0
+    script = f"""
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+$ProfileDir = {_powershell_single_quoted(profile_dir)}
+$PortPattern = 'remote-debugging-port={int(port)}'
+$escapedProfile = [regex]::Escape($ProfileDir)
+$targets = @(Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" | Where-Object {{
+  $_.CommandLine -and ($_.CommandLine -match $escapedProfile -or $_.CommandLine -match $PortPattern)
+}})
+$stopped = 0
+foreach ($p in $targets) {{
+  try {{
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
+    $stopped += 1
+  }} catch {{}}
+}}
+[ordered]@{{ ok = $true; stopped = $stopped }} | ConvertTo-Json -Compress
+"""
+    result = _powershell_json(script, timeout=6.0)
+    try:
+        return int(result.get("stopped") or 0) if result.get("ok") else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def inspect_windows_chrome_auth_state(port: int | None = None) -> dict:
+    cdp_port = port or _cdp_port()
+    script = WINDOWS_CDP_SNAPSHOT_SCRIPT.replace("__PORT__", str(cdp_port))
+    snapshot = _powershell_json(script, timeout=10.0)
+    if not snapshot.get("ok"):
+        return {"ok": False, "error": snapshot.get("error") or "Windows Chrome 状态读取失败"}
+    return {"ok": True, **_auth_state_from_browser_snapshot(snapshot.get("browserState") or {}, snapshot.get("cookies") or [])}
+
+
 def _pick_local_storage_token(local_storage: dict) -> tuple[str, str]:
     """Return (token, key) from known or token-like localStorage entries."""
     preferred_keys = [
@@ -249,6 +460,32 @@ def _pick_cookie_value(cookies: list, names: tuple[str, ...]) -> tuple[str, str]
     return "", ""
 
 
+def _auth_state_from_browser_snapshot(browser_state: dict, cookies: list) -> dict:
+    """Normalise Zhuque page state from either Playwright or Windows CDP."""
+    local_storage = browser_state.get("localStorage", {}) or {}
+    token, token_source = _pick_local_storage_token(local_storage)
+    cookie_token, cookie_token_source = _pick_cookie_value(cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
+    fp = local_storage.get("fp") or ""
+    user_name = (browser_state.get("userName") or "").strip()
+    login_prompt_visible = bool(browser_state.get("loginPromptVisible")) or _is_login_prompt_text(user_name)
+    if login_prompt_visible:
+        user_name = ""
+    quota_text = (browser_state.get("quotaText") or browser_state.get("submitButtonText") or "").strip()
+    ready = bool(token or cookie_token or (user_name and (fp or cookies)))
+    return {
+        **browser_state,
+        "cookies": cookies,
+        "token": token or cookie_token,
+        "tokenSource": token_source or cookie_token_source,
+        "fp": fp,
+        "ready": ready,
+        "userName": user_name,
+        "loginPromptVisible": login_prompt_visible,
+        "quotaText": quota_text,
+        "remainingUses": _parse_remaining_uses(quota_text),
+    }
+
+
 async def inspect_auth_state(page) -> dict:
     """Inspect page login state without assuming Zhuque keeps the same token key forever."""
     browser_state = await page.evaluate("""
@@ -288,28 +525,7 @@ async def inspect_auth_state(page) -> dict:
         })()
     """)
     cookies = await page.context.cookies()
-    local_storage = browser_state.get("localStorage", {})
-    token, token_source = _pick_local_storage_token(local_storage)
-    cookie_token, cookie_token_source = _pick_cookie_value(cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
-    fp = local_storage.get("fp") or ""
-    user_name = (browser_state.get("userName") or "").strip()
-    login_prompt_visible = bool(browser_state.get("loginPromptVisible")) or _is_login_prompt_text(user_name)
-    if login_prompt_visible:
-        user_name = ""
-    quota_text = (browser_state.get("quotaText") or browser_state.get("submitButtonText") or "").strip()
-    ready = bool(token or cookie_token or (user_name and (fp or cookies)))
-    return {
-        **browser_state,
-        "cookies": cookies,
-        "token": token or cookie_token,
-        "tokenSource": token_source or cookie_token_source,
-        "fp": fp,
-        "ready": ready,
-        "userName": user_name,
-        "loginPromptVisible": login_prompt_visible,
-        "quotaText": quota_text,
-        "remainingUses": _parse_remaining_uses(quota_text),
-    }
+    return _auth_state_from_browser_snapshot(browser_state, cookies)
 
 
 def find_browser_executable():
@@ -369,6 +585,13 @@ def launch_windows_chrome_for_cdp(executable: str, *, port: int | None = None) -
         return True, f"已连接现有 Windows Chrome 调试端口 {cdp_port}", existing_endpoint
 
     profile_dir = _windows_chrome_profile_dir()
+    if _is_wsl() and _windows_cdp_available(cdp_port):
+        return True, f"已连接现有 Windows Chrome 小窗；将通过 Windows 同步桥读取调试端口 {cdp_port}", "windows-powershell-bridge"
+    if _is_wsl():
+        # A stale dedicated profile can keep the Zhuque window visible while
+        # silently ignoring the new --remote-debugging-port launch. Stop only
+        # that GankAIGC profile and relaunch it with CDP so status can sync.
+        _stop_windows_chrome_debug_profile(profile_dir, cdp_port)
     chrome_path = str(executable)
     width = int(os.environ.get("ZHUQUE_LOGIN_WINDOW_WIDTH") or 520)
     height = int(os.environ.get("ZHUQUE_LOGIN_WINDOW_HEIGHT") or 760)
@@ -397,17 +620,49 @@ def launch_windows_chrome_for_cdp(executable: str, *, port: int | None = None) -
 
     endpoint = _wait_for_cdp(cdp_port, timeout=10.0)
     if not endpoint:
+        if _windows_cdp_available(cdp_port):
+            return True, f"已启动 Windows Chrome 小窗；将通过 Windows 同步桥读取调试端口 {cdp_port}", "windows-powershell-bridge"
         return False, f"Windows Chrome 已启动但调试端口 {cdp_port} 未就绪", ""
     return True, f"已启动 Windows Chrome 小窗并连接调试端口 {cdp_port}", endpoint
 
 # ===================== 凭证提取 =====================
+
+def credentials_from_auth_state(auth_state: dict) -> dict:
+    """Build persisted Zhuque credentials from a normalised auth snapshot."""
+    cookies = auth_state.get("cookies") or []
+    local_storage = auth_state.get("localStorage", {}) or {}
+    creds = {
+        "localStorage": local_storage,
+        "userName": auth_state.get("userName") or "",
+        "avatarUrl": auth_state.get("avatarUrl") or "",
+        "quotaText": auth_state.get("quotaText") or auth_state.get("submitButtonText") or "",
+        "submitButtonText": auth_state.get("submitButtonText") or "",
+        "url": auth_state.get("url") or MATRIX_URL,
+        "timestamp": auth_state.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "cookies": cookies,
+        "cookieString": '; '.join([f"{c.get('name')}={c.get('value')}" for c in cookies if c.get("name")]),
+    }
+    token = auth_state.get("token") or ""
+    token_source = auth_state.get("tokenSource") or ""
+    if not token:
+        token, token_source = _pick_local_storage_token(local_storage)
+    if not token:
+        token, token_source = _pick_cookie_value(cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
+    if token:
+        creds["access_token"] = token
+        creds["access_token_source"] = token_source
+    if local_storage.get("fp"):
+        creds["fp"] = local_storage["fp"]
+    creds["remainingUses"] = auth_state.get("remainingUses", _parse_remaining_uses(creds["quotaText"] or creds["submitButtonText"]))
+    return creds
+
 
 async def extract_credentials(page) -> dict:
     """从已登录页提取完整凭证：localStorage + cookies + 用户信息 + 配额"""
     # 先通过 Playwright context 获取所有 cookies（含 HttpOnly）
     all_cookies = await page.context.cookies()
 
-    creds = await page.evaluate("""
+    browser_state = await page.evaluate("""
         (() => {
             // localStorage 全部
             const ls = {};
@@ -439,18 +694,7 @@ async def extract_credentials(page) -> dict:
             };
         })()
     """)
-    creds['cookies'] = all_cookies
-    creds['cookieString'] = '; '.join([f"{c['name']}={c['value']}" for c in all_cookies])
-    token, token_source = _pick_local_storage_token(creds.get("localStorage", {}))
-    if not token:
-        token, token_source = _pick_cookie_value(all_cookies, ("ACCESS_TOKEN", "access_token", "accessToken"))
-    if token:
-        creds["access_token"] = token
-        creds["access_token_source"] = token_source
-    if creds.get("localStorage", {}).get("fp"):
-        creds["fp"] = creds["localStorage"]["fp"]
-    creds["remainingUses"] = _parse_remaining_uses(creds.get("quotaText") or creds.get("submitButtonText") or "")
-    return creds
+    return credentials_from_auth_state(_auth_state_from_browser_snapshot(browser_state, all_cookies))
 
 
 def write_session_status(status: dict) -> None:
@@ -499,9 +743,14 @@ def _logged_out_status_from_auth_state(auth_state: dict = None, *, message: str)
     quota_text = ""
     remaining_uses = -1
     if auth_state:
-        quota_text = (auth_state.get("quotaText") or auth_state.get("submitButtonText") or "").strip()
+        quota_text = (
+            auth_state.get("quotaText")
+            or auth_state.get("quota_text")
+            or auth_state.get("submitButtonText")
+            or ""
+        ).strip()
         try:
-            remaining_uses = int(auth_state.get("remainingUses", -1))
+            remaining_uses = int(auth_state.get("remainingUses", auth_state.get("remaining_uses", -1)))
         except (TypeError, ValueError):
             remaining_uses = -1
         if remaining_uses < 0:
@@ -518,8 +767,48 @@ def _logged_out_status_from_auth_state(auth_state: dict = None, *, message: str)
     }
 
 
+def _logged_out_status_with_previous_quota(
+    auth_state: dict = None,
+    *,
+    message: str,
+    previous_remaining_uses: int | None = None,
+) -> dict:
+    """Build logged-out status without regressing the visible free quota.
+
+    Zhuque can briefly hide the anonymous quota while the page rerenders after
+    logout. Keep the last known numeric quota in ``session_status.json`` during
+    that short gap so the workspace does not flash an unknown/free placeholder
+    before the next poll reads the live anonymous button text.
+    """
+    status = _logged_out_status_from_auth_state(auth_state, message=message)
+    if status.get("remaining_uses", -1) >= 0:
+        return status
+    try:
+        previous = int(previous_remaining_uses) if previous_remaining_uses is not None else -1
+    except (TypeError, ValueError):
+        previous = -1
+    if previous >= 0:
+        status["remaining_uses"] = previous
+    return status
+
+
 def write_logged_out_status(message: str = "朱雀网页显示未登录", auth_state: dict = None) -> None:
     write_session_status(_logged_out_status_from_auth_state(auth_state, message=message))
+
+
+def write_logged_out_status_preserving_quota(
+    message: str = "朱雀网页显示未登录",
+    auth_state: dict = None,
+    *,
+    previous_remaining_uses: int | None = None,
+) -> None:
+    write_session_status(
+        _logged_out_status_with_previous_quota(
+            auth_state,
+            message=message,
+            previous_remaining_uses=previous_remaining_uses,
+        )
+    )
 
 
 def save_credentials(creds: dict) -> tuple[Path, Path]:
@@ -556,6 +845,41 @@ def clear_latest_credentials(reason: str = "", auth_state: dict = None) -> bool:
     return removed
 
 
+def clear_latest_credentials_preserving_quota(
+    reason: str = "",
+    auth_state: dict = None,
+    *,
+    previous_remaining_uses: int | None = None,
+) -> bool:
+    """Clear credentials after real logout while keeping last known free quota."""
+    removed = False
+    if LATEST_CREDENTIALS_FILE.exists():
+        LATEST_CREDENTIALS_FILE.unlink()
+        removed = True
+    write_logged_out_status_preserving_quota(
+        reason or "朱雀网页显示未登录",
+        auth_state=auth_state,
+        previous_remaining_uses=previous_remaining_uses,
+    )
+    suffix = f" | {reason}" if reason else ""
+    if removed:
+        print(f"  [logout-sync] 已清除最新朱雀凭证: {LATEST_CREDENTIALS_FILE.name}{suffix}")
+    else:
+        print(f"  [logout-sync] 朱雀网页已退出，当前无最新凭证{suffix}")
+    return removed
+
+
+def _remember_auth_remaining(auth_state: dict, current_remaining: int | None = None) -> int | None:
+    """Return the latest non-negative quota from a page snapshot or cache."""
+    status = _logged_out_status_from_auth_state(auth_state, message="")
+    remaining = status.get("remaining_uses", -1)
+    try:
+        remaining = int(remaining)
+    except (TypeError, ValueError):
+        remaining = -1
+    return remaining if remaining >= 0 else current_remaining
+
+
 def auth_signature(auth_state: dict) -> tuple:
     """用于判断登录用户/凭证是否变化，避免每秒重复写文件。"""
     token = auth_state.get("token") or ""
@@ -568,11 +892,12 @@ def auth_signature(auth_state: dict) -> tuple:
     )
 
 
-async def save_logged_in_snapshot(page, ctx, reason: str = "") -> tuple[Path, Path]:
+async def save_logged_in_snapshot(page=None, ctx=None, reason: str = "", auth_state: dict = None) -> tuple[Path, Path]:
     """提取当前页面登录态并保存为 GankAIGC 可用凭证。"""
-    creds = await extract_credentials(page)
+    creds = credentials_from_auth_state(auth_state) if auth_state is not None else await extract_credentials(page)
     creds_file, latest_file = save_credentials(creds)
-    await save_browser_state(ctx)
+    if ctx is not None:
+        await save_browser_state(ctx)
     write_session_status({
         "connected": True,
         "ready": True,
@@ -586,6 +911,95 @@ async def save_logged_in_snapshot(page, ctx, reason: str = "") -> tuple[Path, Pa
     print(f"  [sync] 已同步朱雀登录态{label}: {creds.get('userName') or '未知用户'}")
     print(f"   凭证: {latest_file}")
     return creds_file, latest_file
+
+
+async def sync_windows_chrome_session_until_closed(*, trigger_login_when_missing: bool = False) -> dict:
+    """Synchronise Zhuque auth state from Windows Chrome when WSL cannot reach CDP directly."""
+    print("\n[sync] 已进入 Windows Chrome 状态同步桥模式")
+    print("   Windows Chrome 调试端口只在 Windows 侧可见；将通过 PowerShell 读取网页登录态。")
+    print("   请在打开的小窗内登录/退出；GankAIGC 会同步最后一次网页状态。\n")
+
+    existing_status = None
+    try:
+        existing_status = json.loads(SESSION_STATUS_FILE.read_text(encoding="utf-8")) if SESSION_STATUS_FILE.exists() else None
+    except (OSError, json.JSONDecodeError):
+        existing_status = None
+    last_signature = (
+        True,
+        existing_status.get("user_name") or "",
+        "",
+        "",
+        existing_status.get("remaining_uses"),
+    ) if isinstance(existing_status, dict) and (existing_status.get("connected") or existing_status.get("ready")) else None
+    logged_out_synced = False
+    logged_out_streak = 0
+    missing_target_streak = 0
+    saw_target = False
+    cdp_error_streak = 0
+    last_known_logged_out_remaining_uses = (
+        _remember_auth_remaining(existing_status)
+        if isinstance(existing_status, dict)
+        and existing_status.get("connected") is False
+        and existing_status.get("has_token") is False
+        else None
+    )
+
+    while True:
+        auth_state = inspect_windows_chrome_auth_state()
+        if not auth_state.get("ok"):
+            error = auth_state.get("error") or "Windows Chrome 状态读取失败"
+            if error == "target_not_found":
+                missing_target_streak += 1
+                if saw_target and missing_target_streak >= 3:
+                    print("  [sync] 朱雀窗口已关闭，结束同步")
+                    break
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+            cdp_error_streak += 1
+            if cdp_error_streak >= 3 and _windows_cdp_available(_cdp_port()):
+                print("  [sync] CDP 读取连续失败，调试端口仍在线，继续等待页面稳定")
+            else:
+                print(f"  [sync] Windows Chrome 状态读取失败，继续等待: {error}")
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        saw_target = True
+        cdp_error_streak = 0
+        missing_target_streak = 0
+
+        if auth_state.get("ready"):
+            logged_out_streak = 0
+            logged_out_synced = False
+            write_session_status(_auth_state_status(auth_state, message="朱雀网页已登录"))
+            signature = auth_signature(auth_state)
+            if signature != last_signature:
+                await save_logged_in_snapshot(reason="Windows Chrome 检测到登录态", auth_state=auth_state)
+                last_signature = signature
+            await asyncio.sleep(POLL_INTERVAL)
+            continue
+
+        logged_out_streak += 1
+        last_known_logged_out_remaining_uses = _remember_auth_remaining(auth_state, last_known_logged_out_remaining_uses)
+        write_logged_out_status_preserving_quota(
+            "朱雀网页显示未登录",
+            auth_state=auth_state,
+            previous_remaining_uses=last_known_logged_out_remaining_uses,
+        )
+        if (bool(auth_state.get("loginPromptVisible")) or logged_out_streak >= 2) and not logged_out_synced:
+            clear_latest_credentials_preserving_quota(
+                "朱雀网页显示未登录",
+                auth_state=auth_state,
+                previous_remaining_uses=last_known_logged_out_remaining_uses,
+            )
+            last_signature = None
+            logged_out_synced = True
+
+        # PowerShell bridge intentionally does not click the page; if the user
+        # sees the window, manual login is more reliable than synthetic clicks
+        # across a Windows-only CDP connection.
+        await asyncio.sleep(POLL_INTERVAL)
+
+    return {"status": "closed"}
 
 
 async def sync_session_until_closed(page, ctx, *, trigger_login_when_missing: bool = False) -> dict:
@@ -605,6 +1019,7 @@ async def sync_session_until_closed(page, ctx, *, trigger_login_when_missing: bo
     logged_out_synced = False
     login_triggered = False
     logged_out_streak = 0
+    last_known_logged_out_remaining_uses = None
 
     while True:
         try:
@@ -632,7 +1047,12 @@ async def sync_session_until_closed(page, ctx, *, trigger_login_when_missing: bo
             continue
 
         logged_out_streak += 1
-        write_logged_out_status("朱雀网页显示未登录", auth_state=auth_state)
+        last_known_logged_out_remaining_uses = _remember_auth_remaining(auth_state, last_known_logged_out_remaining_uses)
+        write_logged_out_status_preserving_quota(
+            "朱雀网页显示未登录",
+            auth_state=auth_state,
+            previous_remaining_uses=last_known_logged_out_remaining_uses,
+        )
 
         if trigger_login_when_missing and not login_triggered and logged_out_streak >= 2:
             login_triggered = True
@@ -651,7 +1071,11 @@ async def sync_session_until_closed(page, ctx, *, trigger_login_when_missing: bo
         # 初始化空白/抖动，则仍保留两次轮询确认，避免误删。
         logged_out_visible = bool(auth_state.get("loginPromptVisible"))
         if (logged_out_visible or logged_out_streak >= 2) and not logged_out_synced:
-            clear_latest_credentials("朱雀网页显示未登录", auth_state=auth_state)
+            clear_latest_credentials_preserving_quota(
+                "朱雀网页显示未登录",
+                auth_state=auth_state,
+                previous_remaining_uses=last_known_logged_out_remaining_uses,
+            )
             try:
                 await save_browser_state(ctx)
             except Exception as exc:
@@ -926,11 +1350,10 @@ async def open_matrix_page(page) -> None:
 
 async def capture_flow(headless=False, force_login=False, sync_session=False):
     """打开浏览器 → 触发/同步登录 → 提取凭证 → 保存。"""
-    pw = await async_playwright().start()
-
     browser_executable = find_browser_executable()
     browser = None
     ctx = None
+    pw = None
     windows_chrome_mode = (
         sync_session
         and not headless
@@ -946,7 +1369,10 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
             if not ok:
                 write_logged_out_status(message)
                 return {"status": "windows_chrome_cdp_unavailable", "message": message}
+            if cdp_endpoint == "windows-powershell-bridge":
+                return await sync_windows_chrome_session_until_closed(trigger_login_when_missing=True)
 
+        pw = await async_playwright().start()
         if windows_chrome_mode:
             browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
             contexts = browser.contexts
@@ -1083,7 +1509,8 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
     finally:
         if browser:
             await browser.close()
-        await pw.stop()
+        if pw:
+            await pw.stop()
 
 # ===================== 凭证加载/导出 =====================
 

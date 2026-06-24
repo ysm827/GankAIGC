@@ -84,32 +84,21 @@ const CreditsPage = () => {
       </header>
 
       <main className="aurora-page-shell aurora-account-shell relative z-[1] mx-auto max-w-[1280px] px-5 pb-12 pt-8 sm:px-8 lg:px-10">
-        <section className="aurora-account-hero">
-          <div>
-            <p className="gank-eyebrow">BEER BALANCE</p>
-            <h1>平台啤酒</h1>
-            <p>啤酒用于论文润色、增强和降重调用。1 啤酒约处理 1000 个非空白字符，流水会在这里留痕。</p>
-          </div>
-          <div className="aurora-account-chip-strip" aria-label="啤酒计费说明">
-            <span className="apple-config-chip">Recharge</span>
-            <span className="apple-config-chip">Ledger</span>
-            <span className="apple-config-chip">Usage</span>
-          </div>
-        </section>
-
+        <h1 className="sr-only">平台啤酒</h1>
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.35fr]">
           <section className="apple-utility-card aurora-account-card aurora-credit-card">
             <div className="aurora-credit-hero-icon" aria-hidden="true">
               <BeerIcon className="h-10 w-10" />
             </div>
-            <p className="gank-eyebrow">CURRENT BALANCE</p>
-            <h2>{credits?.is_unlimited ? '无限啤酒' : credits?.credit_balance ?? '-'}</h2>
+            <h2 className={credits?.is_unlimited ? 'aurora-credit-balance-unlimited' : undefined}>
+              {credits?.is_unlimited ? '无限啤酒' : credits?.credit_balance ?? '-'}
+            </h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">当前账号可用额度，用于平台模型处理任务。</p>
 
             <div className="aurora-credit-rules">
               <div>
                 <Sparkles className="h-4 w-4" />
-                <span>润色与增强按实际字符计费</span>
+                <span>1 啤酒 = 1000 个非空白字符</span>
               </div>
               <div>
                 <Receipt className="h-4 w-4" />
@@ -140,7 +129,6 @@ const CreditsPage = () => {
           <section className="apple-utility-card aurora-account-card aurora-ledger-card">
             <div className="aurora-ledger-head">
               <div>
-                <p className="gank-eyebrow">TRANSACTION LEDGER</p>
                 <h2>啤酒流水</h2>
               </div>
               <span className="aurora-subtle-badge">最近 {transactions.length} 条</span>

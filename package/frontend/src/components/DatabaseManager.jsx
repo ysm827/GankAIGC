@@ -174,7 +174,6 @@ const DatabaseManager = ({ adminToken }) => {
     <div className="aurora-admin-section space-y-6">
       <div className="aurora-admin-section-head">
         <div>
-          <p className="gank-eyebrow">DATA CONTROL</p>
           <div className="aurora-database-title-line">
             <h2>数据库管理</h2>
             <span className="aurora-database-readonly-badge">

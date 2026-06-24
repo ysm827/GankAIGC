@@ -412,7 +412,6 @@ const AdminOperationsPanel = ({ adminToken }) => {
       <div className="aurora-admin-card aurora-ops-board-shell">
         <div className="aurora-admin-section-head aurora-ops-header">
           <div>
-            <p className="gank-eyebrow">REALTIME OPS</p>
             <h2>运维监控</h2>
             <p>参考 Sub2API 的实时监控编排，但所有数值只取本机与后台接口真实采集结果。</p>
           </div>

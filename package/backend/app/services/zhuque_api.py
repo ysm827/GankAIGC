@@ -570,7 +570,7 @@ class ZhuqueAPI:
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
         headers = self._ws_headers(creds)
         try:
-            ws = await self._connect(headers)
+            ws = await asyncio.wait_for(self._connect(headers), timeout=max(timeout, 0.1))
         except Exception:
             return None
 
@@ -605,7 +605,10 @@ class ZhuqueAPI:
         except Exception:
             return None
         finally:
-            await ws.close()
+            try:
+                await asyncio.wait_for(ws.close(), timeout=0.5)
+            except Exception:
+                pass
         return None
 
     # ── WebSocket 检测 ───────────────────────────────────
@@ -623,21 +626,26 @@ class ZhuqueAPI:
     async def _connect(self, headers: list[tuple[str, str]]):
         # websockets 12 uses extra_headers; newer releases renamed it to
         # additional_headers. Try both without leaking either kwarg to the event loop.
+        common_kwargs = {
+            "origin": self.http_base_url,
+            "max_size": 2**24,
+            "open_timeout": 3.0,
+            "close_timeout": 0.2,
+            "ping_interval": None,
+        }
         for header_kwarg in ("extra_headers", "additional_headers"):
             try:
                 return await websockets.connect(
                     self.ws_url,
-                    origin=self.http_base_url,
                     **{header_kwarg: headers},
-                    max_size=2**24,
+                    **common_kwargs,
                 )
             except TypeError as exc:
                 if header_kwarg not in str(exc):
                     raise
         return await websockets.connect(
             self.ws_url,
-            origin=self.http_base_url,
-            max_size=2**24,
+            **common_kwargs,
         )
 
     async def _poll_cos_result(self, cos: str, start_time: int, text_length: int, creds: dict, timeout: float) -> dict:

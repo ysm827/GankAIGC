@@ -1206,27 +1206,6 @@ code {
   background: rgba(203, 213, 225, 0.64);
 }
 
-.aurora-check-dot,
-.aurora-radio-dot {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(203, 213, 225, 0.9);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.aurora-billing-card-active .aurora-check-dot,
-.aurora-billing-card-active .aurora-radio-dot {
-  border-color: transparent;
-  background: #3b82f6;
-}
-
 .aurora-input,
 .aurora-textarea,
 .aurora-select {
@@ -1356,8 +1335,9 @@ code {
 .aurora-zhuque-title p {
   color: #0f172a;
   font-size: 18px;
-  font-weight: 860;
-  letter-spacing: -0.035em;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   line-height: 1.08;
   white-space: nowrap;
 }
@@ -1368,8 +1348,9 @@ code {
   overflow: hidden;
   color: #64748b;
   font-size: 11px;
-  font-weight: 720;
-  letter-spacing: -0.01em;
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: 0;
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1399,10 +1380,11 @@ code {
 }
 
 .aurora-zhuque-metric span {
-  color: #1e293b;
+  color: #64748b;
   font-size: 14px;
-  font-weight: 820;
-  letter-spacing: -0.02em;
+  font-family: inherit;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -1412,7 +1394,9 @@ code {
   gap: 0.34rem;
   color: #0f172a;
   font-size: 14px;
-  font-weight: 850;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -1450,8 +1434,9 @@ code {
   order: 1;
   padding: 0.58rem 0.84rem;
   font-size: 14px;
-  font-weight: 850;
-  letter-spacing: -0.02em;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   box-shadow: 0 10px 22px rgba(0, 102, 204, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.26);
   transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
@@ -2184,6 +2169,12 @@ code {
   font-weight: 780;
   letter-spacing: -0.075em;
   line-height: 0.92;
+}
+
+.aurora-credit-card h2.aurora-credit-balance-unlimited {
+  font-size: clamp(2.25rem, 4.6vw, 3.9rem);
+  letter-spacing: -0.055em;
+  line-height: 1.02;
 }
 
 .aurora-credit-rules,

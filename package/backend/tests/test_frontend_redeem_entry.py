@@ -211,18 +211,29 @@ def test_workspace_project_archive_and_history_controls_are_actionable():
     assert ".aurora-session-project-select" not in index_css
 
 
-def test_workspace_persists_selected_processing_mode():
+def test_workspace_persists_selected_processing_and_billing_modes():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
 
     assert "gankaigc.workspace.processingMode" in workspace
+    assert "gankaigc.workspace.billingMode" in workspace
     assert "DEFAULT_PROCESSING_MODE = 'paper_polish'" in workspace
+    assert "DEFAULT_BILLING_MODE = 'platform'" in workspace
     assert "getInitialProcessingMode" in workspace
+    assert "getInitialBillingMode" in workspace
     assert "localStorage.getItem(WORKSPACE_PROCESSING_MODE_STORAGE_KEY)" in workspace
+    assert "localStorage.getItem(WORKSPACE_BILLING_MODE_STORAGE_KEY)" in workspace
     assert "localStorage.setItem(WORKSPACE_PROCESSING_MODE_STORAGE_KEY, processingMode)" in workspace
+    assert "localStorage.setItem(WORKSPACE_BILLING_MODE_STORAGE_KEY, billingMode)" in workspace
     assert "PROCESSING_MODE_IDS.has(savedMode)" in workspace
+    assert "BILLING_MODE_IDS.has(savedMode)" in workspace
     assert "PROCESSING_MODE_IDS.has(nextMode)" in workspace
     assert "useState(getInitialProcessingMode)" in workspace
+    assert "useState(getInitialBillingMode)" in workspace
     assert "onChange={handleProcessingModeChange}" in workspace
+    assert "gank-segmented-control aurora-mode-list aurora-billing-list" in workspace
+    assert "aurora-mode-card aurora-billing-card" in workspace
+    assert "aurora-check-dot" not in workspace
+    assert "aurora-radio-dot" not in workspace
 
 
 def test_workspace_zhuque_status_polling_avoids_overlapping_requests():
@@ -316,7 +327,9 @@ def test_frontend_uses_apple_glass_theme_tokens():
     assert "gank-segmented-control" in workspace
     assert "gank-glass-status-grid" in workspace
     assert "gank-glass-choice-active" in workspace
-    assert "gank-glass-choice-warm" in workspace
+    assert "gank-glass-choice-warm" not in workspace
+    assert "aurora-billing-list" in workspace
+    assert "aurora-mode-card aurora-billing-card" in workspace
     assert "gank-ambient-orb orb-one" in workspace
 
     assert "gank-liquid-panel" in session_detail
@@ -338,6 +351,19 @@ def test_account_credit_and_api_pages_use_aurora_theme_shell():
     api_settings_page = (FRONTEND_SRC / "pages" / "ApiSettingsPage.jsx").read_text(encoding="utf-8")
     static_bundle = _read_static_js_assets()
 
+    decorative_english_labels = [
+        "ACCOUNT CONTROL",
+        "DISPLAY NAME",
+        "SECURITY",
+        "INVITE CODE",
+        "BEER BALANCE",
+        "CURRENT BALANCE",
+        "TRANSACTION LEDGER",
+        "MODEL PROVIDER",
+        "PRIVATE PROVIDER",
+        "CONFIGURATION",
+    ]
+
     for page in (profile_page, credits_page, api_settings_page):
         assert "gank-app-page aurora-app-page aurora-account-page" in page
         assert "apple-global-nav aurora-topbar" in page
@@ -345,38 +371,41 @@ def test_account_credit_and_api_pages_use_aurora_theme_shell():
         assert "aurora-account-back-link" in page
         assert "返回工作台" in page
         assert "aurora-page-shell aurora-account-shell" in page
-        assert "aurora-account-hero" in page
-        assert "apple-config-chip" in page
+        assert "aurora-account-hero-blank" not in page
         assert "apple-utility-card aurora-account-card" in page
         assert "aurora-input" in page
+        for label in decorative_english_labels:
+            assert label not in page
 
-    assert "ACCOUNT CONTROL" in profile_page
     assert "保存昵称" in profile_page
     assert "保存密码" in profile_page
     assert "我的邀请码" in profile_page
     assert "gank-glass-toolbar" not in profile_page
 
-    assert "BEER BALANCE" in credits_page
-    assert "TRANSACTION LEDGER" in credits_page
+    assert "平台啤酒" in credits_page
+    assert "啤酒流水" in credits_page
     assert "aurora-ledger-list custom-scrollbar" in credits_page
+    assert "aurora-credit-balance-unlimited" in credits_page
     assert "gank-glass-card" not in credits_page
 
-    assert "MODEL PROVIDER" in api_settings_page
-    assert "CONFIGURATION" in api_settings_page
+    assert "自带 API 配置" in api_settings_page
+    assert "供应商配置" in api_settings_page
     assert "aurora-saved-key-notice" in api_settings_page
     assert "gank-card rounded-[2rem]" not in api_settings_page
 
     assert ".aurora-account-page" in index_css
     assert ".aurora-account-hero" in index_css
+    assert ".aurora-account-hero-blank" not in index_css
     assert ".aurora-account-card.apple-utility-card" in index_css
     assert ".aurora-account-primary.apple-action-pill" in index_css
     assert ".aurora-ledger-item" in index_css
     assert ".aurora-api-form" in index_css
 
-    assert "ACCOUNT CONTROL" in static_bundle
-    assert "BEER BALANCE" in static_bundle
-    assert "MODEL PROVIDER" in static_bundle
     assert "aurora-account-page" in static_bundle
+    assert "aurora-account-hero-blank" not in static_bundle
+    assert "aurora-credit-balance-unlimited" in static_bundle
+    for label in decorative_english_labels:
+        assert label not in static_bundle
 
 
 def test_frontend_glass_theme_has_runtime_performance_guardrails():
@@ -626,9 +655,11 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert "服务节点" not in admin_dashboard
     assert "handleAdminTabChange('operations')" not in admin_dashboard
     assert "aurora-admin-section-head" in admin_dashboard
-    assert "ACCOUNT CONTROL" in admin_dashboard
-    assert "BROADCAST" in admin_dashboard
-    assert "AUDIT LEDGER" in admin_dashboard
+    assert "用户管理" in admin_dashboard
+    assert "公告" in admin_dashboard
+    assert "操作日志" in admin_dashboard
+    for label in ("ACCOUNT CONTROL", "BROADCAST", "AUDIT LEDGER"):
+        assert label not in admin_dashboard
     assert "bg-gradient-to-r from-teal-600" not in admin_dashboard
     assert "bg-gradient-to-r from-indigo-600" not in admin_dashboard
     assert "activeClass" not in admin_dashboard
@@ -1004,7 +1035,7 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "zhuqueAccountLabel" in workspace
     assert "zhuqueConnected" in workspace
     assert "zhuqueRemainingLabel" in workspace
-    assert ": '免费次数'" in workspace
+    assert ": '免费次数'" not in workspace
     assert "syncZhuqueLoggedOutSnapshot" in workspace
     assert "mergeZhuqueReadiness(preflight)" in workspace
     assert "朱雀免费检测次数可用" in workspace
@@ -1031,7 +1062,19 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "grid-template-columns: minmax(9.5rem" not in index_css
     assert "flex-wrap: wrap" in index_css
     assert "font-size: 14px;" in index_css
-    assert "order: 1;" in index_css
+    assert (
+        ".aurora-zhuque-title p {\n"
+        "  color: #0f172a;\n"
+        "  font-size: 18px;\n"
+        "  font-family: inherit;\n"
+        "  font-weight: 600;"
+    ) in index_css
+    zhuque_css = index_css.split(".aurora-zhuque-status-card", 1)[1].split("@media (max-width: 640px)", 1)[0]
+    assert ".aurora-zhuque-login-button {" in zhuque_css
+    assert "font-weight: 600;\n  letter-spacing: -0.01em;" in zhuque_css
+    assert "font-weight: 860;" not in zhuque_css
+    assert "font-weight: 850;" not in zhuque_css
+    assert "order: 1;" in zhuque_css
     assert "--zhuque-card-gap: 0.72rem;" in index_css
     assert "gap: var(--zhuque-card-gap);" in index_css
     assert ".aurora-zhuque-title {\n  display: inline-flex;\n  flex: 0 0 auto;" in index_css
@@ -1064,12 +1107,15 @@ def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
     assert "文本长度" not in zhuque_panel
     assert "认证方式" not in zhuque_panel
     assert "预计最多消耗" not in zhuque_panel
-    assert "const zhuqueRemainingValue = [" in workspace
-    assert "zhuqueReadiness?.remaining_uses" in workspace
-    assert "zhuqueAuthStatus?.remaining_uses" in workspace
+    assert "extractZhuqueRemainingUses" in workspace
+    assert "zhuqueLastKnownLoggedOutRemaining" in workspace
+    assert "source.remaining_uses" in workspace
+    assert "source.remainingUses" in workspace
+    assert "source.quota_text" in workspace
     assert "const zhuqueHasKnownRemaining = zhuqueRemainingValue !== undefined" in workspace
     assert "? formatZhuqueRemainingUses(zhuqueRemainingValue)" in workspace
-    assert ": zhuqueConnected ? '检测后同步' : '免费次数'" in workspace
+    assert ": '检测后同步'" in workspace
+    assert ": zhuqueConnected ? '检测后同步' : '免费次数'" not in workspace
     assert "const zhuqueRemainingValue = zhuqueConnected" not in workspace
 
 

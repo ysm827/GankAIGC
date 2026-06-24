@@ -474,6 +474,130 @@ def test_zhuque_capture_does_not_fallback_after_windows_chrome_cdp_failure(monke
     assert messages == ["Windows Chrome 已启动但调试端口 9333 未就绪"]
 
 
+def test_zhuque_capture_uses_windows_powershell_bridge(monkeypatch):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_bridge", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class FakePlaywrightManager:
+        async def start(self):
+            raise AssertionError("PowerShell bridge mode must not start Playwright")
+
+    bridge_calls = []
+    monkeypatch.setattr(module, "async_playwright", lambda: FakePlaywrightManager())
+    monkeypatch.setattr(module, "find_browser_executable", lambda: "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
+    monkeypatch.setattr(module, "_is_wsl", lambda: True)
+    monkeypatch.setattr(module, "is_windows_browser_executable", lambda executable: True)
+    monkeypatch.setattr(
+        module,
+        "launch_windows_chrome_for_cdp",
+        lambda executable: (True, "已启动 Windows Chrome 小窗；将通过 Windows 同步桥读取调试端口 9333", "windows-powershell-bridge"),
+    )
+
+    async def fake_bridge(**kwargs):
+        bridge_calls.append(kwargs)
+        return {"status": "closed"}
+
+    monkeypatch.setattr(module, "sync_windows_chrome_session_until_closed", fake_bridge)
+
+    result = asyncio.run(module.capture_flow(sync_session=True))
+
+    assert result == {"status": "closed"}
+    assert bridge_calls == [{"trigger_login_when_missing": True}]
+
+
+def test_zhuque_capture_restarts_stale_windows_debug_profile(monkeypatch):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_restart_profile", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    stopped = []
+    launched = []
+    cdp_checks = []
+
+    class FakePopen:
+        def __init__(self, args, stdout=None, stderr=None, close_fds=None):
+            launched.append(args)
+
+    def fake_wait_for_cdp(port, timeout=8.0):
+        cdp_checks.append(timeout)
+        return "" if len(cdp_checks) == 1 else "http://127.0.0.1:9333"
+
+    monkeypatch.setattr(module, "_is_wsl", lambda: True)
+    monkeypatch.setattr(module, "_wait_for_cdp", fake_wait_for_cdp)
+    monkeypatch.setattr(module, "_windows_cdp_available", lambda port=None: False)
+    monkeypatch.setattr(module, "_windows_chrome_profile_dir", lambda: r"C:\Users\Administrator\AppData\Local\GankAIGC\ZhuqueChromeProfile")
+    monkeypatch.setattr(module, "_stop_windows_chrome_debug_profile", lambda profile, port: stopped.append((profile, port)) or 1)
+    monkeypatch.setattr(module.subprocess, "Popen", FakePopen)
+
+    ok, message, endpoint = module.launch_windows_chrome_for_cdp(
+        "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+        port=9333,
+    )
+
+    assert ok is True
+    assert endpoint == "http://127.0.0.1:9333"
+    assert "调试端口 9333" in message
+    assert stopped == [(r"C:\Users\Administrator\AppData\Local\GankAIGC\ZhuqueChromeProfile", 9333)]
+    assert launched and "--remote-debugging-port=9333" in launched[0]
+
+
+def test_zhuque_capture_logged_out_status_preserves_previous_quota_when_page_quota_flickers(monkeypatch, tmp_path):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_preserve_quota", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module, "SESSION_STATUS_FILE", tmp_path / "session_status.json")
+
+    module.write_session_status(
+        module._logged_out_status_with_previous_quota(
+            {"quotaText": "", "submitButtonText": "", "remainingUses": -1},
+            message="朱雀网页显示未登录",
+            previous_remaining_uses=16,
+        )
+    )
+
+    status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert status["connected"] is False
+    assert status["has_token"] is False
+    assert status["remaining_uses"] == 16
+    assert status["quota_text"] == ""
+
+
+def test_zhuque_capture_logged_out_status_prefers_live_page_quota_over_previous(monkeypatch, tmp_path):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_live_quota", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module, "SESSION_STATUS_FILE", tmp_path / "session_status.json")
+
+    module.write_session_status(
+        module._logged_out_status_with_previous_quota(
+            {"quotaText": "Detect now(15 left)", "submitButtonText": "", "remainingUses": -1},
+            message="朱雀网页显示未登录",
+            previous_remaining_uses=20,
+        )
+    )
+
+    status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert status["connected"] is False
+    assert status["has_token"] is False
+    assert status["remaining_uses"] == 15
+    assert "15 left" in status["quota_text"]
+
+
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
@@ -1191,7 +1315,7 @@ def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):
         service._last_remaining_checked_at = 0
 
 
-def test_zhuque_service_readiness_without_text_refreshes_live_quota_probe(monkeypatch):
+def test_zhuque_service_readiness_without_text_skips_live_probe_when_quota_unknown(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
 
@@ -1227,8 +1351,58 @@ def test_zhuque_service_readiness_without_text_refreshes_live_quota_probe(monkey
     try:
         result = asyncio.run(service.readiness())
 
-        assert fake_api.peek_calls == 1
-        assert result["remaining_uses"] == 16
+        assert fake_api.peek_calls == 0
+        assert result["remaining_uses"] == -1
+        assert result["connected"] is True
+        assert result["ready"] is True
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+        service._last_remaining_uses = None
+        service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_readiness_without_text_reuses_known_quota_without_live_probe(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    class FakeAPI(StatusOnlyZhuqueAPI):
+        def __init__(self, status_payload):
+            super().__init__(status_payload)
+            self.peek_calls = 0
+
+        async def peek_remaining_uses(self, timeout=3.0):
+            self.peek_calls += 1
+            return 16
+
+    fake_api = FakeAPI(
+        {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
+            "remaining_uses": 20,
+            "button_enabled": True,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "朱雀微信凭证已就绪，检测将走无头 API",
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    service._last_remaining_uses = None
+    service._last_remaining_checked_at = 0
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    try:
+        result = asyncio.run(service.readiness())
+
+        assert fake_api.peek_calls == 0
+        assert result["remaining_uses"] == 20
         assert result["connected"] is True
         assert result["ready"] is True
     finally:
@@ -1275,7 +1449,7 @@ def test_zhuque_service_readiness_throttles_live_quota_probe(monkeypatch):
     monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
 
     try:
-        first = asyncio.run(service.readiness())
+        first = asyncio.run(service.readiness("汉" * 500))
         second = asyncio.run(service.readiness())
 
         assert fake_api.peek_calls == 1

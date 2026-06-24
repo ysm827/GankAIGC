@@ -716,7 +716,6 @@ const SessionDetailPage = () => {
                         <FileText className="h-5 w-5" />
                       </div>
                       <div>
-                        <p className="gank-eyebrow mb-2">DETECTION REPORT</p>
                         <h3 className="text-[17px] font-semibold leading-tight tracking-[-0.025em] text-slate-950">检测报告预览</h3>
                         <p className="mt-1 text-[11px] leading-5 text-slate-500">
                           朱雀 AI 报告，全文合并检测，阈值 {zhuqueThreshold}%，检测不消耗啤酒

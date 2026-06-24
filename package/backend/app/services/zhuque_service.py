@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS = 15.0
 
 
+def _recent_quota_cache_valid(last_checked_at: float) -> bool:
+    return (
+        last_checked_at > 0
+        and time.monotonic() - last_checked_at < ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS
+    )
+
+
 class ZhuqueService:
     """单例: 管理朱雀无头 API 凭证 + 序列化检测请求"""
 
@@ -178,12 +185,29 @@ class ZhuqueService:
         credential_remaining_uses = self._coerce_remaining_uses(status.get("remaining_uses"))
         remaining_uses = credential_remaining_uses
         if has_token:
-            remaining_uses = await self._refresh_live_remaining_uses(
-                api,
-                current_remaining=credential_remaining_uses,
-                force=bool(text is not None and text_length_ok),
-                timeout=2.5,
-            )
+            # Passive workspace polling must stay instant. If the credential
+            # snapshot or recent live cache already carries a quota, reuse it
+            # and let preflight/start paths force a live no-text WebSocket probe.
+            # Unknown quota stays unknown on passive polling instead of risking
+            # UI stalls on WebSocket connect/close in WSL/Windows networks.
+            force_live_probe = bool(text is not None and text_length_ok)
+            if text is None:
+                if self._last_remaining_uses is not None and _recent_quota_cache_valid(self._last_remaining_checked_at):
+                    remaining_uses = self._last_remaining_uses
+                elif credential_remaining_uses >= 0:
+                    remaining_uses = credential_remaining_uses
+                    self._remember_remaining_uses(credential_remaining_uses)
+                elif self._last_remaining_uses is not None:
+                    remaining_uses = self._last_remaining_uses
+                else:
+                    remaining_uses = -1
+            else:
+                remaining_uses = await self._refresh_live_remaining_uses(
+                    api,
+                    current_remaining=credential_remaining_uses,
+                    force=force_live_probe,
+                    timeout=2.5,
+                )
 
         can_use_free_quota = remaining_uses != 0
         ready = text_length_ok and can_use_free_quota

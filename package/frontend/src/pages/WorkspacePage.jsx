@@ -28,8 +28,11 @@ const PROCESSING_MODE_OPTIONS = [
 ];
 
 const DEFAULT_PROCESSING_MODE = 'paper_polish';
+const DEFAULT_BILLING_MODE = 'platform';
 const WORKSPACE_PROCESSING_MODE_STORAGE_KEY = 'gankaigc.workspace.processingMode';
+const WORKSPACE_BILLING_MODE_STORAGE_KEY = 'gankaigc.workspace.billingMode';
 const PROCESSING_MODE_IDS = new Set(PROCESSING_MODE_OPTIONS.map((option) => option.id));
+const BILLING_MODE_IDS = new Set(['platform', 'byok']);
 
 const getInitialProcessingMode = () => {
   if (typeof window === 'undefined') {
@@ -41,6 +44,19 @@ const getInitialProcessingMode = () => {
     return PROCESSING_MODE_IDS.has(savedMode) ? savedMode : DEFAULT_PROCESSING_MODE;
   } catch {
     return DEFAULT_PROCESSING_MODE;
+  }
+};
+
+const getInitialBillingMode = () => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_BILLING_MODE;
+  }
+
+  try {
+    const savedMode = window.localStorage.getItem(WORKSPACE_BILLING_MODE_STORAGE_KEY);
+    return BILLING_MODE_IDS.has(savedMode) ? savedMode : DEFAULT_BILLING_MODE;
+  } catch {
+    return DEFAULT_BILLING_MODE;
   }
 };
 
@@ -56,6 +72,7 @@ const ZHUQUE_PROCESS_STEPS = ['朱雀检测', '论文重构', '全文复检'];
 const ZHUQUE_STATUS_POLL_INTERVAL_MS = 1000;
 const ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 350;
 const ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 12000;
+const ZHUQUE_READINESS_SOFT_TIMEOUT_MS = 2500;
 const WORKSPACE_QUEUE_POLL_INTERVAL_MS = 15000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 6000;
 
@@ -100,6 +117,59 @@ const formatZhuqueRemainingUses = (value) => {
   }
   return `${numeric} 次`;
 };
+
+const parseZhuqueRemainingUses = (value) => {
+  if (value === null || value === undefined || typeof value === 'boolean') {
+    return undefined;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return undefined;
+  }
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) {
+    return numeric >= 0 ? Math.trunc(numeric) : undefined;
+  }
+  const match = text.match(/(\d+)/);
+  return match ? Number(match[1]) : undefined;
+};
+
+const extractZhuqueRemainingUses = (...sources) => {
+  for (const source of sources) {
+    if (source === null || source === undefined) {
+      continue;
+    }
+    if (typeof source === 'object') {
+      const remaining = extractZhuqueRemainingUses(
+        source.remaining_uses,
+        source.remainingUses,
+        source.availableUses,
+        source.quota_text,
+        source.quotaText,
+        source.submitButtonText
+      );
+      if (remaining !== undefined) {
+        return remaining;
+      }
+      continue;
+    }
+    const remaining = parseZhuqueRemainingUses(source);
+    if (remaining !== undefined) {
+      return remaining;
+    }
+  }
+  return undefined;
+};
+
+const withSoftTimeout = (promise, timeoutMs) => Promise.race([
+  promise,
+  new Promise((resolve) => {
+    window.setTimeout(resolve, timeoutMs);
+  }),
+]);
 
 const PROCESSING_MODE_LABELS = PROCESSING_MODE_OPTIONS.reduce((acc, option) => {
   acc[option.id] = option.title;
@@ -320,7 +390,7 @@ const WorkspacePage = () => {
   const [activeSession, setActiveSession] = useState(null);
   const [credits, setCredits] = useState(null);
   const [hasProviderConfig, setHasProviderConfig] = useState(false);
-  const [billingMode, setBillingMode] = useState('platform');
+  const [billingMode, setBillingMode] = useState(getInitialBillingMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [retryDialogSession, setRetryDialogSession] = useState(null);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -342,10 +412,22 @@ const WorkspacePage = () => {
   const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
   const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
+  const [zhuqueLastKnownLoggedOutRemaining, setZhuqueLastKnownLoggedOutRemaining] = useState(undefined);
   const [zhuqueFastPollUntil, setZhuqueFastPollUntil] = useState(0);
   const activeProjectIdRef = useRef(null);
   const isLoadingZhuqueStatusRef = useRef(false);
+  const zhuqueLastKnownLoggedOutRemainingRef = useRef(undefined);
   const navigate = useNavigate();
+
+  const rememberZhuqueLoggedOutRemaining = useCallback((value) => {
+    const remaining = parseZhuqueRemainingUses(value);
+    if (remaining === undefined) {
+      return undefined;
+    }
+    zhuqueLastKnownLoggedOutRemainingRef.current = remaining;
+    setZhuqueLastKnownLoggedOutRemaining((current) => (current === remaining ? current : remaining));
+    return remaining;
+  }, []);
 
   const activeProject = useMemo(() => (
     typeof activeProjectId === 'number' && activeProjectId > 0
@@ -371,30 +453,39 @@ const WorkspacePage = () => {
     () => calculateEstimatedCredits(text, processingMode),
     [processingMode, text]
   );
-  const zhuqueConnected = Boolean(
-    zhuqueAuthStatus?.connected || zhuqueReadiness?.connected || zhuqueReadiness?.has_token
-  );
-  const zhuqueRemainingValue = [
-    zhuqueReadiness?.remaining_uses,
-    zhuqueAuthStatus?.remaining_uses,
-  ].find((value) => {
-    if (value === null || value === undefined) {
-      return false;
+  const zhuqueAuthConnected = Boolean(zhuqueAuthStatus?.connected || zhuqueAuthStatus?.has_token);
+  const zhuqueReadinessConnected = Boolean(zhuqueReadiness?.connected || zhuqueReadiness?.has_token);
+  const zhuqueConnected = Boolean(zhuqueAuthConnected || zhuqueReadinessConnected);
+  const zhuqueAuthRemainingValue = extractZhuqueRemainingUses(zhuqueAuthStatus);
+  const zhuqueReadinessRemainingValue = extractZhuqueRemainingUses(zhuqueReadiness);
+  const zhuqueLiveRemainingValue = (
+    zhuqueConnected
+      ? [
+          zhuqueReadinessConnected ? zhuqueReadinessRemainingValue : undefined,
+          zhuqueAuthConnected ? zhuqueAuthRemainingValue : undefined,
+        ]
+      : [
+          !zhuqueReadinessConnected ? zhuqueReadinessRemainingValue : undefined,
+          !zhuqueAuthConnected ? zhuqueAuthRemainingValue : undefined,
+        ]
+  ).find((value) => value !== undefined);
+  useEffect(() => {
+    if (!zhuqueConnected) {
+      rememberZhuqueLoggedOutRemaining(zhuqueLiveRemainingValue);
     }
-    const numeric = Number(value);
-    return Number.isFinite(numeric) && numeric >= 0;
-  });
+  }, [rememberZhuqueLoggedOutRemaining, zhuqueConnected, zhuqueLiveRemainingValue]);
+  const zhuqueRemainingValue = zhuqueLiveRemainingValue ?? (!zhuqueConnected ? zhuqueLastKnownLoggedOutRemaining : undefined);
   const zhuqueHasKnownRemaining = zhuqueRemainingValue !== undefined;
   const zhuqueRemainingLabel = zhuqueHasKnownRemaining
     ? formatZhuqueRemainingUses(zhuqueRemainingValue)
-    : zhuqueConnected ? '检测后同步' : '免费次数';
+    : '检测后同步';
   const zhuqueAccountName = [
     zhuqueReadiness?.user_name,
     zhuqueAuthStatus?.user_name,
     zhuqueReadiness?.userName,
     zhuqueAuthStatus?.userName,
   ].find((value) => typeof value === 'string' && value.trim())?.trim() || '';
-  const zhuqueAccountLabel = zhuqueConnected ? (zhuqueAccountName || '未知用户') : '未登录';
+  const zhuqueAccountLabel = zhuqueConnected ? (zhuqueAccountName || '已登录') : '未登录';
 
   const handleProcessingModeChange = useCallback((event) => {
     const nextMode = event.target.value;
@@ -482,8 +573,9 @@ const WorkspacePage = () => {
       message: '朱雀网页显示未登录',
     };
     const rawRemaining = payload.remaining_uses;
-    const numericRemaining = Number(rawRemaining);
-    const hasLiveFreeQuota = rawRemaining !== null && rawRemaining !== undefined && Number.isFinite(numericRemaining) && numericRemaining >= 0;
+    const liveRemaining = rememberZhuqueLoggedOutRemaining(extractZhuqueRemainingUses(payload, rawRemaining));
+    const fallbackRemaining = liveRemaining ?? zhuqueLastKnownLoggedOutRemainingRef.current;
+    const hasKnownQuota = fallbackRemaining !== undefined;
     setZhuqueAuthStatus((current) => ({
       ...current,
       ...payload,
@@ -491,7 +583,7 @@ const WorkspacePage = () => {
       connected: false,
       ready: false,
       has_token: false,
-      remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+      remaining_uses: hasKnownQuota ? fallbackRemaining : -1,
       user_name: '',
       quota_text: payload.quota_text || '',
     }));
@@ -502,39 +594,58 @@ const WorkspacePage = () => {
       connected: false,
       page_found: false,
       has_token: false,
-      remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+      remaining_uses: hasKnownQuota ? fallbackRemaining : -1,
       button_enabled: payload.button_enabled ?? true,
       user_name: '',
       quota_text: payload.quota_text || '',
       actions: payload.actions || current?.actions || [],
       message: payload.message || '朱雀未登录，可使用免费次数或扫码登录',
     }));
-  }, []);
+  }, [rememberZhuqueLoggedOutRemaining]);
 
   const mergeZhuqueAuthStatus = useCallback((payload) => {
-    setZhuqueAuthStatus(payload);
-    if (payload && payload.connected === false && payload.has_token === false) {
-      syncZhuqueLoggedOutSnapshot(payload);
+    const parsedRemaining = extractZhuqueRemainingUses(payload);
+    const isLoggedOutPayload = payload && payload.connected === false && payload.has_token === false;
+    const liveRemaining = isLoggedOutPayload ? rememberZhuqueLoggedOutRemaining(parsedRemaining) : parsedRemaining;
+    const nextPayload = liveRemaining !== undefined ? { ...payload, remaining_uses: liveRemaining } : payload;
+    if (nextPayload && nextPayload.connected === false && nextPayload.has_token === false) {
+      syncZhuqueLoggedOutSnapshot(nextPayload);
+      return;
     }
-  }, [syncZhuqueLoggedOutSnapshot]);
+    setZhuqueAuthStatus(nextPayload);
+  }, [rememberZhuqueLoggedOutRemaining, syncZhuqueLoggedOutSnapshot]);
 
   const mergeZhuqueReadiness = useCallback((payload) => {
-    setZhuqueReadiness(payload);
-    if (payload && payload.connected === false && payload.has_token === false) {
-      const rawRemaining = payload.remaining_uses;
-      const numericRemaining = Number(rawRemaining);
-      const hasLiveFreeQuota = rawRemaining !== null && rawRemaining !== undefined && Number.isFinite(numericRemaining) && numericRemaining >= 0;
+    const parsedRemaining = extractZhuqueRemainingUses(payload);
+    const isLoggedOutPayload = payload && payload.connected === false && payload.has_token === false;
+    const liveRemaining = isLoggedOutPayload ? rememberZhuqueLoggedOutRemaining(parsedRemaining) : parsedRemaining;
+    const nextPayload = liveRemaining !== undefined ? { ...payload, remaining_uses: liveRemaining } : payload;
+    if (nextPayload && nextPayload.connected === false && nextPayload.has_token === false) {
+      const fallbackRemaining = liveRemaining ?? zhuqueLastKnownLoggedOutRemainingRef.current;
+      const hasKnownQuota = fallbackRemaining !== undefined;
+      setZhuqueReadiness((current) => ({
+        ...current,
+        ...nextPayload,
+        connected: false,
+        page_found: false,
+        has_token: false,
+        remaining_uses: hasKnownQuota ? fallbackRemaining : -1,
+        user_name: '',
+        quota_text: nextPayload.quota_text || '',
+      }));
       setZhuqueAuthStatus((current) => ({
         ...current,
         connected: false,
         ready: false,
         has_token: false,
-        remaining_uses: hasLiveFreeQuota ? numericRemaining : -1,
+        remaining_uses: hasKnownQuota ? fallbackRemaining : -1,
         user_name: '',
-        quota_text: payload.quota_text || '',
+        quota_text: nextPayload.quota_text || '',
       }));
+      return;
     }
-  }, []);
+    setZhuqueReadiness(nextPayload);
+  }, [rememberZhuqueLoggedOutRemaining]);
 
   const loadZhuqueAuthStatus = useCallback(async () => {
     try {
@@ -577,7 +688,7 @@ const WorkspacePage = () => {
     try {
       await Promise.all([
         loadZhuqueAuthStatus(),
-        loadZhuqueReadiness(),
+        withSoftTimeout(loadZhuqueReadiness(), ZHUQUE_READINESS_SOFT_TIMEOUT_MS),
       ]);
     } finally {
       isLoadingZhuqueStatusRef.current = false;
@@ -657,6 +768,14 @@ const WorkspacePage = () => {
       // localStorage 可能被浏览器隐私策略禁用；此时保留本次页面内选择即可。
     }
   }, [processingMode]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WORKSPACE_BILLING_MODE_STORAGE_KEY, billingMode);
+    } catch {
+      // localStorage 可能被浏览器隐私策略禁用；此时保留本次页面内选择即可。
+    }
+  }, [billingMode]);
 
   useEffect(() => {
     if (processingMode !== 'ai_detect_reduce') {
@@ -1097,21 +1216,21 @@ const WorkspacePage = () => {
                     <CircleDollarSign className="h-4 w-4 text-[#6680bf]" />
                     <span>计费方式</span>
                   </div>
-                  <div className="space-y-2.5">
-                    <label className={`aurora-billing-card ${billingMode === 'platform' ? 'aurora-billing-card-active gank-glass-choice-warm' : 'gank-glass-choice'}`}>
+                  <div className="gank-segmented-control aurora-mode-list aurora-billing-list">
+                    <label className={`aurora-mode-card aurora-billing-card ${billingMode === 'platform' ? 'aurora-mode-card-active aurora-billing-card-active gank-glass-choice-active' : 'gank-glass-choice'}`}>
                       <input
                         type="radio"
                         name="billingMode"
                         value="platform"
                         checked={billingMode === 'platform'}
                         onChange={(event) => setBillingMode(event.target.value)}
-                        className="sr-only"
+                        className="hidden"
                       />
                       <span className="aurora-mode-icon aurora-icon-blue">
                         <Layers className="h-6 w-6" />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[16px] font-semibold text-slate-950">平台模式</span>
+                      <span className="min-w-0">
+                        <span className="block text-[16px] font-semibold tracking-[-0.01em] text-slate-950">平台模式</span>
                         <span className="mt-1 block text-[13px] leading-5 text-slate-500">
                           使用平台模型，1 啤酒 = 1000 非空白字符
                         </span>
@@ -1121,23 +1240,22 @@ const WorkspacePage = () => {
                           {processingMode === 'ai_detect_reduce' ? ' · 检测不扣啤酒' : ''}
                         </span>
                       </span>
-                      <span className="aurora-check-dot">✓</span>
                     </label>
 
-                    <label className={`aurora-billing-card ${billingMode === 'byok' ? 'aurora-billing-card-active gank-glass-choice-active' : 'gank-glass-choice'}`}>
+                    <label className={`aurora-mode-card aurora-billing-card ${billingMode === 'byok' ? 'aurora-mode-card-active aurora-billing-card-active gank-glass-choice-active' : 'gank-glass-choice'}`}>
                       <input
                         type="radio"
                         name="billingMode"
                         value="byok"
                         checked={billingMode === 'byok'}
                         onChange={(event) => setBillingMode(event.target.value)}
-                        className="sr-only"
+                        className="hidden"
                       />
                       <span className="aurora-mode-icon aurora-icon-navy">
                         <LinkIcon className="h-6 w-6" />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[16px] font-semibold text-slate-950">自带API模式</span>
+                      <span className="min-w-0">
+                        <span className="block text-[16px] font-semibold tracking-[-0.01em] text-slate-950">自带API模式</span>
                         <span className="mt-1 block text-[13px] leading-5 text-slate-500">
                           接入自有API Key，按实际用量
                         </span>
@@ -1145,7 +1263,6 @@ const WorkspacePage = () => {
                           {hasProviderConfig ? '已保存配置，不消耗啤酒' : '需要先保存 API 配置'}
                         </span>
                       </span>
-                      <span className="aurora-radio-dot" />
                     </label>
                   </div>
                 </div>
@@ -1163,7 +1280,7 @@ const WorkspacePage = () => {
                             className={`aurora-zhuque-account ${zhuqueConnected ? 'is-connected' : ''}`}
                             title={zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录'}
                           >
-                            登录用户：{zhuqueAccountLabel}
+                            {zhuqueAccountLabel}
                           </span>
                         </div>
                       </div>

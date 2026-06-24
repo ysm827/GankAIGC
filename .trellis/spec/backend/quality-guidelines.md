@@ -187,7 +187,11 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Login/setup uses `zhuque_pkg/capture_zhuque_creds.py --sync-session` from the workspace button. This opens the real Zhuque page and watches the page state: when Zhuque is logged in it saves/updates `creds_latest.json`; when the Zhuque page itself shows logged out for consecutive polls it removes `creds_latest.json` and persists the logged-out `browser_state.json`. Clicking GankAIGC's already-logged-in button must not pre-delete credentials or auto-logout the page; only a real logout inside the Zhuque page counts as logout. After `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API. Do not resurrect local page-control/CDP detection logic.
 - The credential file default search order must prefer the repo-level `zhuque_pkg/creds_latest.json` so `cd package && python main.py` and repo-root tooling agree. `ZHUQUE_CREDENTIALS_FILE` may override it.
 - Zhuque remaining-use values are not guaranteed to exist in `quotaText`; current live pages can expose quota via `availableUses`, `remainingUses`, `remaining_uses`, button text such as `Detect now(18 left)`, or Chinese quota copy. Backend code must normalize all of these. `creds_latest.json` captures quota at login time and is stale after detections; `ZhuqueService.readiness()` and `start()` must refresh quota through `ZhuqueAPI.peek_remaining_uses()` when a token exists. The peek sends only auth data and closes before captcha/text submission, so it must not consume a detection use. Throttle passive workspace probes (current guard: `ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS`) and force-refresh preflight/start paths with real text. A displayed `-1` means unknown, not zero.
+- During real-page logout sync, Zhuque can briefly hide the anonymous quota while the page rerenders. If the current logged-out auth snapshot has no quota, the capture script may preserve the last known non-negative quota in non-secret `session_status.json` so the workspace does not flash an unknown/free placeholder. This preserved value is UI state only: do not write it into `creds_latest.json`, do not treat it as a logged-in token, and prefer a newly parsed logged-out page quota as soon as it appears.
+- Workspace passive Zhuque polling must stay fast and must not block the UI on WebSocket close/connect hangs. `ZhuqueService.readiness(text=None)` should reuse a recent live quota cache or a non-negative quota from `creds_latest.json` / `session_status.json` without a live `peek_remaining_uses()` call; unknown quota should remain `-1` instead of probing from the status panel. Preflight/start paths with real text (`text is not None` and length is valid) must still force a live no-text WebSocket quota probe.
 - `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. On WSL, a Windows-installed Chrome/Edge/Brave under `/mnt/c/.../*.exe` counts as controllable: the capture script must launch it as a small app window with a dedicated `--remote-debugging-port` and connect via Chrome DevTools Protocol so the visible QR window appears on the user's Windows desktop while GankAIGC can still sync cookies/localStorage. It must not return `started` if the real-page sync window cannot open; otherwise users see a false positive while no login/logout state can be synced.
+- If WSL cannot reach the Windows Chrome CDP port directly but Windows itself can access `http://127.0.0.1:<ZHUQUE_CDP_PORT>`, `capture_zhuque_creds.py --sync-session` must switch to the Windows PowerShell CDP bridge instead of falling back to Playwright's Chromium. The bridge reads the real Windows Chrome page state, cookies, and localStorage from the Windows side and writes repo-level `creds_latest.json` plus non-secret `session_status.json`.
+- Windows Chrome may ignore a new `--remote-debugging-port` launch when the dedicated GankAIGC profile is already open without CDP. The capture script may stop only Chrome processes whose command line references the dedicated `ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR`/`GankAIGC\ZhuqueChromeProfile` profile or the configured debug port, then relaunch with CDP. It must never kill the user's normal Chrome profile.
 - Start/retry in `platform` mode for `ai_detect_reduce` must leave `charge_status="not_charged"` and `charged_credits=0`; only actual LLM reduce calls create `reason="zhuque_reduce"` transactions.
 - Session project assignment is a metadata move only: it must verify the session belongs to the current user, verify the target `PaperProject` belongs to the same user and is not archived, update only `OptimizationSession.project_id/updated_at`, and never mutate segment text, billing fields, or task status. `project_id=null` means move the session back to unfiled.
 - `ai_detect_reduce` start must run a preflight before creating a session:
@@ -223,7 +227,11 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Readiness endpoint credential missing/browser setup incomplete -> HTTP 200 with `ready=false`, `connected=false`, message/actions; it must not throw a blocking 500 for normal user setup issues.
 - Start real-page session sync with missing Playwright package -> `{status:"manual_required"}` and command includes `pip install playwright`.
 - Start real-page session sync with missing Chromium/Chrome -> `{status:"manual_required"}` and command includes `playwright install chromium`; do not report `started`. On WSL with Windows Chrome installed, this case should not fire; the launch env should include `ZHUQUE_CHROME_EXECUTABLE=/mnt/c/.../chrome.exe` and `ZHUQUE_CDP_PORT`.
+- Start real-page session sync on WSL with Windows Chrome installed but WSL cannot connect to CDP while Windows can -> enter `windows-powershell-bridge`, keep the Windows Chrome window, and synchronize `connected/ready/user_name/remaining_uses` from PowerShell CDP snapshots.
+- Dedicated Windows Chrome profile already open without CDP -> stop only that dedicated profile, relaunch with `--remote-debugging-port=<ZHUQUE_CDP_PORT>`, and do not fall back to Playwright Chromium.
+- Workspace passive readiness with saved `remaining_uses=20` -> return immediately with `remaining_uses=20`; unknown saved quota -> return `-1` immediately; do not run `peek_remaining_uses()` just to render the status panel. Preflight with valid text -> force a live peek and use the live value when available.
 - User clicks the workspace `已登录` button -> backend starts `capture_zhuque_creds.py --sync-session`; old `creds_latest.json` remains until the Zhuque page itself is observed as logged out.
+- Zhuque page is observed logged out but the immediate snapshot has no quota text -> write logged-out `session_status.json` with the previous known non-negative quota; once `Detect now(16 left)` or similar appears, replace it with the live parsed anonymous quota.
 - User logs in inside the Zhuque page and closes the sync window -> latest observed logged-in state remains saved, and the workspace status endpoint should continue to report logged in from `creds_latest.json`.
 - Preflight endpoint must not click Zhuque detect or consume Zhuque quota.
 - Zhuque page/button unusable or quota exhausted -> task `failed`, error tells the user to login/switch accounts/wait for quota restoration.
@@ -244,6 +252,9 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Good: Workspace preflight sees ready Zhuque credentials and returns estimates, then start creates an `ai_detect_reduce` session with no `optimization_start` hold.
 - Good: an unfiled session can be moved into `test1` through `PATCH /sessions/{session_id}/project`, disappears from `project_id=0`, appears under `project_id=<test1>`, and can be moved back with `project_id=null`.
 - Good: Workspace `已登录` opens a sync window without deleting the old credential; if the user only closes the Zhuque page, GankAIGC remains logged in; if the user logs out in the Zhuque page, `creds_latest.json` is removed and the workspace becomes logged out.
+- Good: logout sync removes `creds_latest.json` only after real page logout, but keeps `session_status.json.remaining_uses=16` during a transient quota-text gap so the workspace immediately shows `16 次`.
+- Good: WSL launches Windows Chrome, WSL cannot access `127.0.0.1:<port>`, Windows PowerShell can; the bridge reads `userName`, `aiGenAccessToken`, `fp`, cookies, and quota from the Windows page and the workspace updates to connected without opening a second Playwright browser.
+- Good: passive workspace polling returns the saved quota instantly and does not hang on WebSocket close; task preflight still refreshes the quota before creating a session.
 - Good: QR capture is needed only before credentials exist; subsequent detections use WebSocket API and never need a local browser/debug port.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
 - Good: A high-risk session whose first reduced output is too long records `length_adjustments`, saves a repaired/fallback text within ±10%, and rechecks that text.
@@ -266,11 +277,14 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Pipeline: low-risk skip, high-risk selective rewrite by `segment_labels`, suspicious-label rewrite, no-label fallback, max-round failure, retry from latest reduced text, cumulative retry rounds, and length repair for bloated reduce output.
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
 - WeChat credential capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`), and credential status endpoint connected/disconnected shapes.
+- WSL Windows Chrome capture: test the PowerShell bridge branch does not start Playwright, the dedicated GankAIGC Chrome profile restart targets only that profile/debug port, and no fallback to Playwright occurs after Windows Chrome CDP setup fails.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Project assignment: tests must cover unfiled -> project, project -> unfiled, and rejection of another user's/archived project.
 - AIGC report export: `aigc_report_docx` and `aigc_report_md` return distinct filenames, MIME types, and per-segment AI-rate rows mapped from `segment_labels[].position`; non-Zhuque sessions and missing report metadata return HTTP 400.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
 - Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback. Tests must prove stale credential quota is replaced by live peek quota in readiness, and that repeated passive readiness calls are throttled instead of opening a WebSocket on every poll.
+- Logged-out quota smoothing: tests must prove `_logged_out_status_with_previous_quota()` preserves a previous non-negative quota when the logged-out page snapshot temporarily lacks quota text, while still returning `connected=false` and `has_token=false`.
+- Remaining-use responsiveness: tests must prove `readiness(text=None)` reuses recent live cache or known credential/session quota without a live peek, unknown quota returns `-1` without blocking the status panel, and valid-text preflight forces a bounded live peek.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.
 - Paper Reconstruction: repeated paper stagnation records `rewrite_mode="paper_reconstruction"`, language/section/pattern metadata, candidate selection metadata, and fact-card counts without storing full candidate text in trace.
 - Rollback protection: regression after a previously improved round restores saved text and records rollback metadata in trace/SSE.
@@ -320,4 +334,27 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True):
     args = ["--sync-session"] if sync_session else []
     subprocess.Popen([sys.executable, "capture_zhuque_creds.py", *args])
 # capture script deletes creds_latest.json only after the Zhuque page is observed as logged out.
+```
+
+#### Wrong
+
+```python
+# Passive workspace status refresh: can hang the UI on WebSocket connect/close.
+if has_token:
+    remaining_uses = await api.peek_remaining_uses(timeout=2.5)
+```
+
+#### Correct
+
+```python
+# Passive status uses saved quota; preflight/start force a bounded live probe.
+if text is None and credential_remaining_uses >= 0:
+    remaining_uses = credential_remaining_uses
+else:
+    remaining_uses = await self._refresh_live_remaining_uses(
+        api,
+        current_remaining=credential_remaining_uses,
+        force=bool(text is not None and text_length_ok),
+        timeout=2.5,
+    )
 ```
