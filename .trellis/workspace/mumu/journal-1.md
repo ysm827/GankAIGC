@@ -18,7 +18,10 @@ Persist anonymous Zhuque fp from quota page probes, save it even when count is h
 
 ### Main Changes
 
-(Add details)
+- Persist anonymous Zhuque detection fp and returned/deduced `remaining_uses` into per-user logged-out `session_status.json`.
+- Make anonymous page probes prefer current-user token-free state before legacy repo-level `browser_state.json`.
+- Sanitize anonymous Playwright storage state to fp/language only and reject token-bearing state candidates.
+- Add regression tests for post-detection quota persistence and current-user-vs-legacy fp priority.
 
 ### Git Commits
 
@@ -28,7 +31,10 @@ Persist anonymous Zhuque fp from quota page probes, save it even when count is h
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `package/venv/bin/python -m pytest package/backend/tests/test_zhuque_integration.py -q` -> 89 passed
+- [OK] `package/venv/bin/python -m pytest package/backend/tests -q -x` -> 394 passed
+- [OK] `git diff --check`
+- [OK] `package/venv/bin/python -m py_compile package/backend/app/services/zhuque_api.py package/backend/app/services/zhuque_service.py`
 
 ### Status
 
@@ -58,6 +64,39 @@ Seed Zhuque anonymous page probes with token-free browser fp, including legacy l
 | Hash | Message |
 |------|---------|
 | `ee5337f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 3: Sync Zhuque anonymous quota after detection
+
+**Date**: 2026-06-24
+**Task**: Sync Zhuque anonymous quota after detection
+**Branch**: `main`
+
+### Summary
+
+Fixed anonymous Zhuque quota refresh identity drift by persisting the detection fp/count, prioritizing current-user token-free state before legacy browser state, sanitizing anonymous storage state, and adding regression coverage.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e20687` | (see git log) |
 
 ### Testing
 
