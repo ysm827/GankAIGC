@@ -948,6 +948,182 @@ def test_zhuque_api_loads_anonymous_fp_from_logged_out_session_status(tmp_path):
     assert status["remaining_uses"] == -1
 
 
+def test_zhuque_api_seeds_page_probe_with_persisted_anonymous_fp(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    (tmp_path / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "persisted-page-fp",
+                "remaining_uses": -1,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+    monkeypatch.setattr(api, "_legacy_browser_state_file", lambda: tmp_path / "missing_legacy_state.json")
+
+    state_file = tmp_path / "browser_state.json"
+    assert api._browser_state_has_matrix_local_storage(state_file) is False
+    assert api._anonymous_page_storage_state() == {
+        "cookies": [],
+        "origins": [
+            {
+                "origin": "https://matrix.tencent.com",
+                "localStorage": [
+                    {"name": "fp", "value": "persisted-page-fp"},
+                    {"name": "language", "value": "en"},
+                ],
+            }
+        ],
+    }
+
+
+def test_zhuque_api_uses_token_free_legacy_browser_state_before_session_fp(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    user_dir = tmp_path / "user_5"
+    legacy_dir = tmp_path / "legacy"
+    user_dir.mkdir()
+    legacy_dir.mkdir()
+    creds_file = user_dir / "creds_latest.json"
+    legacy_state_file = legacy_dir / "browser_state.json"
+    (user_dir / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "anonymous_fp": "session-fp",
+                "remaining_uses": -1,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    legacy_state_file.write_text(
+        json.dumps(
+            {
+                "cookies": [],
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "legacy-fp"},
+                            {"name": "language", "value": "en"},
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+    monkeypatch.setattr(api, "_legacy_browser_state_file", lambda: legacy_state_file)
+
+    state = api._anonymous_page_storage_state()
+
+    assert state["origins"][0]["localStorage"][0] == {"name": "fp", "value": "legacy-fp"}
+
+
+def test_zhuque_api_ignores_legacy_browser_state_with_token(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    user_dir = tmp_path / "user_5"
+    legacy_dir = tmp_path / "legacy"
+    user_dir.mkdir()
+    legacy_dir.mkdir()
+    creds_file = user_dir / "creds_latest.json"
+    legacy_state_file = legacy_dir / "browser_state.json"
+    (user_dir / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "anonymous_fp": "session-fp",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    legacy_state_file.write_text(
+        json.dumps(
+            {
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "legacy-fp"},
+                            {"name": "aiGenAccessToken", "value": "token"},
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+    monkeypatch.setattr(api, "_legacy_browser_state_file", lambda: legacy_state_file)
+
+    state = api._anonymous_page_storage_state()
+
+    assert state["origins"][0]["localStorage"][0] == {"name": "fp", "value": "session-fp"}
+
+
+def test_zhuque_api_prefers_existing_browser_state_for_page_probe(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    (tmp_path / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "anonymous_fp": "persisted-page-fp",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    state_file = tmp_path / "browser_state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "cookies": [],
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "browser-state-fp"},
+                            {"name": "language", "value": "en"},
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+
+    assert api._browser_state_has_matrix_local_storage(state_file) is True
+    assert api._local_storage_from_browser_state(json.loads(state_file.read_text(encoding="utf-8")))["fp"] == "browser-state-fp"
+
+
 def test_zhuque_api_logged_out_session_status_overrides_stale_token_for_peek(monkeypatch, tmp_path):
     from app.services.zhuque_api import ZhuqueAPI
 

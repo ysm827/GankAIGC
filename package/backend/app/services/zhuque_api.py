@@ -550,6 +550,36 @@ class ZhuqueAPI:
                     return storage_items
         return {}
 
+    def _token_from_local_storage(self, local_storage: dict) -> str:
+        if not isinstance(local_storage, dict):
+            return ""
+        for key in ("aiGenAccessToken", "access_token", "accessToken", "token", "authToken"):
+            token = _unwrap_token_value(local_storage.get(key))
+            if token:
+                return token
+        for key, value in local_storage.items():
+            lower_key = str(key).lower()
+            if "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
+                token = _unwrap_token_value(value)
+                if token:
+                    return token
+        return ""
+
+    def _anonymous_fp_from_browser_state_file(self, state_file: Path) -> str:
+        if not state_file.exists():
+            return ""
+        try:
+            browser_state = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        local_storage = self._local_storage_from_browser_state(browser_state)
+        if self._token_from_local_storage(local_storage):
+            return ""
+        return str(local_storage.get("fp") or "").strip()
+
+    def _legacy_browser_state_file(self) -> Path:
+        return _default_credentials_file().parent / "browser_state.json"
+
     def _load_anonymous_credentials(self) -> Optional[dict]:
         """Load a persisted logged-out fingerprint for anonymous quota peeks.
 
@@ -574,19 +604,7 @@ class ZhuqueAPI:
                 except (OSError, json.JSONDecodeError):
                     browser_state = {}
                 local_storage = self._local_storage_from_browser_state(browser_state)
-                token = ""
-                for key in ("aiGenAccessToken", "access_token", "accessToken", "token", "authToken"):
-                    token = _unwrap_token_value(local_storage.get(key))
-                    if token:
-                        break
-                if not token:
-                    for key, value in local_storage.items():
-                        lower_key = str(key).lower()
-                        if "token" in lower_key and ("access" in lower_key or "auth" in lower_key):
-                            token = _unwrap_token_value(value)
-                            if token:
-                                break
-                if not token:
+                if not self._token_from_local_storage(local_storage):
                     fp = str(local_storage.get("fp") or "").strip()
 
         if not fp and self.credentials_file.exists():
@@ -610,6 +628,43 @@ class ZhuqueAPI:
             "remaining_uses": -1,
             "captured_at": status.get("updated_at") or "",
             "raw": {"anonymous_fp": fp, "source": "session_status"},
+        }
+
+    def _browser_state_has_matrix_local_storage(self, state_file: Path) -> bool:
+        """Return whether a saved Playwright state can initialize Zhuque identity."""
+        if not state_file.exists():
+            return False
+        try:
+            browser_state = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        return bool(self._local_storage_from_browser_state(browser_state))
+
+    def _anonymous_page_storage_state(self) -> Optional[dict]:
+        """Build a token-free Playwright storage state for anonymous quota probes."""
+        state_file = self.credentials_file.parent / "browser_state.json"
+        legacy_state_file = self._legacy_browser_state_file()
+        fp = ""
+        if legacy_state_file != state_file:
+            fp = self._anonymous_fp_from_browser_state_file(legacy_state_file)
+        if not fp:
+            anonymous_creds = self._load_anonymous_credentials()
+            if not anonymous_creds or anonymous_creds.get("access_token"):
+                return None
+            fp = str(anonymous_creds.get("fp") or "").strip()
+        if not fp:
+            return None
+        return {
+            "cookies": [],
+            "origins": [
+                {
+                    "origin": self.http_base_url,
+                    "localStorage": [
+                        {"name": "fp", "value": fp},
+                        {"name": "language", "value": "en"},
+                    ],
+                }
+            ],
         }
 
     def _status_from_session_file(self, status: dict) -> dict:
@@ -758,8 +813,12 @@ class ZhuqueAPI:
                 "viewport": {"width": 1280, "height": 720},
                 "user_agent": DEFAULT_USER_AGENT,
             }
-            if state_file.exists():
+            if self._browser_state_has_matrix_local_storage(state_file):
                 ctx_kwargs["storage_state"] = str(state_file)
+            else:
+                anonymous_storage_state = self._anonymous_page_storage_state()
+                if anonymous_storage_state:
+                    ctx_kwargs["storage_state"] = anonymous_storage_state
             ctx = await browser.new_context(**ctx_kwargs)
             page = await ctx.new_page()
             page_timeout_ms = int(max(timeout, 5.0) * 1000)
