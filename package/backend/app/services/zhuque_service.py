@@ -131,6 +131,8 @@ class ZhuqueService:
             "quota_text": payload.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
             "message": payload.get("message", ""),
             "probe_state": payload.get("probe_state") or {},
+            "anonymous_fp": str(payload.get("anonymous_fp") or payload.get("fp") or "").strip(),
+            "has_anonymous_fp": bool(payload.get("has_anonymous_fp") or payload.get("anonymous_fp") or payload.get("fp")),
         }
 
     async def _refresh_live_quota_status(
@@ -235,8 +237,22 @@ class ZhuqueService:
             "probe_state": {},
         }
 
-    def _anonymous_fp_from_api(self, api: ZhuqueAPI, status: dict | None = None) -> str:
+    def _anonymous_fp_from_api(
+        self,
+        api: ZhuqueAPI,
+        status: dict | None = None,
+        quota_status: dict | None = None,
+    ) -> str:
         """Return persisted anonymous fp without treating it as login credentials."""
+        if isinstance(quota_status, dict):
+            fp = str(quota_status.get("anonymous_fp") or quota_status.get("fp") or "").strip()
+            if fp:
+                return fp
+            probe_state = quota_status.get("probe_state")
+            if isinstance(probe_state, dict):
+                fp = str(probe_state.get("anonymous_fp") or probe_state.get("fp") or "").strip()
+                if fp:
+                    return fp
         if isinstance(status, dict) and not status.get("has_token"):
             fp = str(status.get("anonymous_fp") or status.get("fp") or "").strip()
             if fp:
@@ -252,10 +268,14 @@ class ZhuqueService:
             return ""
         return str(creds.get("fp") or "").strip()
 
-    def _write_logged_out_quota_status(self, api: ZhuqueAPI, remaining_uses: int, message: str) -> None:
+    def _write_logged_out_quota_status(
+        self,
+        api: ZhuqueAPI,
+        remaining_uses: int,
+        message: str,
+        quota_status: dict | None = None,
+    ) -> None:
         """Persist non-secret logged-out quota UI state for the current user."""
-        if remaining_uses < 0:
-            return
         status_file = Path(api.credentials_file).parent / "session_status.json"
         existing_status = {}
         if status_file.exists():
@@ -267,7 +287,13 @@ class ZhuqueService:
         if isinstance(existing_status, dict) and not existing_status.get("has_token"):
             anonymous_fp = str(existing_status.get("anonymous_fp") or existing_status.get("fp") or "").strip()
         if not anonymous_fp:
-            anonymous_fp = self._anonymous_fp_from_api(api, existing_status if isinstance(existing_status, dict) else None)
+            anonymous_fp = self._anonymous_fp_from_api(
+                api,
+                existing_status if isinstance(existing_status, dict) else None,
+                quota_status,
+            )
+        if remaining_uses < 0 and not anonymous_fp:
+            return
         payload = {
             "connected": False,
             "ready": False,
@@ -276,7 +302,7 @@ class ZhuqueService:
             "anonymous_fp": anonymous_fp,
             "remaining_uses": remaining_uses,
             "user_name": "",
-            "quota_text": f"剩余 {remaining_uses} 次",
+            "quota_text": f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else "",
             "message": message,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -455,6 +481,10 @@ class ZhuqueService:
             button_enabled = live_quota_status["button_enabled"]
             page_found = page_found or live_quota_status["page_found"]
             quota_text = live_quota_status.get("quota_text") or quota_text
+            has_anonymous_fp = bool(
+                has_anonymous_fp
+                or (not has_token and self._anonymous_fp_from_api(api, status, live_quota_status))
+            )
         elif credential_remaining_uses >= 0:
             remaining_uses = credential_remaining_uses
             button_enabled = remaining_uses > 0
@@ -555,15 +585,18 @@ class ZhuqueService:
                 else "暂未探测到朱雀免费次数；请稍后重试或扫码登录，当前不能开始朱雀检测"
             )
 
-        if not has_token and remaining_uses >= 0:
-            self._write_logged_out_quota_status(api, remaining_uses, message)
+        if not has_token and (
+            remaining_uses >= 0
+            or self._anonymous_fp_from_api(api, status, quota_status)
+        ):
+            self._write_logged_out_quota_status(api, remaining_uses, message, quota_status)
 
         return {
             "ready": ready,
             "connected": has_token,
             "page_found": bool(status.get("page_found")) or has_token or quota_status["page_found"] or ready,
             "has_token": has_token,
-            "has_anonymous_fp": bool(status.get("has_anonymous_fp") or (not has_token and self._anonymous_fp_from_api(api, status))),
+            "has_anonymous_fp": bool(status.get("has_anonymous_fp") or (not has_token and self._anonymous_fp_from_api(api, status, quota_status))),
             "remaining_uses": remaining_uses,
             "button_enabled": button_enabled,
             "text_length": None,

@@ -862,10 +862,19 @@ class ZhuqueAPI:
                         }
                         const textHostFound = !!document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]')
                             || [...document.querySelectorAll('*')].some((el) => el.__vue__ && Object.prototype.hasOwnProperty.call(el.__vue__, 'text'));
+                        let anonymousFp = '';
+                        try {
+                            anonymousFp = (localStorage.getItem('fp') || '').trim();
+                        } catch (_) {
+                            anonymousFp = '';
+                        }
                         return {
                             quota_texts: candidates.slice(0, 48).map((item) => item.value),
                             quota_sources: candidates.slice(0, 48),
                             vue_signals: vueSignals.slice(0, 48),
+                            fp: anonymousFp,
+                            anonymous_fp: anonymousFp,
+                            has_anonymous_fp: Boolean(anonymousFp),
                             submit_button_text: submitButtonText,
                             button_enabled: Boolean(submitBtn && submitButtonVisible && !submitButtonDisabled && /Detect|检测/i.test(submitButtonText || 'Detect')),
                             page_found: Boolean(document.body),
@@ -933,6 +942,9 @@ class ZhuqueAPI:
                         "button_enabled": remaining_uses > 0,
                         "page_found": bool(last_state.get("page_found")),
                         "quota_text": " | ".join(last_state.get("quota_texts") or []),
+                        "fp": str(last_state.get("fp") or "").strip(),
+                        "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                        "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面剩余次数已解析",
                     }
@@ -947,6 +959,9 @@ class ZhuqueAPI:
                         "button_enabled": True,
                         "page_found": bool(last_state.get("page_found")),
                         "quota_text": last_state.get("submit_button_text") or "Detect now",
+                        "fp": str(last_state.get("fp") or "").strip(),
+                        "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                        "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面检测入口可用，但当前页面未暴露剩余次数数字",
                     }
@@ -958,6 +973,9 @@ class ZhuqueAPI:
                 "button_enabled": bool(last_state.get("button_enabled")),
                 "page_found": bool(last_state.get("page_found")),
                 "quota_text": last_state.get("submit_button_text") or "",
+                "fp": str(last_state.get("fp") or "").strip(),
+                "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                 "probe_state": last_state,
                 "message": "朱雀页面未暴露剩余次数数字",
             }
@@ -1008,6 +1026,9 @@ class ZhuqueAPI:
             "button_enabled": remaining_uses > 0 if remaining_uses >= 0 else False,
             "page_found": remaining_uses >= 0,
             "quota_text": f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else "",
+            "fp": str(creds.get("fp") or "").strip() if creds and not creds.get("access_token") else "",
+            "anonymous_fp": str(creds.get("fp") or "").strip() if creds and not creds.get("access_token") else "",
+            "has_anonymous_fp": bool(creds and creds.get("fp") and not creds.get("access_token")),
             "message": "朱雀剩余次数已同步" if remaining_uses >= 0 else "暂未探测到朱雀剩余次数",
         }
 

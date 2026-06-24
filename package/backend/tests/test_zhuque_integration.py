@@ -1951,6 +1951,59 @@ def test_zhuque_service_refresh_free_quota_hidden_count_keeps_button_ready_witho
     assert not (tmp_path / "user_5" / "session_status.json").exists()
 
 
+def test_zhuque_service_refresh_free_quota_persists_anonymous_fp_when_count_hidden(tmp_path, monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    creds_file = tmp_path / "user_5" / "creds_latest.json"
+
+    class HiddenCountAPI(StatusOnlyZhuqueAPI):
+        async def peek_quota_status(self, timeout=3.0, *, allow_anonymous=False):
+            self.peek_calls.append({"timeout": timeout, "allow_anonymous": allow_anonymous})
+            return {
+                "remaining_uses": -1,
+                "button_enabled": True,
+                "page_found": True,
+                "quota_text": "Detect now",
+                "fp": "fresh-anonymous-fp",
+                "anonymous_fp": "fresh-anonymous-fp",
+                "has_anonymous_fp": True,
+                "probe_state": {"fp": "fresh-anonymous-fp"},
+                "message": "朱雀页面检测入口可用，但当前页面未暴露剩余次数数字",
+            }
+
+    fake_api = HiddenCountAPI(
+        {
+            "ready": False,
+            "connected": False,
+            "page_found": False,
+            "has_token": False,
+            "remaining_uses": -1,
+            "button_enabled": True,
+            "credential_file": str(creds_file),
+            "message": "朱雀网页显示未登录",
+        }
+    )
+    fake_api.credentials_file = creds_file
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_5")
+    service.api = None
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    result = asyncio.run(service.refresh_free_quota())
+
+    assert result["remaining_uses"] == -1
+    assert result["button_enabled"] is True
+    assert result["ready"] is True
+    assert result["has_anonymous_fp"] is True
+    session_status = json.loads((tmp_path / "user_5" / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is False
+    assert session_status["has_token"] is False
+    assert session_status["remaining_uses"] == -1
+    assert session_status["has_anonymous_fp"] is True
+    assert session_status["anonymous_fp"] == "fresh-anonymous-fp"
+    assert session_status["quota_text"] == ""
+
+
 def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
