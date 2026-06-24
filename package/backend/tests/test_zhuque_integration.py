@@ -986,7 +986,7 @@ def test_zhuque_api_seeds_page_probe_with_persisted_anonymous_fp(tmp_path, monke
     }
 
 
-def test_zhuque_api_uses_token_free_legacy_browser_state_before_session_fp(tmp_path, monkeypatch):
+def test_zhuque_api_uses_session_fp_before_legacy_browser_state_after_detection(tmp_path, monkeypatch):
     from app.services.zhuque_api import ZhuqueAPI
 
     user_dir = tmp_path / "user_5"
@@ -1032,7 +1032,74 @@ def test_zhuque_api_uses_token_free_legacy_browser_state_before_session_fp(tmp_p
 
     state = api._anonymous_page_storage_state()
 
-    assert state["origins"][0]["localStorage"][0] == {"name": "fp", "value": "legacy-fp"}
+    assert state["origins"][0]["localStorage"][0] == {"name": "fp", "value": "session-fp"}
+
+
+def test_zhuque_api_uses_current_browser_state_before_session_fp(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    user_dir = tmp_path / "user_5"
+    legacy_dir = tmp_path / "legacy"
+    user_dir.mkdir()
+    legacy_dir.mkdir()
+    creds_file = user_dir / "creds_latest.json"
+    legacy_state_file = legacy_dir / "browser_state.json"
+    (user_dir / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "anonymous_fp": "session-fp",
+                "remaining_uses": 3,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (user_dir / "browser_state.json").write_text(
+        json.dumps(
+            {
+                "cookies": [],
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "current-browser-fp"},
+                            {"name": "language", "value": "en"},
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    legacy_state_file.write_text(
+        json.dumps(
+            {
+                "cookies": [],
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "fp", "value": "legacy-fp"},
+                            {"name": "language", "value": "en"},
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+    monkeypatch.setattr(api, "_legacy_browser_state_file", lambda: legacy_state_file)
+
+    state = api._anonymous_page_storage_state()
+
+    assert state["origins"][0]["localStorage"][0] == {"name": "fp", "value": "current-browser-fp"}
 
 
 def test_zhuque_api_ignores_legacy_browser_state_with_token(tmp_path, monkeypatch):
@@ -1272,8 +1339,8 @@ def test_zhuque_api_missing_access_token_uses_anonymous_fp_before_page_fallback(
     async def fake_connect(headers):
         return FakeWS()
 
-    async def fake_detect_with_page(text, timeout, *, reason=""):
-        calls.append({"text": text, "timeout": timeout, "reason": reason})
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
         return {
             "success": True,
             "rate": 0.0,
@@ -1327,8 +1394,8 @@ def test_zhuque_api_missing_credentials_attempts_anonymous_page_fallback(monkeyp
     api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
     calls = []
 
-    async def fake_detect_with_page(text, timeout, *, reason=""):
-        calls.append({"text": text, "timeout": timeout, "reason": reason})
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
         return {
             "success": True,
             "rate": 0.0,
@@ -1347,6 +1414,7 @@ def test_zhuque_api_missing_credentials_attempts_anonymous_page_fallback(monkeyp
     assert result["source"] == "page_fallback"
     assert calls
     assert "未找到可用 token" in calls[0]["reason"]
+    assert calls[0]["anonymous"] is True
 
 
 def test_zhuque_api_classify_uses_websocket_label_mapping():
@@ -2178,6 +2246,91 @@ def test_zhuque_service_refresh_free_quota_persists_anonymous_fp_when_count_hidd
     assert session_status["has_anonymous_fp"] is True
     assert session_status["anonymous_fp"] == "fresh-anonymous-fp"
     assert session_status["quota_text"] == ""
+
+
+def test_zhuque_service_detect_persists_anonymous_remaining_uses(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    creds_file = tmp_path / "user_5" / "creds_latest.json"
+    (tmp_path / "user_5").mkdir()
+    (tmp_path / "user_5" / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "old-session-fp",
+                "remaining_uses": 4,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class AnonymousDetectAPI:
+        def __init__(self):
+            self.credentials_file = creds_file
+            self.detect_calls = []
+            self.forget_calls = 0
+
+        def credential_status(self):
+            return {
+                "ready": False,
+                "connected": False,
+                "page_found": True,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "old-session-fp",
+                "remaining_uses": 4,
+                "button_enabled": True,
+                "credential_file": str(creds_file),
+            }
+
+        async def detect(self, text, timeout=60.0):
+            self.detect_calls.append({"text": text, "timeout": timeout})
+            return {
+                "success": True,
+                "rate": 12,
+                "labels_ratio": {"0": 0.12, "1": 0.88, "2": 0.0},
+                "remaining_uses": 3,
+                "text_length": len(text),
+                "fp": "detected-anonymous-fp",
+                "anonymous_fp": "detected-anonymous-fp",
+                "has_anonymous_fp": True,
+            }
+
+        def forget_credentials_cache(self):
+            self.forget_calls += 1
+
+    async def run_detect(service):
+        consumer_task = asyncio.create_task(service._consumer())
+        try:
+            return await asyncio.wait_for(service.detect("汉" * 500), timeout=1.0)
+        finally:
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
+
+    fake_api = AnonymousDetectAPI()
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_5")
+    service.api = fake_api
+    service._ready = True
+
+    result = asyncio.run(run_detect(service))
+
+    assert result["success"] is True
+    assert result["remaining_uses"] == 3
+    assert fake_api.forget_calls == 1
+    session_status = json.loads((tmp_path / "user_5" / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is False
+    assert session_status["has_token"] is False
+    assert session_status["remaining_uses"] == 3
+    assert session_status["has_anonymous_fp"] is True
+    assert session_status["anonymous_fp"] == "detected-anonymous-fp"
+    assert "免费次数" in session_status["message"]
 
 
 def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):

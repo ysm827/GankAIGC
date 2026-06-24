@@ -572,9 +572,23 @@ class ZhuqueAPI:
             browser_state = json.loads(state_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return ""
+        if _unwrap_token_value(browser_state.get("access_token")):
+            return ""
         local_storage = self._local_storage_from_browser_state(browser_state)
         if self._token_from_local_storage(local_storage):
             return ""
+        raw_cookies = browser_state.get("cookies") or []
+        if isinstance(raw_cookies, list):
+            for cookie in raw_cookies:
+                if not isinstance(cookie, dict) or not cookie.get("value"):
+                    continue
+                cookie_name = str(cookie.get("name") or "").lower()
+                if "token" in cookie_name and ("access" in cookie_name or "auth" in cookie_name):
+                    return ""
+        elif isinstance(raw_cookies, str):
+            cookie_text = raw_cookies.lower()
+            if "access_token=" in cookie_text or "accesstoken=" in cookie_text or "auth_token=" in cookie_text:
+                return ""
         return str(local_storage.get("fp") or "").strip()
 
     def _legacy_browser_state_file(self) -> Path:
@@ -598,14 +612,7 @@ class ZhuqueAPI:
 
         if not fp:
             state_file = self.credentials_file.parent / "browser_state.json"
-            if state_file.exists():
-                try:
-                    browser_state = json.loads(state_file.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    browser_state = {}
-                local_storage = self._local_storage_from_browser_state(browser_state)
-                if not self._token_from_local_storage(local_storage):
-                    fp = str(local_storage.get("fp") or "").strip()
+            fp = self._anonymous_fp_from_browser_state_file(state_file)
 
         if not fp and self.credentials_file.exists():
             try:
@@ -644,14 +651,13 @@ class ZhuqueAPI:
         """Build a token-free Playwright storage state for anonymous quota probes."""
         state_file = self.credentials_file.parent / "browser_state.json"
         legacy_state_file = self._legacy_browser_state_file()
-        fp = ""
-        if legacy_state_file != state_file:
-            fp = self._anonymous_fp_from_browser_state_file(legacy_state_file)
+        fp = self._anonymous_fp_from_browser_state_file(state_file)
         if not fp:
             anonymous_creds = self._load_anonymous_credentials()
-            if not anonymous_creds or anonymous_creds.get("access_token"):
-                return None
-            fp = str(anonymous_creds.get("fp") or "").strip()
+            if anonymous_creds and not anonymous_creds.get("access_token"):
+                fp = str(anonymous_creds.get("fp") or "").strip()
+        if not fp and legacy_state_file != state_file:
+            fp = self._anonymous_fp_from_browser_state_file(legacy_state_file)
         if not fp:
             return None
         return {
@@ -813,12 +819,9 @@ class ZhuqueAPI:
                 "viewport": {"width": 1280, "height": 720},
                 "user_agent": DEFAULT_USER_AGENT,
             }
-            if self._browser_state_has_matrix_local_storage(state_file):
-                ctx_kwargs["storage_state"] = str(state_file)
-            else:
-                anonymous_storage_state = self._anonymous_page_storage_state()
-                if anonymous_storage_state:
-                    ctx_kwargs["storage_state"] = anonymous_storage_state
+            anonymous_storage_state = self._anonymous_page_storage_state()
+            if anonymous_storage_state:
+                ctx_kwargs["storage_state"] = anonymous_storage_state
             ctx = await browser.new_context(**ctx_kwargs)
             page = await ctx.new_page()
             page_timeout_ms = int(max(timeout, 5.0) * 1000)
@@ -1211,7 +1214,7 @@ class ZhuqueAPI:
                 await asyncio.sleep(5)
         return self._failure(f"检测结果轮询超时 ({timeout}s)", text_length)
 
-    async def _detect_with_page(self, text: str, timeout: float, *, reason: str = "") -> dict:
+    async def _detect_with_page(self, text: str, timeout: float, *, reason: str = "", anonymous: bool = False) -> dict:
         """Fallback to the real Zhuque page so TencentCaptcha generates a valid ticket."""
         try:
             from playwright.async_api import async_playwright
@@ -1238,7 +1241,11 @@ class ZhuqueAPI:
                 "viewport": {"width": 1280, "height": 720},
                 "user_agent": DEFAULT_USER_AGENT,
             }
-            if state_file.exists():
+            if anonymous:
+                anonymous_storage_state = self._anonymous_page_storage_state()
+                if anonymous_storage_state:
+                    ctx_kwargs["storage_state"] = anonymous_storage_state
+            elif state_file.exists():
                 ctx_kwargs["storage_state"] = str(state_file)
             ctx = await browser.new_context(**ctx_kwargs)
             page = await ctx.new_page()
@@ -1320,6 +1327,12 @@ class ZhuqueAPI:
                         const alert = document.querySelector('.el-alert__description');
                         const title = document.querySelector('.el-alert__title');
                         const btn = document.querySelector('.submit-btn');
+                        let anonymousFp = '';
+                        try {
+                            anonymousFp = (localStorage.getItem('fp') || '').trim();
+                        } catch (_) {
+                            anonymousFp = '';
+                        }
                         let vue = null;
                         if (el && el.__vue__) {
                             vue = {
@@ -1335,7 +1348,9 @@ class ZhuqueAPI:
                             vue,
                             alert: alert ? alert.textContent.trim() : '',
                             alert_title: title ? title.textContent.trim() : '',
-                            button_text: btn ? btn.textContent.trim() : ''
+                            button_text: btn ? btn.textContent.trim() : '',
+                            fp: anonymousFp,
+                            anonymous_fp: anonymousFp
                         };
                     }"""
                 )
@@ -1350,7 +1365,17 @@ class ZhuqueAPI:
                         "alert_title": data.get("alert_title") or "",
                         "availableUses": _parse_remaining_uses(data.get("button_text") or ""),
                     }
-                    return normalize_zhuque_result(payload, text_length=len(text), source="page_fallback")
+                    result = normalize_zhuque_result(payload, text_length=len(text), source="page_fallback")
+                    anonymous_fp = str(data.get("anonymous_fp") or data.get("fp") or "").strip()
+                    if anonymous and anonymous_fp:
+                        result.update(
+                            {
+                                "fp": anonymous_fp,
+                                "anonymous_fp": anonymous_fp,
+                                "has_anonymous_fp": True,
+                            }
+                        )
+                    return result
 
             return self._failure(f"朱雀真实页面兜底检测超时 ({timeout}s)", len(text))
         except Exception as exc:
@@ -1376,12 +1401,14 @@ class ZhuqueAPI:
                 text,
                 timeout,
                 reason=f"未找到可用 token，尝试使用朱雀页面未登录免费次数: {exc}",
+                anonymous=True,
             )
         if not creds.get("access_token"):
             return await self._detect_with_page(
                 text,
                 timeout,
                 reason="朱雀凭证缺少 access_token，尝试使用真实页面未登录免费次数",
+                anonymous=True,
             )
         auth_payload = {"access_token": creds.get("access_token")} if creds.get("access_token") else {"fp": creds.get("fp") or _generate_fp()}
         headers = self._ws_headers(creds)

@@ -283,15 +283,14 @@ class ZhuqueService:
                 existing_status = json.loads(status_file.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 existing_status = {}
-        anonymous_fp = ""
-        if isinstance(existing_status, dict) and not existing_status.get("has_token"):
-            anonymous_fp = str(existing_status.get("anonymous_fp") or existing_status.get("fp") or "").strip()
+        anonymous_fp = self._anonymous_fp_from_api(
+            api,
+            existing_status if isinstance(existing_status, dict) else None,
+            quota_status,
+        )
         if not anonymous_fp:
-            anonymous_fp = self._anonymous_fp_from_api(
-                api,
-                existing_status if isinstance(existing_status, dict) else None,
-                quota_status,
-            )
+            if isinstance(existing_status, dict) and not existing_status.get("has_token"):
+                anonymous_fp = str(existing_status.get("anonymous_fp") or existing_status.get("fp") or "").strip()
         if remaining_uses < 0 and not anonymous_fp:
             return
         payload = {
@@ -377,6 +376,11 @@ class ZhuqueService:
             task_id, text, future = await self._queue.get()
             try:
                 before_remaining = self._last_remaining_uses
+                try:
+                    credential_status = self.api.credential_status()
+                except Exception:
+                    credential_status = {}
+                detection_used_anonymous = not bool(credential_status.get("has_token"))
                 result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
                 if (
                     result.get("success")
@@ -389,6 +393,24 @@ class ZhuqueService:
                         "remaining_uses": max(before_remaining - 1, 0),
                     }
                 self._remember_remaining_uses(result.get("remaining_uses"))
+                if result.get("success") and detection_used_anonymous:
+                    remaining_uses = self._coerce_remaining_uses(result.get("remaining_uses"))
+                    anonymous_fp = self._anonymous_fp_from_api(self.api, credential_status, result)
+                    if remaining_uses >= 0 or anonymous_fp:
+                        quota_status = {
+                            **result,
+                            "anonymous_fp": anonymous_fp or str(result.get("anonymous_fp") or result.get("fp") or "").strip(),
+                            "has_anonymous_fp": bool(anonymous_fp or result.get("anonymous_fp") or result.get("fp")),
+                        }
+                        message = (
+                            f"朱雀免费次数已同步：{remaining_uses} 次"
+                            if remaining_uses >= 0
+                            else "朱雀免费检测入口可用，剩余次数将在检测后同步"
+                        )
+                        self._write_logged_out_quota_status(self.api, remaining_uses, message, quota_status)
+                        forget_cache = getattr(self.api, "forget_credentials_cache", None)
+                        if callable(forget_cache):
+                            forget_cache()
                 future.set_result(result)
             except Exception as e:
                 future.set_exception(e)
