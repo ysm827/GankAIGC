@@ -1513,7 +1513,6 @@ const WorkspacePage = () => {
                               title={zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数'}
                             >
                               <RefreshCw className={isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
-                              刷新次数
                             </button>
                           </div>
                         </div>

@@ -1443,6 +1443,7 @@ code {
 
 .aurora-zhuque-quota-refresh {
   display: inline-flex;
+  width: 28px;
   min-height: 26px;
   align-items: center;
   justify-content: center;
@@ -1451,7 +1452,7 @@ code {
   border: 1px solid rgba(0, 102, 204, 0.18);
   background: rgba(239, 246, 255, 0.86);
   color: #0066cc;
-  padding: 0.2rem 0.42rem;
+  padding: 0;
   font-size: clamp(11px, 0.78vw, 12px);
   font-family: inherit;
   font-weight: 600;
@@ -1462,8 +1463,8 @@ code {
 }
 
 .aurora-zhuque-quota-refresh svg {
-  width: 0.72rem;
-  height: 0.72rem;
+  width: 0.8rem;
+  height: 0.8rem;
 }
 
 .aurora-zhuque-quota-refresh:hover:not(:disabled) {
