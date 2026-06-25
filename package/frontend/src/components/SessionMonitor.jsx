@@ -30,7 +30,116 @@ const sessionModeLabels = {
   ai_detect_reduce: 'AI检测+降重',
 };
 
+const statisticsRangeOptions = [
+  { value: 'today', label: '今日' },
+  { value: '7d', label: '最近 7 天' },
+  { value: '30d', label: '近 30 天' },
+];
+
+const getStatisticsRangeLabel = (range) => (
+  statisticsRangeOptions.find((option) => option.value === range)?.label || '所选范围'
+);
+
 const getProcessingModeLabel = (mode) => sessionModeLabels[mode] || mode || '-';
+
+const getNumericValue = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const formatMetricNumber = (value) => {
+  const number = getNumericValue(value);
+  return number == null ? '--' : number.toLocaleString('zh-CN');
+};
+
+const formatPercentMetric = (value) => {
+  const number = getNumericValue(value);
+  return number == null ? '--' : `${number.toFixed(2)}%`;
+};
+
+const formatDurationMetric = (seconds) => {
+  const number = getNumericValue(seconds);
+  if (number == null) {
+    return '--';
+  }
+  if (number >= 3600) {
+    return `${(number / 3600).toFixed(1)}h`;
+  }
+  if (number >= 60) {
+    return `${(number / 60).toFixed(number >= 600 ? 0 : 1)}m`;
+  }
+  return `${number.toFixed(number >= 10 ? 1 : 2)}s`;
+};
+
+const formatTrendPercent = (value) => {
+  const number = getNumericValue(value);
+  if (number == null) {
+    return '暂无对比数据';
+  }
+  if (number === 0) {
+    return '较上一周期 持平';
+  }
+  const sign = number > 0 ? '+' : '';
+  const arrow = number > 0 ? '↑' : '↓';
+  return `较上一周期 ${sign}${number.toFixed(2)}% ${arrow}`;
+};
+
+const getTrendClassName = (value, { lowerIsBetter = false } = {}) => {
+  const number = getNumericValue(value);
+  if (number == null || number === 0) {
+    return 'is-neutral';
+  }
+  if (lowerIsBetter) {
+    return number > 0 ? 'is-warning' : 'is-down';
+  }
+  return number < 0 ? 'is-down' : '';
+};
+
+const formatChartTick = (value) => {
+  const number = getNumericValue(value) ?? 0;
+  if (number >= 10000) {
+    return `${(number / 10000).toFixed(1)}W`;
+  }
+  if (number >= 1000) {
+    return `${(number / 1000).toFixed(1)}K`;
+  }
+  return String(Math.round(number));
+};
+
+const buildThroughputChart = (series = []) => {
+  const width = 640;
+  const height = 220;
+  const points = series.map((item, index) => ({
+    index,
+    label: item.label || '',
+    value: getNumericValue(item.value) ?? 0,
+  }));
+  const maxValue = Math.max(...points.map((point) => point.value), 0);
+  const scaleMax = Math.max(Math.ceil(maxValue), 4);
+  const renderedPoints = points.map((point) => {
+    const x = points.length <= 1 ? width / 2 : (width / (points.length - 1)) * point.index;
+    const y = height - (point.value / scaleMax) * height;
+    return { ...point, x, y };
+  });
+  const path = renderedPoints.length > 1
+    ? renderedPoints.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
+    : renderedPoints.length === 1
+      ? `M0 ${renderedPoints[0].y.toFixed(2)} L${width} ${renderedPoints[0].y.toFixed(2)}`
+      : '';
+  const highlightPoint = [...renderedPoints].reverse().find((point) => point.value > 0)
+    || renderedPoints[renderedPoints.length - 1]
+    || null;
+  const ticks = [1, 0.75, 0.5, 0.25, 0].map((ratio) => formatChartTick(scaleMax * ratio));
+
+  return {
+    path,
+    points: renderedPoints,
+    highlightPoint,
+    ticks,
+    hasData: renderedPoints.length > 0,
+    hasNonZeroData: maxValue > 0,
+  };
+};
 
 const getSessionDurationLabel = (session) => {
   if (session.duration_seconds != null) {
@@ -54,18 +163,33 @@ const SessionMonitor = ({ adminToken }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sessionSearchTerm, setSessionSearchTerm] = useState('');
   const [queueExpanded, setQueueExpanded] = useState(false);
+  const [statistics, setStatistics] = useState(null);
+  const [statsRange, setStatsRange] = useState('today');
+  const [loadingStats, setLoadingStats] = useState(false);
 
   useEffect(() => {
-    if (viewMode === 'active') {
+    const refreshActiveView = () => {
       fetchActiveSessions();
+      fetchSessionStatistics({ silent: true });
+    };
+
+    if (viewMode === 'active') {
+      refreshActiveView();
       if (autoRefresh) {
-        const interval = setInterval(fetchActiveSessions, 5000);
+        const interval = setInterval(() => {
+          if (document.visibilityState !== 'visible') {
+            return;
+          }
+          refreshActiveView();
+        }, 5000);
         return () => clearInterval(interval);
       }
     } else if (viewMode === 'history') {
       fetchHistorySessions();
+      fetchSessionStatistics({ silent: true });
     }
-  }, [autoRefresh, viewMode]);
+    return undefined;
+  }, [autoRefresh, viewMode, statsRange]);
 
   const handleStopSession = async (sessionId) => {
     if (!window.confirm('确定要强制停止该会话吗？')) {
@@ -78,9 +202,19 @@ const SessionMonitor = ({ adminToken }) => {
       });
       toast.success('会话已停止');
       fetchActiveSessions();
+      fetchSessionStatistics({ silent: true });
     } catch (error) {
       toast.error('停止失败: ' + (error.response?.data?.detail || '未知错误'));
     }
+  };
+
+  const handleRefreshSessions = () => {
+    if (viewMode === 'active') {
+      fetchActiveSessions();
+    } else {
+      fetchHistorySessions();
+    }
+    fetchSessionStatistics();
   };
 
   const fetchActiveSessions = async () => {
@@ -112,6 +246,30 @@ const SessionMonitor = ({ adminToken }) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSessionStatistics = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoadingStats(true);
+    }
+    try {
+      const response = await axios.get('/api/admin/statistics', {
+        headers: { Authorization: `Bearer ${adminToken}` },
+        params: { range: statsRange },
+      });
+      setStatistics(response.data);
+    } catch (error) {
+      if (error.response?.status !== 401) {
+        console.error('获取会话统计失败:', error);
+        if (!silent) {
+          toast.error('获取会话统计失败');
+        }
+      }
+    } finally {
+      if (!silent) {
+        setLoadingStats(false);
+      }
     }
   };
 
@@ -156,15 +314,20 @@ const SessionMonitor = ({ adminToken }) => {
     ].some((value) => String(value ?? '').toLowerCase().includes(normalizedSessionSearch));
     return matchesMode && matchesStatus && matchesSearch;
   });
-  const processingCount = sessionsToRender.filter(s => s.status === 'processing').length;
-  const queuedCount = sessionsToRender.filter(s => s.status === 'queued').length;
-  const completedCount = sessionsToRender.filter(s => s.status === 'completed').length;
-  const successRate = sessionsToRender.length > 0
-    ? `${((completedCount / sessionsToRender.length) * 100).toFixed(2)}%`
-    : '0.00%';
   const allQueueSessions = activeSessions.filter((session) => session.status === 'queued');
-  const queueSessions = (allQueueSessions.length ? allQueueSessions : sessionsToRender).slice(0, queueExpanded ? 20 : 6);
+  const queueSessions = allQueueSessions.slice(0, queueExpanded ? 20 : 6);
   const timelineSessions = sessionsToRender.slice(0, 4);
+  const rangeLabel = statistics?.range?.label || getStatisticsRangeLabel(statsRange);
+  const rangeRequests = statistics?.requests?.in_range;
+  const successRate = statistics?.sessions?.success_rate;
+  const averageProcessingTime = statistics?.processing?.avg_processing_time_in_range;
+  const processingModeRows = statistics?.processing?.mode_rows || [];
+  const activeModelCount = new Set(sessionsToRender.map(s => s.processing_mode).filter(Boolean)).size
+    || processingModeRows.filter((mode) => (getNumericValue(mode.count) ?? 0) > 0).length;
+  const totalTrackedModelCount = Object.keys(sessionModeLabels).length;
+  const throughputSeries = statistics?.processing?.series?.sessions || [];
+  const throughputChart = buildThroughputChart(statistics?.processing?.series?.sessions || []);
+  const throughputHighlight = throughputChart.highlightPoint;
 
   return (
     <div className="aurora-admin-section space-y-6 aurora-session-console">
@@ -191,10 +354,10 @@ const SessionMonitor = ({ adminToken }) => {
             </button>
           </div>
           <button
-            onClick={() => viewMode === 'active' ? fetchActiveSessions() : fetchHistorySessions()}
+            onClick={handleRefreshSessions}
             className="aurora-admin-secondary-action"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${loadingStats ? 'animate-spin' : ''}`} />
             刷新
           </button>
         </div>
@@ -212,7 +375,20 @@ const SessionMonitor = ({ adminToken }) => {
             <option key={mode} value={mode}>{label}</option>
           ))}
         </select>
-        <span className="aurora-admin-subtle-button aurora-session-static-date"><Calendar className="h-4 w-4" /> 今日 00:00 ~ 23:59</span>
+        <label className="aurora-session-range-select">
+          <Calendar className="h-4 w-4 text-slate-500" />
+          <span className="sr-only">统计范围</span>
+          <select
+            value={statsRange}
+            onChange={(event) => setStatsRange(event.target.value)}
+            className="aurora-admin-input aurora-session-filter-select"
+            aria-label="统计范围"
+          >
+            {statisticsRangeOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
         <select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
@@ -254,31 +430,39 @@ const SessionMonitor = ({ adminToken }) => {
           <div className="aurora-admin-metric-icon aurora-admin-metric-icon-blue"><User className="h-6 w-6" /></div>
           <p className="aurora-admin-stat-label">在线会话</p>
           <p className="aurora-admin-stat-value">{viewMode === 'active' ? activeSessions.length : sessionsToRender.length}</p>
-          <span>较昨日 +18% ↑</span>
+          <span className={getTrendClassName(statistics?.sessions?.trend_percent)}>
+            {formatTrendPercent(statistics?.sessions?.trend_percent)}
+          </span>
         </div>
         <div className="aurora-admin-stat-card compact">
           <div className="aurora-admin-metric-icon aurora-admin-metric-icon-cyan"><Activity className="h-6 w-6" /></div>
-          <p className="aurora-admin-stat-label">每分钟请求</p>
-          <p className="aurora-admin-stat-value">{Math.max(queuedCount + processingCount, 1) * 37}</p>
-          <span>较昨日 +12% ↑</span>
+          <p className="aurora-admin-stat-label">{rangeLabel}请求</p>
+          <p className="aurora-admin-stat-value">{formatMetricNumber(rangeRequests)}</p>
+          <span className={getTrendClassName(statistics?.requests?.trend_percent)}>
+            {formatTrendPercent(statistics?.requests?.trend_percent)}
+          </span>
         </div>
         <div className="aurora-admin-stat-card compact">
           <div className="aurora-admin-metric-icon aurora-admin-metric-icon-violet"><Timer className="h-6 w-6" /></div>
-          <p className="aurora-admin-stat-label">平均响应时间</p>
-          <p className="aurora-admin-stat-value">1.28<span>s</span></p>
-          <span className="is-down">较昨日 -8% ↓</span>
+          <p className="aurora-admin-stat-label">平均处理时间</p>
+          <p className="aurora-admin-stat-value">{formatDurationMetric(averageProcessingTime)}</p>
+          <span className={getTrendClassName(statistics?.processing?.avg_processing_time_trend_percent, { lowerIsBetter: true })}>
+            {formatTrendPercent(statistics?.processing?.avg_processing_time_trend_percent)}
+          </span>
         </div>
         <div className="aurora-admin-stat-card compact">
           <div className="aurora-admin-metric-icon aurora-admin-metric-icon-amber"><CheckCircle2 className="h-6 w-6" /></div>
           <p className="aurora-admin-stat-label">成功率</p>
-          <p className="aurora-admin-stat-value">{successRate}</p>
-          <span>较昨日 +0.42% ↑</span>
+          <p className="aurora-admin-stat-value">{formatPercentMetric(successRate)}</p>
+          <span className={getTrendClassName(statistics?.sessions?.success_rate_trend_percent)}>
+            {formatTrendPercent(statistics?.sessions?.success_rate_trend_percent)}
+          </span>
         </div>
         <div className="aurora-admin-stat-card compact">
           <div className="aurora-admin-metric-icon aurora-admin-metric-icon-blue"><Server className="h-6 w-6" /></div>
           <p className="aurora-admin-stat-label">活跃模型</p>
-          <p className="aurora-admin-stat-value">{new Set(sessionsToRender.map(s => s.processing_mode).filter(Boolean)).size || 6}</p>
-          <span>共 12 个模型</span>
+          <p className="aurora-admin-stat-value">{activeModelCount}</p>
+          <span className="is-neutral">已配置 {totalTrackedModelCount} 个处理模式</span>
         </div>
       </div>
 
@@ -351,9 +535,9 @@ const SessionMonitor = ({ adminToken }) => {
                 </tbody>
               </table>
               <div className="aurora-session-table-footer">
-                <span>共 {sessionsToRender.length} 条</span>
-                <span>每页 10 条</span>
-                <span>当前显示筛选后的全部记录</span>
+                <span>已加载 {rawSessionsToRender.length} 条</span>
+                <span>当前显示 {sessionsToRender.length} 条</span>
+                <span>{viewMode === 'history' ? '历史模式加载最近 100 条' : '实时模式显示当前活跃队列'}</span>
               </div>
             </div>
           )}
@@ -363,59 +547,105 @@ const SessionMonitor = ({ adminToken }) => {
           <div className="aurora-admin-list-head compact">
             <div className="aurora-session-queue-title">
               <h3>活动队列</h3>
-              <span>排队中 {queuedCount || 6}</span>
+              <span>排队中 {allQueueSessions.length}</span>
             </div>
           </div>
-          <div className="space-y-2">
-            {(queueSessions.length ? queueSessions : sessionsToRender.slice(0, 6)).map((session, index) => (
-              <div key={session.id || session.session_id || index} className="aurora-session-queue-row">
-                <span>{index + 1}</span>
-                <strong>{(session.session_id || session.id || `s_${index}`).toString().slice(0, 12)}</strong>
-                <small>{getProcessingModeLabel(session.processing_mode)}</small>
-                <small>{getSessionUserLabel(session)}</small>
-                <small>{session.status === 'queued' ? '等待中' : getStatusText(session.status)}</small>
-                <button
-                  type="button"
-                  onClick={() => fetchUserSessions(session.user_id, getSessionUserLabel(session))}
-                  className="aurora-session-row-icon-button"
-                  aria-label="查看队列会话用户历史"
-                >
-                  <Eye className="h-4 w-4" />
-                </button>
+          {queueSessions.length === 0 ? (
+            <div className="aurora-session-empty-state">
+              <Activity className="h-5 w-5" />
+              <p>当前没有排队中的会话</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {queueSessions.map((session, index) => (
+                  <div key={session.id || session.session_id || index} className="aurora-session-queue-row">
+                    <span>{index + 1}</span>
+                    <strong>{(session.session_id || session.id || '').toString().slice(0, 12)}</strong>
+                    <small>{getProcessingModeLabel(session.processing_mode)}</small>
+                    <small>{getSessionUserLabel(session)}</small>
+                    <small>等待中</small>
+                    <button
+                      type="button"
+                      onClick={() => fetchUserSessions(session.user_id, getSessionUserLabel(session))}
+                      className="aurora-session-row-icon-button"
+                      aria-label="查看队列会话用户历史"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <button type="button" onClick={() => setQueueExpanded((value) => !value)} className="aurora-session-card-link" aria-expanded={queueExpanded}>
-            {queueExpanded ? '收起队列' : '查看全部队列'} <span>→</span>
-          </button>
+              {allQueueSessions.length > 6 && (
+                <button type="button" onClick={() => setQueueExpanded((value) => !value)} className="aurora-session-card-link" aria-expanded={queueExpanded}>
+                  {queueExpanded ? '收起队列' : '查看全部队列'} <span>→</span>
+                </button>
+              )}
+            </>
+          )}
         </aside>
       </div>
 
       <div className="aurora-session-bottom-grid">
         <div className="aurora-admin-card aurora-session-throughput">
-          <div className="aurora-admin-list-head compact"><div><h3>吞吐量（请求数 / 分钟）</h3><p>近 1 小时</p></div></div>
+          <div className="aurora-admin-list-head compact">
+            <div>
+              <h3>吞吐量（请求数 / 时段）</h3>
+              <p>{rangeLabel} · {throughputSeries.length} 个统计桶</p>
+            </div>
+          </div>
           <div className="aurora-session-chart-frame">
-            <span>4K</span><span>3K</span><span>2K</span><span>1K</span><span>0</span>
-            <svg viewBox="0 0 640 220" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M0 150 L35 118 L70 132 L105 92 L140 144 L175 122 L210 100 L245 142 L280 134 L315 120 L350 104 L385 132 L420 112 L455 130 L490 106 L525 122 L560 158 L595 136 L640 118" />
-              <circle cx="455" cy="130" r="5" />
-            </svg>
-            <strong>10:10<br />请求数 2,431</strong>
+            {throughputChart.ticks.map((tick, index) => (
+              <span key={`${tick}-${index}`}>{tick}</span>
+            ))}
+            {throughputChart.hasData ? (
+              <>
+                <svg viewBox="0 0 640 220" preserveAspectRatio="none" aria-label={`${rangeLabel}请求趋势`}>
+                  {throughputChart.path && <path d={throughputChart.path} />}
+                  {throughputHighlight && (
+                    <circle cx={throughputHighlight.x} cy={throughputHighlight.y} r="5" />
+                  )}
+                </svg>
+                {throughputHighlight && (
+                  <strong
+                    style={{
+                      left: `${Math.min(82, Math.max(18, (throughputHighlight.x / 640) * 100))}%`,
+                      right: 'auto',
+                      top: `${Math.min(210, Math.max(24, throughputHighlight.y + 10))}px`,
+                    }}
+                  >
+                    {throughputHighlight.label || rangeLabel}<br />请求数 {formatMetricNumber(throughputHighlight.value)}
+                  </strong>
+                )}
+                {!throughputChart.hasNonZeroData && (
+                  <em className="aurora-session-chart-empty">所选范围暂无请求</em>
+                )}
+              </>
+            ) : (
+              <em className="aurora-session-chart-empty">暂无统计序列</em>
+            )}
           </div>
         </div>
         <div className="aurora-admin-card aurora-session-timeline-card">
           <div className="aurora-admin-list-head compact"><div><h3>最近任务时间线</h3><p>最新任务动态</p></div></div>
           <div className="aurora-session-timeline">
-            {timelineSessions.map((session, index) => (
-              <div key={session.id || session.session_id || index}>
-                <span className={session.status === 'failed' ? 'is-error' : session.status === 'processing' ? 'is-info' : 'is-ok'}>
-                  {session.status === 'failed' ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                </span>
-                <p>会话 <strong>{(session.session_id || session.id || '').toString().slice(0, 12)}</strong> {getStatusText(session.status)}</p>
-                <small>模型：{getProcessingModeLabel(session.processing_mode)} · 用户：{getSessionUserLabel(session)}</small>
-                <time>{formatChinaDateTime(session.created_at)}</time>
+            {timelineSessions.length === 0 ? (
+              <div className="aurora-session-empty-state">
+                <MessageSquare className="h-5 w-5" />
+                <p>暂无最近任务</p>
               </div>
-            ))}
+            ) : (
+              timelineSessions.map((session, index) => (
+                <div key={session.id || session.session_id || index}>
+                  <span className={session.status === 'failed' ? 'is-error' : session.status === 'processing' || session.status === 'queued' ? 'is-info' : 'is-ok'}>
+                    {session.status === 'failed' ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  </span>
+                  <p>会话 <strong>{(session.session_id || session.id || '').toString().slice(0, 12)}</strong> {getStatusText(session.status)}</p>
+                  <small>模型：{getProcessingModeLabel(session.processing_mode)} · 用户：{getSessionUserLabel(session)}</small>
+                  <time>{formatChinaDateTime(session.created_at)}</time>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

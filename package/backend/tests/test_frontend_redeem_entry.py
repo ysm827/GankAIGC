@@ -1479,3 +1479,39 @@ def test_served_static_bundle_includes_ai_reduction_homepage():
     assert "GitHub 项目" in static_bundle
     assert "求 Star" in static_bundle
     assert "data-home-github-star" in static_bundle
+
+def test_session_monitor_uses_real_statistics_not_fake_placeholders():
+    session_monitor = (FRONTEND_SRC / "components" / "SessionMonitor.jsx").read_text(encoding="utf-8")
+
+    assert "/api/admin/statistics" in session_monitor
+    assert "params: { range: statsRange }" in session_monitor
+    assert "statistics?.processing?.series?.sessions" in session_monitor
+    assert "statisticsRangeOptions" in session_monitor
+    assert 'value="today"' in session_monitor or "value: 'today'" in session_monitor
+    assert 'value="7d"' in session_monitor or "value: '7d'" in session_monitor
+    assert 'value="30d"' in session_monitor or "value: '30d'" in session_monitor
+    assert "formatTrendPercent(statistics?.requests?.trend_percent)" in session_monitor
+    assert "statistics?.sessions?.success_rate" in session_monitor
+    assert "statistics?.processing?.avg_processing_time_in_range" in session_monitor
+    assert "allQueueSessions.length" in session_monitor
+    assert "当前没有排队中的会话" in session_monitor
+    assert "暂无最近任务" in session_monitor
+    assert "已加载 {rawSessionsToRender.length} 条" in session_monitor
+    assert "当前显示 {sessionsToRender.length} 条" in session_monitor
+
+    forbidden_literals = [
+        "较昨日 +18%",
+        "较昨日 +12%",
+        "较昨日 -8%",
+        "较昨日 +0.42%",
+        "1.28",
+        "* 37",
+        "queuedCount || 6",
+        "|| 6",
+        "共 12 个模型",
+        "请求数 2,431",
+        "今日 00:00 ~ 23:59",
+        "每页 10 条",
+    ]
+    for literal in forbidden_literals:
+        assert literal not in session_monitor

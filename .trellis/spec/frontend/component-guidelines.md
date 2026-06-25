@@ -470,6 +470,12 @@ const riskRate = Math.max(aiRate, suspiciousRate);
   - The operations board may follow the Sub2API realtime monitoring composition (header status, refresh controls, score ring, metric tiles, trend card), but labels must match metrics GankAIGC actually collects. Do not add SLA, QPS, TPS, TTFT, or request counts unless the backend reports them.
   - Auto refresh must use a bounded interval, avoid overlapping requests with an in-flight guard, and skip polling while `document.visibilityState !== 'visible'`.
   - Latency window tabs (`1min`, `5min`, `30min`, `1h`) must stay actionable through `aria-pressed` and active styling, but must not render an extra “当前窗口 … 样本” chip or toast on every switch.
+- Session monitor metrics:
+  - `SessionMonitor.jsx` must call `GET /api/admin/statistics` with `params: { range: statsRange }` for `today`, `7d`, and `30d`.
+  - KPI cards must read real backend fields such as `statistics.requests.in_range`, `statistics.requests.trend_percent`, `statistics.sessions.success_rate`, `statistics.sessions.success_rate_trend_percent`, `statistics.processing.avg_processing_time_in_range`, `statistics.processing.avg_processing_time_trend_percent`, and `statistics.processing.mode_rows`.
+  - The throughput chart must render from `statistics.processing.series.sessions`; empty or all-zero series must show an empty/zero state instead of a decorative spike.
+  - Activity queue rows must come only from real queued sessions returned by `/api/admin/sessions/active`; show an empty state when there are no queued sessions.
+  - The task timeline must render real loaded sessions or a clear empty state.
 - Static bundle remains `package/static`; production frontend changes must sync `package/frontend/dist` into `package/static` and remove stale hashed assets.
 
 ### 3. Contracts
@@ -486,6 +492,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - The system configuration API tutorial is a functional onboarding component, not decorative chrome. Do not hide `.aurora-config-guide-shell` with `display: none`; restyle the existing `ApiConfigGuide` with Aurora-compatible CSS instead.
 - In `ConfigManager.jsx`, keep “模型中转站配置” and “腾讯朱雀 AI 率检测” conceptually separate. Do not label the provider as `ZhuQue（朱雀）`, use `zhuque-70b-chat` as a default model, or show `https://api.zhuque-ai.com/v1` as the LLM API URL. Use the admin Zhuque readiness endpoint for detection status instead of fake model-health rows.
 - Operations health values must not be invented in React. Do not hardcode CPU/memory/disk/network/load/database-latency/model/provider rows such as `18%`, `3.6 GB / 7.8 GB`, `↑ 1.2 MB/s ↓ 2.4 MB/s`, `2.42 ms`, `OpenAI (gpt-4o)`, or fake recovery events. If a metric is unavailable, render the backend's `不可用`/false status instead.
+- Session monitor values must not be invented in React. Do not hardcode fake trends, response times, request rates, queue counts, model counts, chart paths, date ranges, or pagination copy such as `较昨日 +18%`, `1.28s`, `* 37`, `queuedCount || 6`, `共 12 个模型`, `请求数 2,431`, `今日 00:00 ~ 23:59`, or `每页 10 条`. If a metric is unavailable, render `--`, `暂无对比数据`, or an empty state.
 - Preserve business behavior and source anchors: update modal, account management handlers/API calls, `ADMIN_ACCOUNT_*` constants, `data-admin-processing-modes`, `data-admin-processing-summary`, `data-admin-operations-panel="true"`, audit formatting, and existing Chinese labels used by tests/E2E.
 
 ### 4. Validation & Error Matrix
@@ -498,6 +505,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Config page treats Zhuque as a model provider or shows fake Zhuque model counts/rate-limit status -> semantic bug; Zhuque is detector-only and should read `zhuque_service.readiness()`.
 - Operations panel contains hardcoded monitoring numbers/provider rows/events instead of backend `status.system`, `status.database`, `status.models`, `status.jobs`, and `status.events` fields -> user sees fake health data.
 - Operations panel borrows Sub2API-only metrics such as SLA/QPS/TTFT without backend fields -> UI fabricates monitoring data.
+- Session monitor contains hardcoded fake KPI/chart/queue strings or does not call `/api/admin/statistics` with the selected range -> user sees fake session data.
 - Operations latency tabs show redundant current-window chips or switch toast spam -> visual noise returns; static tests should reject `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
 - Topbar reintroduces notification/audit bell -> duplicates the `操作日志` sidebar entry and should fail static review.
 - Build succeeds but `package/static` is not synced -> static bundle assertions and served app UI drift.
@@ -509,6 +517,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Good: topbar actions are compact and non-duplicative: optional search/config actions, GitHub Issues icon, and direct `退出`.
 - Good: `SessionMonitor`, `AdminOperationsPanel`, `DatabaseManager`, and `ConfigManager` each start with `aurora-admin-section-head` and keep their original API calls and operations.
 - Good: `AdminOperationsPanel` displays real backend-collected CPU, memory, disk, network, load, database latency samples, model configuration status, worker capacity, job counts, and recent events in a Sub2API-inspired realtime layout with manual refresh and guarded auto refresh.
+- Good: `SessionMonitor` displays selected-range requests, success rate, average processing time, trends, mode counts, queue rows, throughput series, and timeline rows from real backend statistics/session APIs, with empty states instead of fabricated fallbacks.
 - Good: latency window buttons visibly switch active state without adding explanatory chips or toasts.
 - Good: `ConfigManager` renders `ApiConfigGuide`, `.aurora-config-guide-shell` is `display: block`, and the guide card is restyled with Aurora borders/radius/shadows rather than removed.
 - Good: `ConfigManager` shows Sub/OpenAI-compatible gateway fields for LLM calls and a separate Tencent Zhuque AI-rate detector card sourced from `/api/admin/zhuque/readiness`.
@@ -518,6 +527,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Bad: keeping `ApiConfigGuide` in JSX but hiding `.aurora-config-guide-shell`; static source tests can pass while users lose the tutorial.
 - Bad: using `ZhuQue（朱雀）` in the provider select, `zhuque-70b-chat` as a model, `api.zhuque-ai.com` as an LLM API URL, or hardcoded “可用模型数 8 个” for Zhuque.
 - Bad: operations page keeps a pretty UI by fabricating fixed health values when the backend did not provide them.
+- Bad: session monitor keeps a pretty UI by fabricating request rate, queue rows, chart spikes, model totals, date range text, or pagination copy when backend/session data is empty.
 - Bad: a notification bell opens `操作日志`, because that duplicates the sidebar item and crowds the topbar.
 - Bad: logout text includes role labels (`Admin · 退出`), because the button title/aria already carries context and the UI should stay concise.
 
@@ -527,6 +537,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Static frontend tests should assert `ConfigManager.jsx` still renders `ApiConfigGuide`, `ApiConfigGuide.jsx` still has `data-api-guide-multi-expand="true"`, source CSS has `.aurora-config-guide-shell { display: block; }`, and served CSS does not contain `.aurora-config-guide-shell{display:none}`.
 - Static frontend tests should assert `ConfigManager.jsx` separates `模型中转站配置` from `腾讯朱雀 AI 率检测`, contains `/api/admin/zhuque/readiness`, and rejects `ZhuQue（朱雀）</option>`, `zhuque-70b-chat`, `api.zhuque-ai.com`, and fake Zhuque model-count/rate-limit labels.
 - Static frontend tests should assert operations panel reads `status.system.*`, `status.database.average_latency_ms`, `status.database.latency_samples_ms`, `status.models.items`, and `status.events`; tests should also assert fake values/provider rows/events are absent, auto-refresh has a visibility/in-flight guard, and Sub2API-only SLA/QPS/TTFT labels are absent unless backed by API fields.
+- Static frontend tests should assert `SessionMonitor.jsx` calls `/api/admin/statistics`, passes `params: { range: statsRange }`, consumes `statistics.processing.series.sessions`, renders range options for `today`/`7d`/`30d`, and rejects fake placeholders such as `较昨日`, `1.28`, `* 37`, `queuedCount || 6`, `共 12 个模型`, `请求数 2,431`, `今日 00:00 ~ 23:59`, and `每页 10 条`.
 - Static frontend tests should assert latency tabs keep `handleLatencyWindowChange`, `fetchStatus({ silent: true, force: true })`, and `aria-pressed`, while rejecting `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
 - Static frontend tests should assert the admin topbar rejects `BellDot`, `openAdminNotifications`, `auditNotificationLabel`, `aurora-admin-notification-*`, and `{topbarAdminLabel} · 退出`, while keeping the GitHub Issues button and direct `退出` label.
 - Existing static tests must continue to assert account management strings, processing mode statistics anchors, left sidebar navigation, operations panel anchors, and admin tab URL persistence.

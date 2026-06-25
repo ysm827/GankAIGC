@@ -270,7 +270,6 @@ const AdminMetricCard = ({ icon: Icon, title, value, suffix, note, trendPercent,
         <div className={`aurora-admin-metric-icon aurora-admin-metric-icon-${tone}`}>
           <Icon className="h-6 w-6" />
         </div>
-        <span className="aurora-admin-info-dot">i</span>
       </div>
       <div className="mt-3">
         <p className="aurora-admin-stat-label">{title}</p>
@@ -293,10 +292,7 @@ const AdminChartCard = ({ title, value, suffix, tone = 'blue', icon: Icon, trend
     <div className="aurora-admin-chart-card">
       <div className="aurora-admin-chart-head">
         <div>
-          <div className="flex items-center gap-2">
-            <h3>{title}</h3>
-            <span className="aurora-admin-info-dot">i</span>
-          </div>
+          <h3>{title}</h3>
           {value !== undefined && value !== null && (
             <p className={`aurora-admin-chart-value aurora-admin-chart-value-${tone}`}>
               {value}
@@ -1686,10 +1682,7 @@ const AdminDashboard = () => {
                     <div className="aurora-admin-card aurora-admin-mode-card" data-admin-processing-modes>
                       <div className="aurora-admin-mode-head">
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h3>AI 模式统计</h3>
-                            <span className="aurora-admin-info-dot">i</span>
-                          </div>
+                          <h3>AI 模式统计</h3>
                           <p>{modeRows.length} 种降 AI 模式统计 · {statistics.range?.label || '当前范围'}</p>
                         </div>
                       </div>

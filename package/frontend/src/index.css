@@ -1300,7 +1300,7 @@ code {
 }
 
 .aurora-zhuque-panel {
-  --zhuque-card-gap: 0.5rem;
+  --zhuque-card-gap: 0.72rem;
   border: 1px solid rgba(191, 219, 254, 0.82);
   border-radius: 20px;
   background:
@@ -1341,7 +1341,7 @@ code {
 
 .aurora-zhuque-title p {
   color: #0f172a;
-  font-size: clamp(15px, 1.05vw, 18px);
+  font-size: 18px;
   font-family: inherit;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -4203,6 +4203,16 @@ code {
   color: #16a34a;
 }
 
+.aurora-admin-stat-card.compact > span.is-neutral,
+.aurora-admin-stat-trend.is-neutral {
+  color: #64748b;
+}
+
+.aurora-admin-stat-card.compact > span.is-warning,
+.aurora-admin-stat-trend.is-warning {
+  color: #dc2626;
+}
+
 .aurora-admin-metric-icon {
   display: inline-flex;
   align-items: center;
@@ -4219,19 +4229,6 @@ code {
 .aurora-admin-metric-icon-violet { color: #625df5; background: #eeeeff; }
 .aurora-admin-metric-icon-amber { color: #f59e0b; background: #fff4dc; }
 .aurora-admin-metric-icon-slate { color: #2563eb; background: #eaf2ff; }
-
-.aurora-admin-info-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  color: #94a3b8;
-  font-size: 10px;
-  font-weight: 800;
-}
 
 .aurora-admin-stat-label {
   color: #475569;
@@ -5407,6 +5404,7 @@ code {
   position: absolute;
   right: 18%;
   top: 44px;
+  transform: translateX(-50%);
   border: 1px solid #dbe4ef;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
@@ -5415,6 +5413,49 @@ code {
   font-size: 12px;
   font-weight: 720;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.aurora-session-chart-empty,
+.aurora-session-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 120px;
+  color: #64748b;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 720;
+  text-align: center;
+}
+
+.aurora-session-chart-empty {
+  position: absolute;
+  inset: 0 0 0 2.2rem;
+}
+
+.aurora-session-empty-state {
+  flex-direction: column;
+  border: 1px dashed #dbe4ef;
+  border-radius: 16px;
+  background: #f8fafc;
+  margin: 0.75rem 1rem 0;
+  padding: 1.25rem;
+}
+
+.aurora-session-empty-state p {
+  margin: 0;
+}
+
+.aurora-session-timeline .aurora-session-empty-state {
+  position: static;
+  min-height: 160px;
+  padding: 1.5rem;
+  border-bottom: 0;
+}
+
+.aurora-session-timeline .aurora-session-empty-state p {
+  color: #64748b;
 }
 
 .aurora-ops-provider-list .aurora-admin-metric-icon {
@@ -6188,6 +6229,16 @@ code {
   padding: 0.2rem 0.55rem;
   font-size: 12px;
   font-weight: 800;
+}
+
+.aurora-session-range-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.aurora-session-range-select select {
+  min-width: 8.5rem;
 }
 
 .aurora-session-history-drawer {
