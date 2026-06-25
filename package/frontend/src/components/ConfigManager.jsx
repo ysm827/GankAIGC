@@ -290,35 +290,6 @@ const ConfigManager = ({ adminToken }) => {
               />
             </label>
             <label>
-              <span>模型</span>
-              <div className="aurora-config-model-picker">
-                <input
-                  type="text"
-                  list="aurora-detected-models"
-                  value={primaryModel}
-                  onChange={(e) => applyUnifiedModel(e.target.value)}
-                  className="aurora-admin-input"
-                  aria-label="模型"
-                  placeholder="选择或输入模型名称"
-                />
-                <datalist id="aurora-detected-models">
-                  {availableModelOptions.map((modelName) => (
-                    <option key={modelName} value={modelName} />
-                  ))}
-                </datalist>
-                <button
-                  type="button"
-                  onClick={handleFetchModels}
-                  disabled={fetchingModels}
-                  className="aurora-config-model-probe-button"
-                  title="从中转站拉取 /v1/models 模型列表"
-                >
-                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
-                  探测模型
-                </button>
-              </div>
-            </label>
-            <label>
               <span>API 地址</span>
               <input
                 type="text"
@@ -337,6 +308,31 @@ const ConfigManager = ({ adminToken }) => {
                 placeholder={getApiKeyPlaceholder('polish')}
                 className="aurora-admin-input font-mono"
               />
+            </label>
+            <label>
+              <span>模型</span>
+              <div className="aurora-config-model-picker">
+                <select
+                  value={primaryModel}
+                  onChange={(e) => applyUnifiedModel(e.target.value)}
+                  className="aurora-admin-input"
+                  aria-label="模型"
+                >
+                  {availableModelOptions.map((modelName) => (
+                    <option key={modelName} value={modelName}>{modelName}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels}
+                  className="aurora-config-model-probe-button"
+                  title="从中转站拉取 /v1/models 模型列表"
+                >
+                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
+                  探测模型
+                </button>
+              </div>
             </label>
             <label className="aurora-config-timeout-field">
               <span>超时时间</span>
