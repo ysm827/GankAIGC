@@ -905,8 +905,9 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert 'CircleDollarSign className="h-4 w-4"' in users_section
     assert "<MoreHorizontal" not in users_section
     assert "啤酒余额" in users_section
-    assert "朱雀检查次数" in users_section
-    assert "user.zhuque_total_uses" in users_section
+    assert "朱雀剩余次数" in users_section
+    assert "朱雀检查次数" not in users_section
+    assert "user.zhuque_free_uses_remaining" in users_section
     assert "zhuque_total_uses" in admin_dashboard
     assert "zhuque_free_uses_remaining" in admin_dashboard
     assert "余额 (Credits)" not in users_section

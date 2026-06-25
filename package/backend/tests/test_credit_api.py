@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from app.database import Base
@@ -110,6 +111,36 @@ def test_user_can_redeem_credit_code_once(client):
     second_response = client.post("/api/user/redeem-code", json={"code": "CREDIT10"}, headers=headers)
 
     assert second_response.status_code == 400
+
+
+def test_admin_user_list_returns_cached_zhuque_remaining_uses(client, monkeypatch, tmp_path):
+    from app.database import SessionLocal
+    from app.routes import admin as admin_routes
+
+    db = SessionLocal()
+    try:
+        user = _create_user(db, username="zhuque-user")
+        user_id = user.id
+    finally:
+        db.close()
+
+    user_dir = tmp_path / f"user_{user_id}"
+    user_dir.mkdir(parents=True)
+    (user_dir / "session_status.json").write_text(
+        json.dumps({"connected": False, "has_token": False, "remaining_uses": 5}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        admin_routes,
+        "zhuque_user_credentials_file",
+        lambda target_user_id: tmp_path / f"user_{target_user_id}" / "creds_latest.json",
+    )
+
+    response = client.get("/api/admin/users", headers=_admin_auth_headers(client))
+
+    assert response.status_code == 200
+    users = {item["id"]: item for item in response.json()}
+    assert users[user_id]["zhuque_free_uses_remaining"] == 5
 
 
 def test_admin_can_create_credit_codes_and_recharge_user(client):

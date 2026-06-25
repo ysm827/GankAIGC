@@ -46,6 +46,8 @@ from app.schemas import (
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service, update_service
+from app.services.zhuque_api import ZhuqueAPI
+from app.services.zhuque_service import zhuque_user_credentials_file
 from app.utils.auth import (
     create_access_token,
     verify_token,
@@ -54,6 +56,24 @@ from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _coerce_zhuque_remaining_uses(value: Any) -> int:
+    try:
+        remaining_uses = int(value)
+    except (TypeError, ValueError):
+        return -1
+    return remaining_uses if remaining_uses >= 0 else -1
+
+
+def _get_cached_zhuque_remaining_uses(user: User) -> int:
+    """Return the latest cached Zhuque quota for a user without running a live probe."""
+    try:
+        status = ZhuqueAPI(credentials_file=zhuque_user_credentials_file(user.id)).credential_status()
+    except Exception:
+        return _coerce_zhuque_remaining_uses(user.zhuque_free_uses_remaining)
+
+    return _coerce_zhuque_remaining_uses(status.get("remaining_uses"))
 
 
 class AdminLogin(BaseModel):
@@ -949,8 +969,27 @@ async def list_provider_config_summaries(
 
 
 @router.get("/users", response_model=List[UserResponse])
-async def get_all_users(_: str = Depends(get_admin_from_token), db: Session = Depends(get_db)) -> List[User]:
-    return db.query(User).order_by(User.created_at.desc()).all()
+async def get_all_users(_: str = Depends(get_admin_from_token), db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "nickname": user.nickname,
+            "access_link": user.access_link,
+            "is_active": user.is_active,
+            "is_unlimited": user.is_unlimited,
+            "credit_balance": user.credit_balance,
+            "created_at": user.created_at,
+            "last_used": user.last_used,
+            "last_login_at": user.last_login_at,
+            "usage_limit": user.usage_limit,
+            "usage_count": user.usage_count,
+            "zhuque_free_uses_remaining": _get_cached_zhuque_remaining_uses(user),
+            "zhuque_total_uses": user.zhuque_total_uses,
+        }
+        for user in users
+    ]
 
 
 @router.patch("/users/{user_id}/toggle")

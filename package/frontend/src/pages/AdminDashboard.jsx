@@ -1023,7 +1023,7 @@ const AdminDashboard = () => {
       return;
     }
     const content = [
-      ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'zhuque_total_uses', 'zhuque_free_uses_remaining', 'created_at', 'last_login_at'].join(','),
+      ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'zhuque_free_uses_remaining', 'zhuque_total_uses', 'created_at', 'last_login_at'].join(','),
       ...rows.map((user) => [
         user.id,
         user.username || '',
@@ -1031,8 +1031,8 @@ const AdminDashboard = () => {
         user.is_active,
         user.is_unlimited,
         user.credit_balance ?? 0,
-        user.zhuque_total_uses ?? 0,
         user.zhuque_free_uses_remaining ?? '',
+        user.zhuque_total_uses ?? 0,
         user.created_at || '',
         user.last_login_at || '',
       ].map(escapeCsvCell).join(',')),
@@ -2283,7 +2283,7 @@ const AdminDashboard = () => {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">角色</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤酒余额</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">朱雀检查次数</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">朱雀剩余次数</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最近活跃</th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                         </tr>
@@ -2331,7 +2331,7 @@ const AdminDashboard = () => {
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
-                                {formatAdminNumber(user.zhuque_total_uses ?? 0)}
+                                {(user.zhuque_free_uses_remaining ?? -1) >= 0 ? formatAdminNumber(user.zhuque_free_uses_remaining) : '未知'}
                                 <span className="text-xs font-medium text-slate-400">次</span>
                               </div>
                             </td>
