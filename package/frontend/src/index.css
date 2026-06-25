@@ -6210,9 +6210,11 @@ code {
 }
 
 .aurora-admin-user-filter-search {
-  margin-left: auto;
+  margin-left: 0.75rem;
   min-width: 13.5rem;
   width: min(23rem, 28vw);
+  border-left: 1px solid #dbe4ef;
+  padding-left: 0.75rem;
 }
 
 .aurora-admin-user-filter-export {
