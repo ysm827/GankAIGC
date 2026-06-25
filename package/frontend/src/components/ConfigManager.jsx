@@ -19,6 +19,8 @@ const ConfigManager = ({ adminToken }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testingStage, setTestingStage] = useState('');
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
   const [keyStatus, setKeyStatus] = useState({
     polish: { set: false, last4: '' },
     enhance: { set: false, last4: '' },
@@ -27,6 +29,7 @@ const ConfigManager = ({ adminToken }) => {
   });
 
   const [formData, setFormData] = useState({
+    MODEL_PROVIDER_NAME: '',
     POLISH_MODEL: '',
     POLISH_API_KEY: '',
     POLISH_BASE_URL: '',
@@ -85,6 +88,7 @@ const ConfigManager = ({ adminToken }) => {
       });
 
       setFormData({
+        MODEL_PROVIDER_NAME: response.data.system.model_provider_name || '',
         POLISH_MODEL: response.data.polish.model || '',
         POLISH_API_KEY: '',
         POLISH_BASE_URL: response.data.polish.base_url || '',
@@ -161,6 +165,30 @@ const ConfigManager = ({ adminToken }) => {
     }
   };
 
+  const handleFetchModels = async () => {
+    setFetchingModels(true);
+    try {
+      const response = await axios.post('/api/admin/operations/model-list', {
+        stage: 'polish',
+        base_url: formData.POLISH_BASE_URL,
+        api_key: formData.POLISH_API_KEY,
+      }, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      const models = Array.isArray(response.data?.models) ? response.data.models : [];
+      setAvailableModels(models);
+      if (!formData.POLISH_MODEL && models[0]) {
+        applyUnifiedModel(models[0]);
+      }
+      toast.success(response.data?.message || `已拉取 ${models.length} 个模型`);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      toast.error(detail?.message || detail || '模型探测失败');
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   const getApiKeyPlaceholder = (stage) => {
     const status = keyStatus[stage];
     if (status?.set) {
@@ -171,7 +199,14 @@ const ConfigManager = ({ adminToken }) => {
 
   const primaryModel = formData.POLISH_MODEL || formData.ENHANCE_MODEL || 'gpt-5.5';
   const primaryBaseUrl = formData.POLISH_BASE_URL || formData.ENHANCE_BASE_URL || '';
-  const providerDisplayName = primaryBaseUrl.includes('sub') ? 'Sub API 中转站' : 'OpenAI Compatible 中转站';
+  const providerDisplayName = formData.MODEL_PROVIDER_NAME || (primaryBaseUrl.includes('sub') ? 'Sub API 中转站' : 'OpenAI Compatible 中转站');
+  const availableModelOptions = Array.from(new Set([
+    ...availableModels,
+    primaryModel,
+    'gpt-5.5',
+    'gpt-4o',
+    'moonshot-v1-8k',
+  ].filter(Boolean)));
   const applyUnifiedModel = (modelName) => {
     setFormData((previous) => ({
       ...previous,
@@ -244,24 +279,44 @@ const ConfigManager = ({ adminToken }) => {
 
           <div className="aurora-config-provider-stack">
             <label>
-              <span>当前通道</span>
-              <select value="OpenAI Compatible" disabled className="aurora-admin-input" aria-label="当前模型通道">
-                <option value="OpenAI Compatible">{providerDisplayName}</option>
-              </select>
+              <span>供应商名称</span>
+              <input
+                type="text"
+                value={providerDisplayName}
+                onChange={(e) => setFormData({ ...formData, MODEL_PROVIDER_NAME: e.target.value })}
+                placeholder="Sub API 中转站"
+                className="aurora-admin-input"
+                aria-label="供应商名称"
+              />
             </label>
             <label>
-              <span>默认模型</span>
-              <select
-                value={primaryModel}
-                onChange={(e) => applyUnifiedModel(e.target.value)}
-                className="aurora-admin-input"
-                aria-label="默认模型"
-              >
-                <option value={primaryModel}>{primaryModel}</option>
-                <option value="gpt-5.5">gpt-5.5</option>
-                <option value="gpt-4o">gpt-4o</option>
-                <option value="moonshot-v1-8k">moonshot-v1-8k</option>
-              </select>
+              <span>模型</span>
+              <div className="aurora-config-model-picker">
+                <input
+                  type="text"
+                  list="aurora-detected-models"
+                  value={primaryModel}
+                  onChange={(e) => applyUnifiedModel(e.target.value)}
+                  className="aurora-admin-input"
+                  aria-label="模型"
+                  placeholder="选择或输入模型名称"
+                />
+                <datalist id="aurora-detected-models">
+                  {availableModelOptions.map((modelName) => (
+                    <option key={modelName} value={modelName} />
+                  ))}
+                </datalist>
+                <button
+                  type="button"
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels}
+                  className="aurora-config-model-probe-button"
+                  title="从中转站拉取 /v1/models 模型列表"
+                >
+                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
+                  探测模型
+                </button>
+              </div>
             </label>
             <label>
               <span>API 地址</span>
@@ -300,6 +355,35 @@ const ConfigManager = ({ adminToken }) => {
               <strong>{primaryBaseUrl ? '已配置' : '待配置'}</strong>
               <code className="aurora-config-mono-value">{primaryBaseUrl || '请填写 Sub/OpenAI Compatible Base URL'}</code>
               {renderTestButton('polish')}
+            </div>
+
+            <div className="aurora-config-quota-card aurora-config-embedded-quota">
+              <div className="aurora-config-card-title no-margin">
+                <span className="aurora-config-title-icon aurora-config-title-icon-quota">
+                  <Gauge className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3>配额与限制</h3>
+                </div>
+              </div>
+              <div className="aurora-config-quota-grid">
+                <label>
+                  <span>单用户并发会话数</span>
+                  <input type="number" className="aurora-admin-input" value={formData.MAX_CONCURRENT_USERS} onChange={(e) => setFormData({ ...formData, MAX_CONCURRENT_USERS: e.target.value })} />
+                </label>
+                <label>
+                  <span>单会话最大消息数</span>
+                  <input type="number" className="aurora-admin-input" value={formData.HISTORY_COMPRESSION_THRESHOLD} onChange={(e) => setFormData({ ...formData, HISTORY_COMPRESSION_THRESHOLD: e.target.value })} />
+                </label>
+                <label>
+                  <span>单条消息最大长度</span>
+                  <input type="number" className="aurora-admin-input" value={formData.SEGMENT_SKIP_THRESHOLD} onChange={(e) => setFormData({ ...formData, SEGMENT_SKIP_THRESHOLD: e.target.value })} />
+                </label>
+                <label>
+                  <span>每日请求上限</span>
+                  <input type="number" className="aurora-admin-input" value="10000" readOnly />
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -399,36 +483,6 @@ const ConfigManager = ({ adminToken }) => {
             </label>
           </div>
         </div>
-
-        <div className="aurora-admin-card aurora-config-card aurora-config-quota-card p-6">
-          <div className="aurora-config-card-title">
-            <span className="aurora-config-title-icon aurora-config-title-icon-quota">
-              <Gauge className="h-5 w-5" />
-            </span>
-            <div>
-              <h3>配额与限制</h3>
-            </div>
-          </div>
-          <div className="aurora-config-quota-grid">
-            <label>
-              <span>单用户并发会话数</span>
-              <input type="number" className="aurora-admin-input" value={formData.MAX_CONCURRENT_USERS} onChange={(e) => setFormData({ ...formData, MAX_CONCURRENT_USERS: e.target.value })} />
-            </label>
-            <label>
-              <span>单会话最大消息数</span>
-              <input type="number" className="aurora-admin-input" value={formData.HISTORY_COMPRESSION_THRESHOLD} onChange={(e) => setFormData({ ...formData, HISTORY_COMPRESSION_THRESHOLD: e.target.value })} />
-            </label>
-            <label>
-              <span>单条消息最大长度</span>
-              <input type="number" className="aurora-admin-input" value={formData.SEGMENT_SKIP_THRESHOLD} onChange={(e) => setFormData({ ...formData, SEGMENT_SKIP_THRESHOLD: e.target.value })} />
-            </label>
-            <label>
-              <span>每日请求上限</span>
-              <input type="number" className="aurora-admin-input" value="10000" readOnly />
-            </label>
-          </div>
-        </div>
-
       </div>
 
       <div className="aurora-admin-card aurora-config-feature-card p-6">

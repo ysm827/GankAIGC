@@ -4,7 +4,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -876,6 +876,60 @@ def get_model_config(stage: str) -> Dict[str, str]:
     }
 
 
+def get_model_probe_config(
+    stage: str,
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, str]:
+    config = _raw_model_stage_config(stage)
+    merged_api_key = api_key if (api_key or "").strip() else config.get("api_key")
+    merged_base_url = base_url if (base_url or "").strip() else config.get("base_url")
+    if _is_placeholder_api_key(merged_api_key):
+        raise ValueError("API Key 仍是占位值")
+    if _is_placeholder_base_url(merged_base_url):
+        raise ValueError("Base URL 仍是占位值")
+    return {
+        "stage": stage,
+        "label": config["label"],
+        "api_key": _normalize_api_key(merged_api_key),
+        "base_url": _normalize_base_url(merged_base_url),
+    }
+
+
+def _models_url_from_base_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/models"
+
+
+def _extract_model_ids(payload: Any) -> List[str]:
+    raw_items: Any
+    if isinstance(payload, dict):
+        raw_items = payload.get("data")
+        if raw_items is None:
+            raw_items = payload.get("models")
+    else:
+        raw_items = payload
+
+    if not isinstance(raw_items, list):
+        raise ValueError("模型列表响应格式不正确")
+
+    model_ids: List[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        if isinstance(item, dict):
+            model_id = item.get("id") or item.get("name") or item.get("model")
+        else:
+            model_id = item
+        if model_id is None:
+            continue
+        model_text = str(model_id).strip()
+        if not model_text or model_text in seen:
+            continue
+        seen.add(model_text)
+        model_ids.append(model_text)
+    return model_ids
+
+
 def _classify_model_test_error(exc: Exception) -> str:
     if isinstance(exc, AuthenticationError):
         return "API Key 无效或权限不足"
@@ -890,6 +944,64 @@ def _classify_model_test_error(exc: Exception) -> str:
     if isinstance(exc, httpx.TimeoutException):
         return "请求超时，请检查 Base URL 或网络"
     return str(exc)
+
+
+async def list_provider_models(
+    stage: str,
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    try:
+        config = get_model_probe_config(stage, base_url=base_url, api_key=api_key)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": "",
+            "base_url": None,
+            "models": [],
+            "count": 0,
+            "message": str(exc),
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.MODEL_TEST_TIMEOUT_SECONDS) as client:
+            response = await client.get(
+                _models_url_from_base_url(config["base_url"]),
+                headers={"Authorization": f"Bearer {config['api_key']}"},
+            )
+            response.raise_for_status()
+            models = _extract_model_ids(response.json())
+        return {
+            "ok": True,
+            "stage": stage,
+            "label": config["label"],
+            "base_url": config["base_url"],
+            "models": models,
+            "count": len(models),
+            "message": f"已拉取 {len(models)} 个模型",
+        }
+    except httpx.HTTPStatusError as exc:
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": config["label"],
+            "base_url": config["base_url"],
+            "models": [],
+            "count": 0,
+            "message": f"模型列表接口返回 HTTP {exc.response.status_code}",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": config["label"],
+            "base_url": config["base_url"],
+            "models": [],
+            "count": 0,
+            "message": _classify_model_test_error(exc),
+        }
 
 
 async def test_model_connection(stage: str) -> Dict[str, Any]:

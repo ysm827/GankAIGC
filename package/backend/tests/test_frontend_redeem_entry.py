@@ -1404,6 +1404,7 @@ def test_config_manager_uses_current_model_placeholders():
     config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")
 
     assert config_manager.count('placeholder="gpt-5.5"') == 4
+    assert 'placeholder="选择或输入模型名称"' in config_manager
     assert 'placeholder="gemini-2.5-pro"' not in config_manager
 
 
@@ -1414,6 +1415,15 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "模型中转站配置" in config_manager
     assert "Sub API 中转站" in config_manager
     assert "OpenAI Compatible 中转站" in config_manager
+    assert "供应商名称" in config_manager
+    assert "当前通道" not in config_manager
+    assert "默认模型" not in config_manager
+    assert "探测模型" in config_manager
+    assert "handleFetchModels" in config_manager
+    assert "availableModels" in config_manager
+    assert "/api/admin/operations/model-list" in config_manager
+    assert "response.data.system.model_provider_name" in config_manager
+    assert "MODEL_PROVIDER_NAME" in config_manager
     assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" not in config_manager
     assert 'placeholder="https://your-sub-domain/v1"' in config_manager
     assert "primaryBaseUrl" in config_manager
@@ -1492,7 +1502,16 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
     assert "通过工作台扫码捕获凭证" not in config_manager
     assert "aurora-config-mono-value" in config_manager
     assert ".aurora-config-mono-value" in index_css
+    assert "aurora-config-model-picker" in config_manager
+    assert ".aurora-config-model-picker" in index_css
+    assert "aurora-config-model-probe-button" in config_manager
+    assert ".aurora-config-model-probe-button" in index_css
+    assert "aurora-config-embedded-quota" in config_manager
+    assert ".aurora-config-embedded-quota" in index_css
 
+    provider_card = config_manager.split("aurora-config-provider-card", 1)[1].split("aurora-config-security-card", 1)[0]
+    assert "aurora-config-quota-card" in provider_card
+    assert provider_card.index("aurora-config-connection-row") < provider_card.index("aurora-config-quota-card")
 
 
 
@@ -1500,7 +1519,7 @@ def test_config_manager_security_card_uses_real_settings_not_fake_switches():
     config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")
     admin_routes = (PACKAGE_ROOT / "backend" / "app" / "routes" / "admin.py").read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
-    security_card = config_manager.split("aurora-config-security-card", 1)[1].split("aurora-config-quota-card", 1)[0]
+    security_card = config_manager.split("aurora-config-security-card", 1)[1].split("aurora-config-feature-card", 1)[0]
     feature_card = config_manager.split("aurora-config-feature-card", 1)[1].split("aurora-config-advanced-drawer", 1)[0]
 
     assert "ACCESS_TOKEN_EXPIRE_MINUTES" in config_manager
@@ -1579,6 +1598,13 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "renderTestButton('enhance')" in config_manager
     assert "renderTestButton('emotion')" in config_manager
     assert "renderTestButton('compression')" in config_manager
+    assert "/api/admin/operations/model-list" in config_manager
+    assert "handleFetchModels" in config_manager
+    assert "探测模型" in config_manager
+    assert "stage: 'polish'" in config_manager
+    assert "base_url: formData.POLISH_BASE_URL" in config_manager
+    assert "api_key: formData.POLISH_API_KEY" in config_manager
+    assert "aurora-detected-models" in config_manager
 
 
 def test_api_config_guide_keeps_previous_sections_open_when_expanding_next():

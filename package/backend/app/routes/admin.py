@@ -91,6 +91,12 @@ class ModelConnectionTestRequest(BaseModel):
     stage: str
 
 
+class ModelListRequest(BaseModel):
+    stage: str = "polish"
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
 def _session_user_identity(user: Optional[User]) -> Dict[str, Optional[str]]:
     if not user:
         return {
@@ -469,6 +475,36 @@ async def test_admin_model_connection(
             "ok": result.get("ok"),
             "model": result.get("model"),
             "base_url": result.get("base_url"),
+            "message": result.get("message"),
+        },
+    )
+    db.commit()
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
+@router.post("/operations/model-list")
+async def list_admin_provider_models(
+    payload: ModelListRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    result = await operations_service.list_provider_models(
+        payload.stage,
+        base_url=payload.base_url,
+        api_key=payload.api_key,
+    )
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "list_provider_models",
+        target_type="system_config",
+        detail={
+            "stage": payload.stage,
+            "ok": result.get("ok"),
+            "base_url": result.get("base_url"),
+            "model_count": result.get("count"),
             "message": result.get("message"),
         },
     )
@@ -1929,6 +1965,7 @@ async def get_config(_: str = Depends(get_admin_from_token)) -> Dict[str, Any]:
             "redeem_rate_limit_per_minute": settings.REDEEM_RATE_LIMIT_PER_MINUTE,
         },
         "system": {
+            "model_provider_name": settings.MODEL_PROVIDER_NAME,
             "max_concurrent_users": settings.MAX_CONCURRENT_USERS,
             "history_compression_threshold": settings.HISTORY_COMPRESSION_THRESHOLD,
             "default_usage_limit": settings.DEFAULT_USAGE_LIMIT,

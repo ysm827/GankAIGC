@@ -363,3 +363,120 @@ def test_relative_backup_dir_prefers_mounted_source_workdir(monkeypatch, tmp_pat
     monkeypatch.setenv("GANKAIGC_HOST_PROJECT_DIR", str(host_dir))
 
     assert operations_service.get_backup_dir() == mounted_source / "backups"
+
+
+def test_list_provider_models_fetches_openai_compatible_model_ids(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-test", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "http://127.0.0.1:8317/v1", raising=False)
+    monkeypatch.setattr(config_module.settings, "ALLOW_LOCAL_MODEL_PROXY", True, raising=False)
+    monkeypatch.setattr(config_module.settings, "SERVER_HOST", "127.0.0.1", raising=False)
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "object": "list",
+                "data": [
+                    {"id": "gpt-5.5", "object": "model"},
+                    {"id": "gpt-4o", "object": "model"},
+                    {"id": "gpt-5.5", "object": "model"},
+                ],
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
+
+    import asyncio
+
+    result = asyncio.run(operations_service.list_provider_models("polish"))
+
+    assert result["ok"] is True
+    assert result["models"] == ["gpt-5.5", "gpt-4o"]
+    assert result["count"] == 2
+    assert captured["url"] == "http://127.0.0.1:8317/v1/models"
+    assert captured["headers"] == {"Authorization": "Bearer sk-test"}
+
+
+def test_admin_model_list_returns_success_and_does_not_audit_api_key(client, monkeypatch):
+    async def fake_list_provider_models(stage, *, base_url=None, api_key=None):
+        assert stage == "polish"
+        assert base_url == "https://api.example/v1"
+        assert api_key == "sk-transient-secret"
+        return {
+            "ok": True,
+            "stage": stage,
+            "label": "润色模型",
+            "base_url": base_url,
+            "models": ["gpt-5.5", "gpt-4o"],
+            "count": 2,
+            "message": "已拉取 2 个模型",
+        }
+
+    monkeypatch.setattr(operations_service, "list_provider_models", fake_list_provider_models)
+
+    response = client.post(
+        "/api/admin/operations/model-list",
+        json={
+            "stage": "polish",
+            "base_url": "https://api.example/v1",
+            "api_key": "sk-transient-secret",
+        },
+        headers=_admin_auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["models"] == ["gpt-5.5", "gpt-4o"]
+
+    db = SessionLocal()
+    try:
+        log = db.query(AdminAuditLog).filter(AdminAuditLog.action == "list_provider_models").one()
+        assert "sk-transient-secret" not in (log.detail or "")
+        assert "gpt-5.5" not in (log.detail or "")
+        assert "model_count" in (log.detail or "")
+    finally:
+        db.close()
+
+
+def test_admin_model_list_returns_structured_failure(client, monkeypatch):
+    async def fake_list_provider_models(stage, *, base_url=None, api_key=None):
+        return {
+            "ok": False,
+            "stage": stage,
+            "label": "润色模型",
+            "base_url": base_url,
+            "models": [],
+            "count": 0,
+            "message": "API Key 未配置",
+        }
+
+    monkeypatch.setattr(operations_service, "list_provider_models", fake_list_provider_models)
+
+    response = client.post(
+        "/api/admin/operations/model-list",
+        json={"stage": "polish", "base_url": "https://api.example/v1"},
+        headers=_admin_auth_headers(client),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["ok"] is False
+    assert response.json()["detail"]["message"] == "API Key 未配置"

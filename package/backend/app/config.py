@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     # OpenAI API 配置
     OPENAI_API_KEY: str = "pwd"
     OPENAI_BASE_URL: str = "http://IP:PORT/v1"
+    MODEL_PROVIDER_NAME: str = "OpenAI Compatible 中转站"
     ENABLE_VERBOSE_AI_LOGS: bool = False
     
     # 第一阶段模型配置 (论文润色)
@@ -331,4 +332,3 @@ def reload_settings(updates: Optional[Mapping[str, Any]] = None):
         setattr(settings, key, getattr(candidate_settings, key))
 
     return settings
-
