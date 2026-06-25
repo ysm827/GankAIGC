@@ -929,7 +929,8 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "width: 6.35rem" in index_css
     assert ".aurora-admin-account-tabs-row" in index_css
     assert ".aurora-admin-status-toggle.is-danger" in index_css
-    assert "width: 42px" in index_css
+    assert "min-width: 3.9rem" in index_css
+    assert "width: 3.9rem" in index_css
     assert "grid-template-columns: minmax(0, 1fr)" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
