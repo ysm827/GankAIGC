@@ -4558,6 +4558,7 @@ code {
 .aurora-admin-editor-card,
 .aurora-admin-preview-card { padding:0; overflow:hidden; }
 .aurora-admin-editor-head { align-items:flex-start; }
+.aurora-admin-announcement-composer .aurora-admin-editor-head { border-bottom: 0; }
 .aurora-admin-editor-head span { color:#64748b; font-size:12px; font-weight:760; }
 .aurora-admin-editor-head strong { display:block; margin-top:.25rem; color:#0f172a; font-size:1.1rem; font-weight:840; }
 .aurora-admin-editor-card form { padding:1.25rem; }

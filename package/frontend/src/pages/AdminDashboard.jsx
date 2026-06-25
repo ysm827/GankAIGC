@@ -2595,11 +2595,6 @@ const AdminDashboard = () => {
               </div>
 
               <div className="aurora-admin-card aurora-admin-preview-card">
-                <div className="aurora-admin-editor-head">
-                  <div>
-                    <strong>{announcementTitle || 'GankAIGC 平台功能更新说明'}</strong>
-                  </div>
-                </div>
                 <article className="aurora-admin-announcement-preview">
                   <span className={`inline-flex w-max rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcementCategory)}`}>
                     预览

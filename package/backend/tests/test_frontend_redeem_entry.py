@@ -968,6 +968,8 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert "startNewAnnouncementDraft" not in admin_dashboard
     assert "编辑公告" not in announcements_section
     assert "预览效果" not in announcements_section
+    preview_card_source = announcements_section.split('className="aurora-admin-card aurora-admin-preview-card"', 1)[1].split("<article", 1)[0]
+    assert "aurora-admin-editor-head" not in preview_card_source
     assert "管理已发布、隐藏和草稿公告" not in announcements_section
     assert "当前显示全部公告" not in announcements_section
     assert "announcementIsActive" not in admin_dashboard
@@ -978,6 +980,8 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert "is_active: isActive" in admin_dashboard
     assert "草稿已保存" in admin_dashboard
     assert "aurora-admin-secondary-action" not in announcements_section
+    assert ".aurora-admin-announcement-composer .aurora-admin-editor-head" in index_css
+    assert "border-bottom: 0" in index_css
     assert ".aurora-admin-list-actions" in index_css
 
 
