@@ -895,7 +895,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "邀请码" in admin_dashboard
     assert "模型配置" in admin_dashboard
 
-    assert "w-full min-w-[1180px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
+    assert "w-full min-w-[1260px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
     assert "aurora-admin-user-role-badge" in users_section
     assert "aurora-admin-user-vip-badge" not in users_section
     assert "aurora-admin-unlimited-toggle" in users_section
@@ -906,11 +906,15 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert 'CircleDollarSign className="h-4 w-4"' in users_section
     assert "<MoreHorizontal" not in users_section
     assert "啤酒余额" in users_section
+    assert "朱雀检查次数" in users_section
+    assert "user.zhuque_total_uses" in users_section
+    assert "zhuque_total_uses" in admin_dashboard
+    assert "zhuque_free_uses_remaining" in admin_dashboard
     assert "余额 (Credits)" not in users_section
     assert "啤彩 (Beer)" not in users_section
     assert "啤酒 (Beer)" not in users_section
-    assert 'colSpan="6"' in users_section
-    assert 'colSpan="7"' not in users_section
+    assert 'colSpan="7"' in users_section
+    assert 'colSpan="8"' not in users_section
 
     assert ".aurora-admin-user-table" in index_css
     assert ".aurora-admin-user-filter-search" in index_css
@@ -1356,22 +1360,19 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" in config_manager
     assert 'placeholder="https://your-sub-domain/v1"' in config_manager
     assert "primaryBaseUrl" in config_manager
-    assert "腾讯朱雀 AI 率检测" in config_manager
-    assert "检测入口" in config_manager
-    assert "不是模型提供商" in config_manager
-    assert "用户在工作台自助扫码" in config_manager
-    assert "每个 GankAIGC 用户独立保存" in config_manager
-    assert "仅配置模型中转站，不托管用户朱雀账号" in config_manager
+    assert "腾讯朱雀 AI 率检测" not in config_manager
+    assert "检测入口" not in config_manager
+    assert "用户在工作台自助扫码" not in config_manager
+    assert "每个 GankAIGC 用户独立保存" not in config_manager
+    assert "仅配置模型中转站，不托管用户朱雀账号" not in config_manager
     assert "loadZhuqueReadiness" not in config_manager
     assert "/api/admin/zhuque/readiness" not in config_manager
     assert "刷新朱雀检测状态" not in config_manager
     assert "检测凭证" not in config_manager
     assert "凭证文件" not in config_manager
-    assert "get_admin_zhuque_readiness" in admin_routes
-    assert '@router.get("/zhuque/readiness")' in admin_routes
+    assert "get_admin_zhuque_readiness" not in admin_routes
+    assert '@router.get("/zhuque/readiness")' not in admin_routes
     assert "zhuque_service.readiness()" not in admin_routes
-    assert "credential_file\": \"\"" in admin_routes
-    assert "后台不托管或展示用户朱雀凭证" in admin_routes
 
     assert "ZhuQue（朱雀）</option>" not in config_manager
     assert "zhuque-70b-chat" not in config_manager
@@ -1400,7 +1401,6 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
         "aurora-config-title-icon-gateway",
         "aurora-config-title-icon-security",
         "aurora-config-title-icon-quota",
-        "aurora-config-title-icon-zhuque",
     ]:
         assert class_name in config_manager
         assert f".{class_name}" in index_css
@@ -1408,7 +1408,7 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
     assert "Route" in config_manager
     assert "Fingerprint" in config_manager
     assert "Gauge" in config_manager
-    assert "ScanSearch" in config_manager
+    assert "ScanSearch" not in config_manager
     assert "aurora-config-timeout-field" in config_manager
     assert ".aurora-config-timeout-field" in index_css
     assert "grid-template-columns: max-content 5.25rem max-content" in index_css

@@ -458,21 +458,6 @@ async def test_admin_model_connection(
     return result
 
 
-@router.get("/zhuque/readiness")
-async def get_admin_zhuque_readiness(
-    _: str = Depends(get_admin_from_token),
-) -> Dict[str, Any]:
-    """Return admin-safe Zhuque capability metadata without user credential state."""
-    return {
-        "enabled": True,
-        "ready": True,
-        "connected": False,
-        "has_token": False,
-        "credential_file": "",
-        "user_name": "",
-        "message": "朱雀检测由用户在工作台自助扫码登录；后台不托管或展示用户朱雀凭证。",
-    }
-
 
 @router.post("/invites", response_model=InviteResponse)
 async def create_registration_invite(

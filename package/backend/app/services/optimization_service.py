@@ -1011,6 +1011,13 @@ class OptimizationService:
             result = await _zhuque_service_for_user_id(self.session_obj.user_id).detect(detect_text)
             result_success = bool(result.get("success"))
             detect_rate = self._get_zhuque_risk_rate(result) if result_success else None
+            if result_success:
+                user = self.db.get(User, self.session_obj.user_id)
+                if user:
+                    user.zhuque_total_uses = int(user.zhuque_total_uses or 0) + 1
+                    remaining_uses = result.get("remaining_uses")
+                    if isinstance(remaining_uses, int) and remaining_uses >= 0:
+                        user.zhuque_free_uses_remaining = remaining_uses
             result_json = json.dumps(result, ensure_ascii=False)
             for seg in segments:
                 seg.zhuque_detect_rate = detect_rate

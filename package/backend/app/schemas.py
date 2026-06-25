@@ -25,6 +25,8 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
     usage_limit: int
     usage_count: int
+    zhuque_free_uses_remaining: int = 20
+    zhuque_total_uses: int = 0
     
     model_config = ConfigDict(from_attributes=True)
 

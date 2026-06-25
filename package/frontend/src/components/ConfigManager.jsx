@@ -11,7 +11,6 @@ import {
   Route,
   Fingerprint,
   Gauge,
-  ScanSearch,
   SlidersHorizontal,
 } from 'lucide-react';
 import ApiConfigGuide from './ApiConfigGuide';
@@ -465,26 +464,6 @@ const ConfigManager = ({ adminToken }) => {
           </div>
         </div>
 
-        <div className="aurora-admin-card aurora-config-card aurora-config-ready-card p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="aurora-config-card-title no-margin">
-              <span className="aurora-config-title-icon aurora-config-title-icon-zhuque">
-                <ScanSearch className="h-5 w-5" />
-              </span>
-              <div>
-                <h3>腾讯朱雀 AI 率检测</h3>
-                <p>朱雀是腾讯 AI 检测入口，不是模型提供商；模型改写仍走上方 Sub/OpenAI 兼容中转站。</p>
-              </div>
-            </div>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">用户侧启用</span>
-          </div>
-          <div className="aurora-config-ready-list">
-            <div><span>登录方式</span><strong>用户在工作台自助扫码</strong></div>
-            <div><span>凭证隔离</span><strong>每个 GankAIGC 用户独立保存</strong></div>
-            <div><span>检测入口</span><strong>腾讯朱雀 AI 检测</strong></div>
-            <div><span>后台作用</span><strong>仅配置模型中转站，不托管用户朱雀账号</strong></div>
-          </div>
-        </div>
       </div>
 
       <div className="aurora-admin-card aurora-config-feature-card p-6">

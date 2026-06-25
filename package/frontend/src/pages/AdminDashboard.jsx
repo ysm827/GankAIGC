@@ -1042,7 +1042,7 @@ const AdminDashboard = () => {
       return;
     }
     const content = [
-      ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'created_at', 'last_login_at'].join(','),
+      ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'zhuque_total_uses', 'zhuque_free_uses_remaining', 'created_at', 'last_login_at'].join(','),
       ...rows.map((user) => [
         user.id,
         user.username || '',
@@ -1050,6 +1050,8 @@ const AdminDashboard = () => {
         user.is_active,
         user.is_unlimited,
         user.credit_balance ?? 0,
+        user.zhuque_total_uses ?? 0,
+        user.zhuque_free_uses_remaining ?? '',
         user.created_at || '',
         user.last_login_at || '',
       ].map(escapeCsvCell).join(',')),
@@ -2293,13 +2295,14 @@ const AdminDashboard = () => {
                   </div>
 
                   <div className={ADMIN_TABLE_SCROLL_CLASS}>
-                    <table className="w-full min-w-[1180px] divide-y divide-gray-200 aurora-admin-user-table">
+                    <table className="w-full min-w-[1260px] divide-y divide-gray-200 aurora-admin-user-table">
                       <thead className={ADMIN_TABLE_HEAD_CLASS}>
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">角色</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤酒余额</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">朱雀检查次数</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最近活跃</th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                         </tr>
@@ -2307,7 +2310,7 @@ const AdminDashboard = () => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {filteredUsers.length === 0 ? (
                           <tr>
-                            <td colSpan="6" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
+                            <td colSpan="7" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
                           </tr>
                         ) : filteredUsers.map((user) => {
                           const providerConfig = providerConfigByUserId.get(user.id);
@@ -2344,6 +2347,12 @@ const AdminDashboard = () => {
                               <div className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
                                 {user.is_unlimited ? '∞' : formatAdminNumber(user.credit_balance ?? 0)}
                                 <BeerIcon className="h-4 w-4" />
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
+                                {formatAdminNumber(user.zhuque_total_uses ?? 0)}
+                                <span className="text-xs font-medium text-slate-400">次</span>
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
