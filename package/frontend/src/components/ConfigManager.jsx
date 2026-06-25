@@ -20,8 +20,6 @@ const ConfigManager = ({ adminToken }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testingStage, setTestingStage] = useState('');
-  const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
-  const [loadingZhuqueReadiness, setLoadingZhuqueReadiness] = useState(false);
   const [keyStatus, setKeyStatus] = useState({
     polish: { set: false, last4: '' },
     enhance: { set: false, last4: '' },
@@ -59,7 +57,6 @@ const ConfigManager = ({ adminToken }) => {
 
   useEffect(() => {
     fetchConfig();
-    loadZhuqueReadiness({ silent: true });
   }, []);
 
   const fetchConfig = async () => {
@@ -150,22 +147,6 @@ const ConfigManager = ({ adminToken }) => {
     }
   };
 
-  const loadZhuqueReadiness = async ({ silent = false } = {}) => {
-    setLoadingZhuqueReadiness(true);
-    try {
-      const response = await axios.get('/api/admin/zhuque/readiness', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      setZhuqueReadiness(response.data);
-    } catch (error) {
-      if (!silent) {
-        toast.error(error.response?.data?.detail || '获取朱雀检测状态失败');
-      }
-    } finally {
-      setLoadingZhuqueReadiness(false);
-    }
-  };
-
   const handleTestModel = async (stage) => {
     setTestingStage(stage);
     try {
@@ -192,17 +173,6 @@ const ConfigManager = ({ adminToken }) => {
   const primaryModel = formData.POLISH_MODEL || formData.ENHANCE_MODEL || 'gpt-5.5';
   const primaryBaseUrl = formData.POLISH_BASE_URL || formData.ENHANCE_BASE_URL || '';
   const providerDisplayName = primaryBaseUrl.includes('sub') ? 'Sub API 中转站' : 'OpenAI Compatible 中转站';
-  const zhuqueConnected = Boolean(zhuqueReadiness?.connected || zhuqueReadiness?.has_token);
-  const zhuqueReady = Boolean(zhuqueReadiness?.ready);
-  const zhuqueStatusLabel = zhuqueReady ? '就绪' : zhuqueConnected ? '待检测文本' : '未登录';
-  const zhuqueStatusClass = zhuqueReady
-    ? 'bg-emerald-50 text-emerald-700'
-    : zhuqueConnected
-      ? 'bg-amber-50 text-amber-700'
-      : 'bg-slate-100 text-slate-500';
-  const formatZhuqueRemainingUses = (value) => (
-    typeof value === 'number' && value >= 0 ? `${value} 次` : '检测后同步'
-  );
   const applyUnifiedModel = (modelName) => {
     setFormData((previous) => ({
       ...previous,
@@ -506,19 +476,13 @@ const ConfigManager = ({ adminToken }) => {
                 <p>朱雀是腾讯 AI 检测入口，不是模型提供商；模型改写仍走上方 Sub/OpenAI 兼容中转站。</p>
               </div>
             </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${zhuqueStatusClass}`}>{zhuqueStatusLabel}</span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">用户侧启用</span>
           </div>
           <div className="aurora-config-ready-list">
-            <div><span>检测凭证</span><strong>{zhuqueConnected ? '已捕获' : '未登录'}</strong></div>
-            <div><span>朱雀剩余次数</span><strong>{formatZhuqueRemainingUses(zhuqueReadiness?.remaining_uses)}</strong></div>
+            <div><span>登录方式</span><strong>用户在工作台自助扫码</strong></div>
+            <div><span>凭证隔离</span><strong>每个 GankAIGC 用户独立保存</strong></div>
             <div><span>检测入口</span><strong>腾讯朱雀 AI 检测</strong></div>
-            <div><span>凭证文件</span><strong className="aurora-config-mono-value" title={zhuqueReadiness?.credential_file || ''}>{zhuqueReadiness?.credential_file || '未捕获'}</strong></div>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button type="button" onClick={() => loadZhuqueReadiness()} disabled={loadingZhuqueReadiness} className="aurora-admin-secondary-action">
-              <RefreshCw className={`h-4 w-4 ${loadingZhuqueReadiness ? 'animate-spin' : ''}`} />
-              刷新朱雀检测状态
-            </button>
+            <div><span>后台作用</span><strong>仅配置模型中转站，不托管用户朱雀账号</strong></div>
           </div>
         </div>
       </div>

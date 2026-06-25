@@ -46,7 +46,6 @@ from app.schemas import (
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service, update_service
-from app.services.zhuque_service import zhuque_service
 from app.utils.auth import (
     create_access_token,
     verify_token,
@@ -463,8 +462,16 @@ async def test_admin_model_connection(
 async def get_admin_zhuque_readiness(
     _: str = Depends(get_admin_from_token),
 ) -> Dict[str, Any]:
-    """后台系统配置页只读查看朱雀腾讯 AI 检测凭证状态。"""
-    return await zhuque_service.readiness()
+    """Return admin-safe Zhuque capability metadata without user credential state."""
+    return {
+        "enabled": True,
+        "ready": True,
+        "connected": False,
+        "has_token": False,
+        "credential_file": "",
+        "user_name": "",
+        "message": "朱雀检测由用户在工作台自助扫码登录；后台不托管或展示用户朱雀凭证。",
+    }
 
 
 @router.post("/invites", response_model=InviteResponse)

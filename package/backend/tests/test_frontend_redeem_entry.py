@@ -1359,12 +1359,19 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "腾讯朱雀 AI 率检测" in config_manager
     assert "检测入口" in config_manager
     assert "不是模型提供商" in config_manager
-    assert "loadZhuqueReadiness" in config_manager
-    assert "/api/admin/zhuque/readiness" in config_manager
-    assert "刷新朱雀检测状态" in config_manager
+    assert "用户在工作台自助扫码" in config_manager
+    assert "每个 GankAIGC 用户独立保存" in config_manager
+    assert "仅配置模型中转站，不托管用户朱雀账号" in config_manager
+    assert "loadZhuqueReadiness" not in config_manager
+    assert "/api/admin/zhuque/readiness" not in config_manager
+    assert "刷新朱雀检测状态" not in config_manager
+    assert "检测凭证" not in config_manager
+    assert "凭证文件" not in config_manager
     assert "get_admin_zhuque_readiness" in admin_routes
     assert '@router.get("/zhuque/readiness")' in admin_routes
-    assert "zhuque_service.readiness()" in admin_routes
+    assert "zhuque_service.readiness()" not in admin_routes
+    assert "credential_file\": \"\"" in admin_routes
+    assert "后台不托管或展示用户朱雀凭证" in admin_routes
 
     assert "ZhuQue（朱雀）</option>" not in config_manager
     assert "zhuque-70b-chat" not in config_manager
