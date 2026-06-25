@@ -200,13 +200,6 @@ const ConfigManager = ({ adminToken }) => {
     }));
   };
 
-  const localProxyEnabledSafely =
-    formData.ALLOW_LOCAL_MODEL_PROXY && ['127.0.0.1', 'localhost', '::1'].includes((formData.SERVER_HOST || '').trim().toLowerCase());
-
-  const modelBaseUrlHelp = localProxyEnabledSafely
-    ? '本机代理已放行，可填 http://127.0.0.1:端口/v1；公网服务仍建议填 https://.../v1。'
-    : '公网或 0.0.0.0 部署必须填公网 HTTPS 地址；本机代理需在安全配置里开启并绑定 127.0.0.1。';
-
   const renderTestButton = (stage) => (
     <button
       type="button"
@@ -234,12 +227,6 @@ const ConfigManager = ({ adminToken }) => {
 
   return (
     <div className="aurora-admin-section space-y-6 aurora-config-console">
-      <div className="aurora-admin-section-head">
-        <div>
-          <h2>系统配置</h2>
-        </div>
-      </div>
-
       <div className="aurora-config-guide-shell">
         <ApiConfigGuide />
       </div>
@@ -252,7 +239,6 @@ const ConfigManager = ({ adminToken }) => {
             </span>
             <div>
               <h3>模型中转站配置</h3>
-              <p>统一同步论文润色、原创性增强、情感文章和历史压缩的 LLM 服务；可填写 Sub API 或任意 OpenAI Compatible 中转站。</p>
             </div>
           </div>
 
@@ -262,7 +248,6 @@ const ConfigManager = ({ adminToken }) => {
               <select value="OpenAI Compatible" disabled className="aurora-admin-input" aria-label="当前模型通道">
                 <option value="OpenAI Compatible">{providerDisplayName}</option>
               </select>
-              <small>朱雀只负责腾讯 AI 率检测，不作为模型提供商；模型请求走这里的中转站。</small>
             </label>
             <label>
               <span>默认模型</span>
@@ -277,7 +262,6 @@ const ConfigManager = ({ adminToken }) => {
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="moonshot-v1-8k">moonshot-v1-8k</option>
               </select>
-              <small>新会话默认使用的 LLM 模型</small>
             </label>
             <label>
               <span>API 地址</span>
@@ -288,7 +272,6 @@ const ConfigManager = ({ adminToken }) => {
                 placeholder="https://your-sub-domain/v1"
                 className="aurora-admin-input"
               />
-              <small>{modelBaseUrlHelp}</small>
             </label>
             <label>
               <span>API Key</span>
@@ -299,22 +282,23 @@ const ConfigManager = ({ adminToken }) => {
                 placeholder={getApiKeyPlaceholder('polish')}
                 className="aurora-admin-input font-mono"
               />
-              <small>用于请求所有模型阶段的 API 密钥；留空不修改已保存密钥</small>
             </label>
-            <label className="aurora-config-inline-field aurora-config-timeout-field">
+            <label className="aurora-config-timeout-field">
               <span>超时时间</span>
-              <input
-                type="number"
-                value={formData.API_REQUEST_INTERVAL || '60'}
-                onChange={(e) => setFormData({ ...formData, API_REQUEST_INTERVAL: e.target.value })}
-                className="aurora-admin-input"
-              />
-              <strong>秒</strong>
+              <div className="aurora-config-unit-input aurora-config-unit-input-compact">
+                <input
+                  type="number"
+                  value={formData.API_REQUEST_INTERVAL || '60'}
+                  onChange={(e) => setFormData({ ...formData, API_REQUEST_INTERVAL: e.target.value })}
+                  className="aurora-admin-input"
+                />
+                <strong>秒</strong>
+              </div>
             </label>
             <div className="aurora-config-connection-row">
               <span className="text-emerald-600">● 连接状态</span>
               <strong>{primaryBaseUrl ? '已配置' : '待配置'}</strong>
-              <small className="aurora-config-mono-value">{primaryBaseUrl || '请填写 Sub/OpenAI Compatible Base URL'}</small>
+              <code className="aurora-config-mono-value">{primaryBaseUrl || '请填写 Sub/OpenAI Compatible Base URL'}</code>
               {renderTestButton('polish')}
             </div>
           </div>
@@ -327,12 +311,11 @@ const ConfigManager = ({ adminToken }) => {
             </span>
             <div>
               <h3>安全配置</h3>
-              <p>控制登录有效期、接口限流和模型地址安全校验；保存后立即生效。</p>
             </div>
           </div>
           <div className="aurora-config-security-list">
             <div className="aurora-config-switch-line">
-              <div><strong>访问令牌认证</strong><small>登录后浏览器会拿到访问令牌，后台接口必须带这张令牌才能调用。</small></div>
+              <div><strong>访问令牌认证</strong></div>
               <span className="aurora-config-state-chip is-on" role="status">已启用</span>
             </div>
             <label>
@@ -347,7 +330,6 @@ const ConfigManager = ({ adminToken }) => {
                 />
                 <strong>分钟</strong>
               </div>
-              <small>管理员登录多久后需要重新登录；只影响新签发的后台令牌。</small>
             </label>
             <label>
               <span>用户令牌有效期</span>
@@ -361,7 +343,6 @@ const ConfigManager = ({ adminToken }) => {
                 />
                 <strong>分钟</strong>
               </div>
-              <small>普通用户登录保持多久；默认 10080 分钟约 7 天。</small>
             </label>
             <label>
               <span>登录限流</span>
@@ -375,7 +356,6 @@ const ConfigManager = ({ adminToken }) => {
                 />
                 <strong>次/分钟</strong>
               </div>
-              <small>同一 IP 每分钟最多尝试登录/注册多少次，用来防爆破。</small>
             </label>
             <label>
               <span>兑换限流</span>
@@ -389,16 +369,14 @@ const ConfigManager = ({ adminToken }) => {
                 />
                 <strong>次/分钟</strong>
               </div>
-              <small>同一 IP 每分钟最多兑换多少次，用来防刷兑换码。</small>
             </label>
             <div className="aurora-config-switch-line">
-              <div><strong>模型 Base URL 安全校验</strong><small>公网部署时模型地址必须是公网 HTTPS，避免服务器访问内网地址。</small></div>
+              <div><strong>模型 Base URL 安全校验</strong></div>
               <span className="aurora-config-state-chip is-on" role="status">已启用</span>
             </div>
             <div className="aurora-config-switch-line aurora-config-local-proxy-line">
               <div>
                 <strong>本地模型代理</strong>
-                <small>只在本机运行 GankAIGC，且模型中转站填 http://127.0.0.1:端口/v1 时打开；公网部署不要打开。</small>
               </div>
               <button
                 type="button"
@@ -418,15 +396,7 @@ const ConfigManager = ({ adminToken }) => {
                 placeholder="127.0.0.1"
                 className="aurora-admin-input font-mono"
               />
-              <small>
-                当前 SERVER_HOST 为 {formData.SERVER_HOST || '0.0.0.0'}；要真正放行本机 HTTP 模型代理，请设为 127.0.0.1、localhost 或 ::1。
-              </small>
             </label>
-            <div className={`aurora-config-local-proxy-status ${localProxyEnabledSafely ? 'is-ok' : 'is-warn'}`}>
-              {localProxyEnabledSafely
-                ? '本机代理已放行：Base URL 可以使用 http://127.0.0.1:端口/v1。'
-                : '当前不会放行本机 HTTP 模型代理；公网部署必须使用 HTTPS Base URL。'}
-            </div>
           </div>
         </div>
 
@@ -437,29 +407,24 @@ const ConfigManager = ({ adminToken }) => {
             </span>
             <div>
               <h3>配额与限制</h3>
-              <p>控制并发会话、消息数量、段落阈值和每日请求上限。</p>
             </div>
           </div>
           <div className="aurora-config-quota-grid">
             <label>
               <span>单用户并发会话数</span>
               <input type="number" className="aurora-admin-input" value={formData.MAX_CONCURRENT_USERS} onChange={(e) => setFormData({ ...formData, MAX_CONCURRENT_USERS: e.target.value })} />
-              <small>单个用户同时进行的最大会话数</small>
             </label>
             <label>
               <span>单会话最大消息数</span>
               <input type="number" className="aurora-admin-input" value={formData.HISTORY_COMPRESSION_THRESHOLD} onChange={(e) => setFormData({ ...formData, HISTORY_COMPRESSION_THRESHOLD: e.target.value })} />
-              <small>超过阈值后自动压缩历史</small>
             </label>
             <label>
               <span>单条消息最大长度</span>
               <input type="number" className="aurora-admin-input" value={formData.SEGMENT_SKIP_THRESHOLD} onChange={(e) => setFormData({ ...formData, SEGMENT_SKIP_THRESHOLD: e.target.value })} />
-              <small>单条消息的最大字符数</small>
             </label>
             <label>
               <span>每日请求上限</span>
               <input type="number" className="aurora-admin-input" value="10000" readOnly />
-              <small>0 表示不限制</small>
             </label>
           </div>
         </div>
@@ -473,18 +438,17 @@ const ConfigManager = ({ adminToken }) => {
           </span>
           <div>
             <h3>系统功能开关</h3>
-            <p>控制注册、通知、会话历史、内容审核、文件上传和插件能力。</p>
           </div>
         </div>
         <div className="aurora-config-feature-switches">
           {[
-            ['账号注册控制', '允许新用户通过邀请码注册', 'REGISTRATION_ENABLED'],
-            ['思考模式', '开启后模型会进行深度推理', 'THINKING_MODE_ENABLED'],
-          ].map(([title, desc, key]) => {
+            ['账号注册控制', 'REGISTRATION_ENABLED'],
+            ['思考模式', 'THINKING_MODE_ENABLED'],
+          ].map(([title, key]) => {
             const enabled = Boolean(formData[key]);
             return (
               <div key={title} className="aurora-config-feature-switch">
-                <div><strong>{title}</strong><small>{desc}</small></div>
+                <div><strong>{title}</strong></div>
                 <button
                   type="button"
                   className={enabled ? 'is-on' : ''}
@@ -497,12 +461,12 @@ const ConfigManager = ({ adminToken }) => {
             );
           })}
           {[
-            ['邮件通知', '当前版本暂未接入邮件服务', false],
-            ['内容审核', 'LLM 走中转站，AI 率检测走腾讯朱雀', true],
-            ['插件功能', '插件扩展能力暂未开放', false],
-          ].map(([title, desc, enabled]) => (
+            ['邮件通知', false],
+            ['内容审核', true],
+            ['插件功能', false],
+          ].map(([title, enabled]) => (
             <div key={title} className="aurora-config-feature-switch">
-              <div><strong>{title}</strong><small>{desc}</small></div>
+              <div><strong>{title}</strong></div>
               <span className={`aurora-config-readonly-switch ${enabled ? 'is-on' : ''}`} role="status" aria-label={enabled ? '已启用' : '未开放'}>
                 <span />
               </span>
@@ -519,14 +483,14 @@ const ConfigManager = ({ adminToken }) => {
               <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center"><Cpu className="w-5 h-5 text-teal-600" /></div>
-                  <div><h3 className="text-lg font-bold text-gray-900">润色模型配置</h3><p className="text-xs text-gray-400">用于第一阶段：论文语言润色</p></div>
+                  <div><h3 className="text-lg font-bold text-gray-900">润色模型配置</h3></div>
                 </div>
                 {renderTestButton('polish')}
               </div>
               <div className="space-y-5">
                 <label><span className="block text-sm font-medium text-gray-500 mb-2">模型名称</span><input type="text" value={formData.POLISH_MODEL} onChange={(e) => setFormData({ ...formData, POLISH_MODEL: e.target.value })} placeholder="gpt-5.5" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.POLISH_API_KEY} onChange={(e) => setFormData({ ...formData, POLISH_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('polish')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /><small>留空不会修改已保存密钥；填写新 Key 才会替换</small></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.POLISH_BASE_URL} onChange={(e) => setFormData({ ...formData, POLISH_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /><small>{modelBaseUrlHelp}</small></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.POLISH_API_KEY} onChange={(e) => setFormData({ ...formData, POLISH_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('polish')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.POLISH_BASE_URL} onChange={(e) => setFormData({ ...formData, POLISH_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
               </div>
             </div>
 
@@ -534,14 +498,14 @@ const ConfigManager = ({ adminToken }) => {
               <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-cyan-50 rounded-xl flex items-center justify-center"><Cpu className="w-5 h-5 text-cyan-600" /></div>
-                  <div><h3 className="text-lg font-bold text-gray-900">论文增强模型配置</h3><p className="text-xs text-gray-400">用于第二阶段：原创性增强</p></div>
+                  <div><h3 className="text-lg font-bold text-gray-900">论文增强模型配置</h3></div>
                 </div>
                 {renderTestButton('enhance')}
               </div>
               <div className="space-y-5">
                 <label><span className="block text-sm font-medium text-gray-500 mb-2">模型名称</span><input type="text" value={formData.ENHANCE_MODEL} onChange={(e) => setFormData({ ...formData, ENHANCE_MODEL: e.target.value })} placeholder="gpt-5.5" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.ENHANCE_API_KEY} onChange={(e) => setFormData({ ...formData, ENHANCE_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('enhance')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /><small>留空不会修改已保存密钥；填写新 Key 才会替换</small></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.ENHANCE_BASE_URL} onChange={(e) => setFormData({ ...formData, ENHANCE_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /><small>{modelBaseUrlHelp}</small></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.ENHANCE_API_KEY} onChange={(e) => setFormData({ ...formData, ENHANCE_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('enhance')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.ENHANCE_BASE_URL} onChange={(e) => setFormData({ ...formData, ENHANCE_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
               </div>
             </div>
 
@@ -549,28 +513,28 @@ const ConfigManager = ({ adminToken }) => {
               <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center"><Brain className="w-5 h-5 text-purple-600" /></div>
-                  <div><h3 className="text-lg font-bold text-gray-900">情感润色模型配置</h3><p className="text-xs text-gray-400">用于情感文章润色与语气优化</p></div>
+                  <div><h3 className="text-lg font-bold text-gray-900">情感润色模型配置</h3></div>
                 </div>
                 {renderTestButton('emotion')}
               </div>
               <div className="space-y-5">
                 <label><span className="block text-sm font-medium text-gray-500 mb-2">模型名称</span><input type="text" value={formData.EMOTION_MODEL} onChange={(e) => setFormData({ ...formData, EMOTION_MODEL: e.target.value })} placeholder="gpt-5.5" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.EMOTION_API_KEY} onChange={(e) => setFormData({ ...formData, EMOTION_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('emotion')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /><small>留空不会修改已保存密钥；填写新 Key 才会替换</small></label>
-                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.EMOTION_BASE_URL} onChange={(e) => setFormData({ ...formData, EMOTION_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /><small>{modelBaseUrlHelp}</small></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">API Key</span><input type="password" value={formData.EMOTION_API_KEY} onChange={(e) => setFormData({ ...formData, EMOTION_API_KEY: e.target.value })} placeholder={getApiKeyPlaceholder('emotion')} className="aurora-admin-input w-full px-4 py-2.5 text-sm font-mono" /></label>
+                <label><span className="block text-sm font-medium text-gray-500 mb-2">Base URL</span><input type="text" value={formData.EMOTION_BASE_URL} onChange={(e) => setFormData({ ...formData, EMOTION_BASE_URL: e.target.value })} placeholder="https://api.openai.com/v1" className="aurora-admin-input w-full px-4 py-2.5 text-sm" /></label>
               </div>
             </div>
 
             <div className="aurora-admin-card aurora-config-card p-6">
               <div className="flex items-center gap-3 mb-6"><div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center"><Brain className="w-5 h-5 text-blue-600" /></div><h3 className="text-lg font-bold text-gray-900">思考模式配置</h3></div>
               <div className="space-y-5">
-                <div className="flex items-center justify-between"><div><label className="block text-sm font-medium text-gray-700">启用思考模式</label><p className="text-xs text-gray-400 mt-1">开启后模型会进行深度推理</p></div><button type="button" onClick={() => setFormData({ ...formData, THINKING_MODE_ENABLED: !formData.THINKING_MODE_ENABLED })} className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${formData.THINKING_MODE_ENABLED ? 'bg-blue-600' : 'bg-gray-200'}`}><span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${formData.THINKING_MODE_ENABLED ? 'translate-x-5' : 'translate-x-0'}`} /></button></div>
+                <div className="flex items-center justify-between"><div><label className="block text-sm font-medium text-gray-700">启用思考模式</label></div><button type="button" onClick={() => setFormData({ ...formData, THINKING_MODE_ENABLED: !formData.THINKING_MODE_ENABLED })} className={`relative w-12 h-7 rounded-full transition-colors duration-200 ${formData.THINKING_MODE_ENABLED ? 'bg-blue-600' : 'bg-gray-200'}`}><span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${formData.THINKING_MODE_ENABLED ? 'translate-x-5' : 'translate-x-0'}`} /></button></div>
                 <label><span className="block text-sm font-medium text-gray-500 mb-2">思考强度</span><select value={formData.THINKING_MODE_EFFORT} onChange={(e) => setFormData({ ...formData, THINKING_MODE_EFFORT: e.target.value })} disabled={!formData.THINKING_MODE_ENABLED} className="aurora-admin-input w-full px-4 py-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"><option value="none">无推理 (最低延迟)</option><option value="low">轻度推理</option><option value="medium">中度推理</option><option value="high">深度推理 (推荐)</option><option value="xhigh">极深推理 (仅部分模型支持)</option></select></label>
               </div>
             </div>
 
             <div className="aurora-admin-card aurora-config-card p-6">
               <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center"><Settings className="w-5 h-5 text-orange-600" /></div><div><h3 className="text-lg font-bold text-gray-900">压缩模型与运行参数</h3><p className="text-xs text-gray-400">历史压缩和间隔控制</p></div></div>
+                <div className="flex items-center gap-3"><div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center"><Settings className="w-5 h-5 text-orange-600" /></div><div><h3 className="text-lg font-bold text-gray-900">压缩模型与运行参数</h3></div></div>
                 {renderTestButton('compression')}
               </div>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -584,10 +548,6 @@ const ConfigManager = ({ adminToken }) => {
       </div>
 
       <div className="aurora-config-bottom-bar">
-        <p className="aurora-config-save-note">
-          <span></span>
-          配置修改后会立即生效，无需重启服务！
-        </p>
         <div className="aurora-config-bottom-actions">
           <button onClick={fetchConfig} disabled={loading} className="aurora-admin-secondary-action">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

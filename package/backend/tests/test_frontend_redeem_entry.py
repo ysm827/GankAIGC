@@ -690,6 +690,11 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert '<Github className="h-5 w-5" />' in admin_dashboard
     assert "focusAdminSearch" not in admin_dashboard
     assert "搜索当前页面" not in admin_dashboard
+    assert "showCommandSearch" not in admin_dashboard
+    assert "topbarSearchPlaceholder" not in admin_dashboard
+    assert "aurora-admin-topbar-search" not in admin_dashboard
+    assert "搜索后台内容" not in admin_dashboard
+    assert "搜索功能、文档、会话" not in admin_dashboard
     assert "openAdminHelp" not in admin_dashboard
     assert "打开帮助与反馈" not in admin_dashboard
     assert "topbarAdminLabel" not in admin_dashboard
@@ -700,7 +705,10 @@ def test_admin_dashboard_uses_aurora_admin_theme():
 
     for source in (session_monitor, operations_panel, config_manager):
         assert "aurora-admin-section space-y-6" in source
+    for source in (session_monitor, operations_panel):
         assert "aurora-admin-section-head" in source
+    assert "aurora-config-guide-shell" in config_manager
+    assert '<h2>系统配置</h2>' not in config_manager
 
     assert ".aurora-admin-page" in index_css
     assert "--admin-blue: #0066cc" in index_css
@@ -1406,7 +1414,7 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "模型中转站配置" in config_manager
     assert "Sub API 中转站" in config_manager
     assert "OpenAI Compatible 中转站" in config_manager
-    assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" in config_manager
+    assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" not in config_manager
     assert 'placeholder="https://your-sub-domain/v1"' in config_manager
     assert "primaryBaseUrl" in config_manager
     assert "腾讯朱雀 AI 率检测" not in config_manager
@@ -1444,7 +1452,8 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
     assert "COMPRESSION_BASE_URL: baseUrl" in config_manager
     assert "EMOTION_API_KEY: apiKey" in config_manager
     assert "COMPRESSION_API_KEY: apiKey" in config_manager
-    assert "统一同步论文润色、原创性增强、情感文章和历史压缩" in config_manager
+    assert "统一同步论文润色、原创性增强、情感文章和历史压缩" not in config_manager
+    assert '<h2>系统配置</h2>' not in config_manager
 
     for class_name in [
         "aurora-config-title-icon-gateway",
@@ -1460,13 +1469,17 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
     assert "ScanSearch" not in config_manager
     assert "aurora-config-timeout-field" in config_manager
     assert ".aurora-config-timeout-field" in index_css
-    assert "grid-template-columns: max-content 5.25rem max-content" in index_css
-    assert "justify-content: start" in index_css
+    assert "aurora-config-unit-input-compact" in config_manager
+    assert ".aurora-config-unit-input" in index_css
+    assert ".aurora-config-unit-input:focus-within" in index_css
+    assert "grid-template-columns: minmax(0, 1fr) max-content" in index_css
+    assert "grid-template-columns: max-content 5.25rem max-content" not in index_css
+    assert "justify-content: start" not in index_css
 
     assert "aurora-config-bottom-bar" in config_manager
-    assert "aurora-config-save-note" in config_manager
+    assert "aurora-config-save-note" not in config_manager
     assert ".aurora-config-bottom-bar" in index_css
-    assert ".aurora-config-save-note" in index_css
+    assert ".aurora-config-save-note" not in index_css
     assert "bg-green-50/50 border border-green-100 rounded-xl p-4" not in config_manager
 
     section_head_source = config_manager.split('<div className="aurora-config-guide-shell">')[0]
@@ -1503,22 +1516,22 @@ def test_config_manager_security_card_uses_real_settings_not_fake_switches():
     assert "登录限流" in config_manager
     assert "兑换限流" in config_manager
     assert "模型 Base URL 安全校验" in config_manager
-    assert "控制登录有效期、接口限流和模型地址安全校验" in security_card
-    assert "登录后浏览器会拿到访问令牌" in security_card
-    assert "管理员登录多久后需要重新登录" in security_card
-    assert "同一 IP 每分钟最多尝试登录/注册多少次" in security_card
-    assert "同一 IP 每分钟最多兑换多少次" in security_card
-    assert "只在本机运行 GankAIGC" in security_card
-    assert "公网部署不要打开" in security_card
+    assert "控制登录有效期、接口限流和模型地址安全校验" not in security_card
+    assert "登录后浏览器会拿到访问令牌" not in security_card
+    assert "管理员登录多久后需要重新登录" not in security_card
+    assert "同一 IP 每分钟最多尝试登录/注册多少次" not in security_card
+    assert "同一 IP 每分钟最多兑换多少次" not in security_card
+    assert "只在本机运行 GankAIGC" not in security_card
+    assert "公网部署不要打开" not in security_card
     assert "aria-pressed={Boolean(formData.ALLOW_LOCAL_MODEL_PROXY)}" in security_card
     assert "ALLOW_LOCAL_MODEL_PROXY: !formData.ALLOW_LOCAL_MODEL_PROXY" in security_card
-    assert "aurora-config-local-proxy-status" in security_card
-    assert "当前 SERVER_HOST 为" in security_card
+    assert "aurora-config-local-proxy-status" not in security_card
+    assert "当前 SERVER_HOST 为" not in security_card
     assert "aurora-config-state-chip" in config_manager
     assert ".aurora-config-state-chip" in index_css
     assert ".aurora-config-local-proxy-line" in index_css
     assert ".aurora-config-server-host-field" in index_css
-    assert ".aurora-config-local-proxy-status" in index_css
+    assert ".aurora-config-local-proxy-status" not in index_css
     assert '["本地模型代理", "仅本机部署时允许 HTTP 代理", "ALLOW_LOCAL_MODEL_PROXY"]' not in config_manager
     assert "['本地模型代理', '仅本机部署时允许 HTTP 代理', 'ALLOW_LOCAL_MODEL_PROXY']" not in config_manager
     assert "本地模型代理" not in feature_card
@@ -1550,7 +1563,7 @@ def test_config_manager_exposes_registration_enabled_switch():
 
     assert "REGISTRATION_ENABLED" in config_manager
     assert "账号注册控制" in config_manager
-    assert "允许新用户通过邀请码注册" in config_manager
+    assert "允许新用户通过邀请码注册" not in config_manager
     assert "response.data.system.registration_enabled" in config_manager
 
 

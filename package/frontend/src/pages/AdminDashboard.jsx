@@ -1498,10 +1498,6 @@ const AdminDashboard = () => {
   });
   const selectedAuditLog = filteredAuditLogs.find((log) => log.id === selectedAuditLogId) || filteredAuditLogs[0] || null;
   const topbarVersionLabel = updateStatus?.current_version || CURRENT_APP_VERSION;
-  const showCommandSearch = activeTab === 'config';
-  const topbarSearchPlaceholder = activeTab === 'config'
-    ? '搜索功能、文档、会话...'
-    : '搜索功能、用户、会话...';
   const adminTopbarStatusTime = new Date().toLocaleString('zh-CN', {
     hour12: false,
     year: 'numeric',
@@ -1538,13 +1534,6 @@ const AdminDashboard = () => {
                 </button>
               </div>
             </div>
-            {showCommandSearch && (
-              <label className="aurora-admin-topbar-search hidden xl:flex">
-                <Search className="h-4 w-4 text-slate-400" />
-                <input type="search" placeholder={topbarSearchPlaceholder} aria-label="搜索后台内容" />
-                <span>⌘K</span>
-              </label>
-            )}
             <div className="flex items-center gap-2 sm:gap-3">
               <button
                 type="button"

@@ -4064,7 +4064,6 @@ code {
   transform: scale(0.97);
 }
 
-.aurora-admin-topbar-search,
 .aurora-session-search {
   align-items: center;
   gap: 0.55rem;
@@ -4077,7 +4076,6 @@ code {
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.035);
 }
 
-.aurora-admin-topbar-search input,
 .aurora-session-search input {
   min-height: 0 !important;
   height: 38px !important;
@@ -4087,15 +4085,6 @@ code {
   padding: 0 !important;
   flex: 1;
   font-size: 13px;
-}
-
-.aurora-admin-topbar-search span {
-  border-radius: 8px;
-  background: #f1f5f9;
-  color: #64748b;
-  padding: 0.18rem 0.42rem;
-  font-size: 11px;
-  font-weight: 760;
 }
 
 .aurora-admin-icon-button,
@@ -5695,25 +5684,18 @@ code {
   letter-spacing: -0.025em;
 }
 
-.aurora-config-card-title p {
-  margin-top: 0.25rem;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
 .aurora-config-provider-stack,
 .aurora-config-security-list,
 .aurora-config-quota-grid {
   display: grid;
-  gap: 0.95rem;
+  gap: 1rem;
 }
 
 .aurora-config-provider-stack label,
 .aurora-config-security-list label,
 .aurora-config-quota-grid label {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
 .aurora-config-provider-stack label > span,
@@ -5724,67 +5706,60 @@ code {
   font-weight: 760;
 }
 
-.aurora-config-provider-stack small,
-.aurora-config-security-list small,
-.aurora-config-quota-grid small {
-  color: #8da0ba;
-  font-size: 12px;
-}
-
-.aurora-config-inline-field,
 .aurora-config-unit-input {
   display: grid !important;
-  grid-template-columns: 150px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(203, 213, 225, 0.86);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.aurora-config-unit-input:focus-within {
+  border-color: rgba(0, 102, 204, 0.58);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(0, 102, 204, 0.10), 0 12px 24px rgba(15, 23, 42, 0.05);
 }
 
 .aurora-config-timeout-field {
-  grid-template-columns: max-content 5.25rem max-content !important;
-  justify-content: start;
-  column-gap: 0;
+  align-content: start;
 }
 
-.aurora-config-timeout-field > span {
-  margin-right: 0.9rem;
-}
-
-.aurora-config-timeout-field input {
-  width: 5.25rem !important;
-  min-width: 0 !important;
-  padding-left: 0.5rem !important;
-  padding-right: 0.5rem !important;
-  text-align: center;
+.aurora-config-unit-input input {
+  min-height: 44px !important;
+  height: 44px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 0.9rem !important;
   font-variant-numeric: tabular-nums;
 }
 
-.aurora-config-timeout-field strong {
-  width: max-content;
-  min-width: 2.7rem;
-  justify-content: center;
-}
-
-.aurora-config-inline-field > span {
-  grid-column: 1;
-}
-
-.aurora-config-inline-field input,
-.aurora-config-unit-input input {
-  border-radius: 12px 0 0 12px !important;
-}
-
-.aurora-config-inline-field strong,
 .aurora-config-unit-input strong {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 44px;
   align-items: center;
-  border: 1px solid #dbe4ef;
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
-  background: #f8fafc;
-  color: #64748b;
-  padding: 0 0.85rem;
-  font-size: 13px;
+  justify-content: center;
+  border-left: 1px solid rgba(191, 219, 254, 0.86);
+  background: linear-gradient(180deg, #f8fbff 0%, #edf6ff 100%);
+  color: #2563eb;
+  padding: 0 0.9rem;
+  font-size: 12px;
+  font-weight: 820;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.aurora-config-unit-input-compact {
+  max-width: 11rem;
+}
+
+.aurora-config-unit-input-compact input {
+  text-align: center;
 }
 
 .aurora-config-connection-row {
@@ -5874,34 +5849,13 @@ code {
   max-width: 14rem;
 }
 
-.aurora-config-local-proxy-status {
-  border: 1px solid;
-  border-radius: 16px;
-  padding: 0.85rem 1rem;
-  font-size: 12px;
-  font-weight: 720;
-  line-height: 1.55;
-}
-
-.aurora-config-local-proxy-status.is-ok {
-  border-color: rgba(125, 211, 252, 0.62);
-  background: rgba(240, 249, 255, 0.88);
-  color: #0369a1;
-}
-
-.aurora-config-local-proxy-status.is-warn {
-  border-color: rgba(253, 230, 138, 0.78);
-  background: rgba(255, 251, 235, 0.9);
-  color: #92400e;
-}
-
 .aurora-config-quota-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .aurora-config-feature-switches {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
 }
 
@@ -5914,13 +5868,6 @@ code {
 .aurora-config-feature-switch:first-child {
   border-left: 0;
   padding-left: 0;
-}
-
-.aurora-config-feature-switch small {
-  display: block;
-  margin-top: 0.2rem;
-  color: #8da0ba;
-  font-size: 12px;
 }
 
 .aurora-config-advanced-drawer details {
@@ -5946,7 +5893,7 @@ code {
 .aurora-config-bottom-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
   border: 1px solid rgba(187, 247, 208, 0.9);
   border-radius: 18px;
@@ -5955,24 +5902,6 @@ code {
     rgba(248, 253, 250, 0.94);
   padding: 0.9rem 1rem;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-.aurora-config-save-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  color: #166534;
-  font-size: 13px;
-  font-weight: 760;
-}
-
-.aurora-config-save-note span {
-  width: 0.55rem;
-  height: 0.55rem;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #22c55e;
-  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.13);
 }
 
 .aurora-config-mono-value {
@@ -6415,9 +6344,7 @@ code {
     flex-direction: column;
   }
 
-  .aurora-config-quota-grid,
-  .aurora-config-inline-field,
-  .aurora-config-unit-input {
+  .aurora-config-quota-grid {
     grid-template-columns: 1fr;
   }
 
@@ -6425,8 +6352,8 @@ code {
     max-width: none;
   }
 
-  .aurora-config-timeout-field {
-    grid-template-columns: max-content 5.25rem max-content !important;
+  .aurora-config-unit-input {
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 }
 
