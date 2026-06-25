@@ -14,9 +14,7 @@ import {
   Plus,
   TrendingUp,
   RefreshCw,
-  Settings,
   BarChart3,
-  Database,
   Clock,
   FileText,
   MessageSquare,
@@ -43,7 +41,6 @@ import {
 } from 'lucide-react';
 import ConfigManager from '../components/ConfigManager';
 import SessionMonitor from '../components/SessionMonitor';
-import DatabaseManager from '../components/DatabaseManager';
 import AdminOperationsPanel from '../components/AdminOperationsPanel';
 import BrandLogo from '../components/BrandLogo';
 import BeerIcon from '../components/BeerIcon';
@@ -51,7 +48,7 @@ import MarkdownPreview, { DEFAULT_ANNOUNCEMENT_MARKDOWN } from '../components/Ma
 import { formatChinaDateTime } from '../utils/dateTime';
 
 const DEFAULT_ADMIN_TAB = 'dashboard';
-const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'database', 'config', 'audit'];
+const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'config', 'audit'];
 const ADMIN_ACCOUNT_FORM_CLASS = 'grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_5rem_7rem] gap-3 mb-5';
 const ADMIN_ACCOUNT_INPUT_CLASS = 'aurora-admin-input w-full min-w-0 h-12 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
 const ADMIN_ACCOUNT_WIDE_INPUT_CLASS = `${ADMIN_ACCOUNT_INPUT_CLASS} sm:col-span-2`;
@@ -423,15 +420,6 @@ const AdminNavGlyph = ({ type, className = 'w-5 h-5' }) => {
           <path d="M7.4 13.9 8.8 19h2.5l-1.1-4.1M18.7 9.2c1 .7 1.5 1.6 1.5 2.8s-.5 2.1-1.5 2.8" />
         </svg>
       );
-    case 'database':
-      return (
-        <svg {...commonProps}>
-          <ellipse cx="12" cy="6.4" rx="6.8" ry="3" />
-          <path d="M5.2 6.4v5.7c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3V6.4" />
-          <path d="M5.2 12.1v5.2c0 1.7 3 3 6.8 3s6.8-1.3 6.8-3v-5.2" />
-          <path d="M8.2 16.7c1 .45 2.3.68 3.8.68s2.8-.23 3.8-.68" opacity=".58" />
-        </svg>
-      );
     case 'config':
       return (
         <svg {...commonProps}>
@@ -687,11 +675,6 @@ const AdminDashboard = () => {
 
   const openGithubIssues = () => {
     window.open('https://github.com/mumu-0922/GankAIGC/issues', '_blank', 'noopener,noreferrer');
-  };
-
-  const openDatabaseSettings = () => {
-    handleAdminTabChange('config');
-    toast.success('已切换到系统配置');
   };
 
   const toggleSidebarCollapsed = () => {
@@ -1421,12 +1404,6 @@ const AdminDashboard = () => {
       hint: '发布',
     },
     {
-      id: 'database',
-      label: '数据诊断',
-      glyph: 'database',
-      hint: '排障',
-    },
-    {
       id: 'config',
       label: '系统配置',
       glyph: 'config',
@@ -1524,9 +1501,7 @@ const AdminDashboard = () => {
   const showCommandSearch = activeTab === 'config';
   const topbarSearchPlaceholder = activeTab === 'config'
     ? '搜索功能、文档、会话...'
-    : activeTab === 'database'
-      ? '搜索表、字段、记录...'
-      : '搜索功能、用户、会话...';
+    : '搜索功能、用户、会话...';
   const adminTopbarStatusTime = new Date().toLocaleString('zh-CN', {
     hour12: false,
     year: 'numeric',
@@ -1580,11 +1555,6 @@ const AdminDashboard = () => {
               >
                 <Github className="h-5 w-5" />
               </button>
-              {activeTab === 'database' && (
-                <button type="button" onClick={openDatabaseSettings} className="aurora-admin-icon-button" aria-label="数据库相关配置">
-                  <Settings className="h-5 w-5" />
-                </button>
-              )}
               <button
                 onClick={handleLogout}
                 className="aurora-admin-profile-button"
@@ -2678,17 +2648,12 @@ const AdminDashboard = () => {
                 )}
               </div>
               {announcements.length > 0 && (
-                <div className="aurora-database-pagination">
+                <div className="aurora-admin-list-footer">
                   <span>共 {announcements.length} 条</span>
                 </div>
               )}
             </div>
           </div>
-        )}
-        
-        {/* Database Manager Tab */}
-        {activeTab === 'database' && (
-          <DatabaseManager adminToken={adminToken} />
         )}
 
         {/* Audit Logs Tab */}

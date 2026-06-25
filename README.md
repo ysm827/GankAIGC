@@ -513,7 +513,7 @@ ADMIN_DATABASE_WRITE_ENABLED=false
 
 - `REGISTRATION_ENABLED=false`：关闭邀请码注册，已有用户仍可登录。
 - `WORD_FORMATTER_ENABLED=false`：不挂载 Word 排版 API，也不会出现在 OpenAPI 文档中。
-- `ADMIN_DATABASE_WRITE_ENABLED=false`：数据库管理器保持只读，生产环境建议保持关闭。
+- `ADMIN_DATABASE_WRITE_ENABLED=false`：仅控制保留的管理员数据库 API 写入能力；当前后台界面不暴露数据诊断/数据库管理页，生产环境建议保持关闭。
 - `ENCRYPTION_KEY`：用于加密用户保存的自带 API 配置，必须妥善保存。
 
 </details>
@@ -551,7 +551,6 @@ http://localhost:9800/admin
 - 👥 **用户管理**：新版后台分为用户列表、邀请码管理、兑换码、啤酒流水、API 配置；用户列表支持搜索、筛选、封禁/启用、充值啤酒和无限啤酒设置。
 - 📢 **公告管理**：发布、启用/隐藏、编辑和删除公告；支持 Markdown 工具栏、实时预览和用户工作台渲染。
 - 🧾 **操作日志**：记录创建邀请码、创建兑换码、充值啤酒、公告、封禁/解封、配置变更。
-- 🗄 **数据库管理**：默认只读，白名单表可查，敏感字段脱敏。
 - ⚙️ **系统配置**：模型、Base URL、并发、请求间隔、思考模式等。
 
 <details>

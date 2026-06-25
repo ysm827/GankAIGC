@@ -439,7 +439,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 
 ### 1. Scope / Trigger
 
-- Trigger: any visual/layout change in `package/frontend/src/pages/AdminDashboard.jsx`, `SessionMonitor.jsx`, `AdminOperationsPanel.jsx`, `DatabaseManager.jsx`, `ConfigManager.jsx`, or shared admin styling in `package/frontend/src/index.css`.
+- Trigger: any visual/layout change in `package/frontend/src/pages/AdminDashboard.jsx`, `SessionMonitor.jsx`, `AdminOperationsPanel.jsx`, `ConfigManager.jsx`, or shared admin styling in `package/frontend/src/index.css`.
 - Current direction: admin management must use the same Apple-light Aurora product language as the workspace and account utility pages, with the first admin reference image as the sidebar/navigation baseline.
 
 ### 2. Signatures
@@ -481,8 +481,8 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 ### 3. Contracts
 
 - The admin left sidebar is the primary navigation. Do not reintroduce top-tab admin navigation or remove `data-admin-nav="sidebar"`.
-- The eight first-level tabs must stay available by id: `dashboard`, `sessions`, `operations`, `accounts`, `announcements`, `database`, `config`, `audit`. `ADMIN_TAB_IDS` still drives URL persistence; do not break `?tab=` handling.
-- All eight first-level sidebar items must share the same nav item height, icon box, padding, and active-state treatment. Do not enlarge `database` or `audit` with a separate boxed sidebar variant.
+- The seven first-level tabs must stay available by id: `dashboard`, `sessions`, `operations`, `accounts`, `announcements`, `config`, `audit`. `ADMIN_TAB_IDS` still drives URL persistence; do not break `?tab=` handling.
+- All seven first-level sidebar items must share the same nav item height, icon box, padding, and active-state treatment. Do not enlarge `audit` with a separate boxed sidebar variant.
 - Do not render a separate “服务节点” card/link that jumps to the operations tab; the operations tab itself is the single entry point for runtime status.
 - Do not render a topbar notification/audit icon (`BellDot`, `openAdminNotifications`, notification count/dot CSS). The left sidebar `操作日志` item is the single audit entry point.
 - The topbar profile/logout control should not show role prefixes such as `Admin · 退出`, `admin · 退出`, or `管理员 · 退出`; use only `退出` next to the avatar and log-out icon.
@@ -495,10 +495,12 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Session monitor values must not be invented in React. Do not hardcode fake trends, response times, request rates, queue counts, model counts, chart paths, date ranges, or pagination copy such as `较昨日 +18%`, `1.28s`, `* 37`, `queuedCount || 6`, `共 12 个模型`, `请求数 2,431`, `今日 00:00 ~ 23:59`, or `每页 10 条`. If a metric is unavailable, render `--`, `暂无对比数据`, or an empty state.
 - Preserve business behavior and source anchors: update modal, account management handlers/API calls, `ADMIN_ACCOUNT_*` constants, `data-admin-processing-modes`, `data-admin-processing-summary`, `data-admin-operations-panel="true"`, audit formatting, and existing Chinese labels used by tests/E2E.
 
+- The old data-diagnostics/database manager page has been removed from the admin UI. Do not import `DatabaseManager`, do not include a `database` sidebar item, do not render `activeTab === 'database'`, and do not keep `.aurora-database-*` CSS. Backend `/api/admin/database/*` endpoints may remain for compatibility/testing, but they must not be exposed as a visible admin page unless a future task explicitly restores the feature with tests.
+
 ### 4. Validation & Error Matrix
 
 - Page misses `aurora-admin-page` or `aurora-admin-topbar` -> static theme test fails.
-- Sidebar misses `aurora-admin-nav-item-active`, reintroduces duplicate service-node card, or gives `database`/`audit` larger nav items than other tabs -> visual regression against reference image.
+- Sidebar misses `aurora-admin-nav-item-active`, reintroduces duplicate service-node card, or gives `audit` a larger nav item than other tabs -> visual regression against reference image.
 - Source contains old admin nav `activeClass`/`inactiveClass` gradient mapping -> static test fails.
 - A tab component drops `aurora-admin-section-head` -> inconsistent functional page chrome.
 - `.aurora-config-guide-shell` is present but `display: none` in source or served CSS -> system config tutorial disappears even though the component remains mounted.
@@ -508,14 +510,15 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Session monitor contains hardcoded fake KPI/chart/queue strings or does not call `/api/admin/statistics` with the selected range -> user sees fake session data.
 - Operations latency tabs show redundant current-window chips or switch toast spam -> visual noise returns; static tests should reject `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
 - Topbar reintroduces notification/audit bell -> duplicates the `操作日志` sidebar entry and should fail static review.
+- Source or served bundle reintroduces `DatabaseManager`, `数据诊断`, `id: 'database'`, or `.aurora-database-*` -> the removed diagnostics page has leaked back into the UI.
 - Build succeeds but `package/static` is not synced -> static bundle assertions and served app UI drift.
 - New Lucide icon import not exported by pinned `lucide-react` -> `npm run build` fails; check local `node_modules/lucide-react/dist/esm/lucide-react.js` first.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `AdminDashboard.jsx` has a white Aurora topbar, left sidebar with 8 uniform pill nav items, no duplicate service-node card, dashboard stat cards, and URL tab persistence.
+- Good: `AdminDashboard.jsx` has a white Aurora topbar, left sidebar with 7 uniform pill nav items, no duplicate service-node card, dashboard stat cards, and URL tab persistence.
 - Good: topbar actions are compact and non-duplicative: optional search/config actions, GitHub Issues icon, and direct `退出`.
-- Good: `SessionMonitor`, `AdminOperationsPanel`, `DatabaseManager`, and `ConfigManager` each start with `aurora-admin-section-head` and keep their original API calls and operations.
+- Good: `SessionMonitor`, `AdminOperationsPanel`, and `ConfigManager` each start with `aurora-admin-section-head` and keep their original API calls and operations.
 - Good: `AdminOperationsPanel` displays real backend-collected CPU, memory, disk, network, load, database latency samples, model configuration status, worker capacity, job counts, and recent events in a Sub2API-inspired realtime layout with manual refresh and guarded auto refresh.
 - Good: `SessionMonitor` displays selected-range requests, success rate, average processing time, trends, mode counts, queue rows, throughput series, and timeline rows from real backend statistics/session APIs, with empty states instead of fabricated fallbacks.
 - Good: latency window buttons visibly switch active state without adding explanatory chips or toasts.
@@ -540,7 +543,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - Static frontend tests should assert `SessionMonitor.jsx` calls `/api/admin/statistics`, passes `params: { range: statsRange }`, consumes `statistics.processing.series.sessions`, renders range options for `today`/`7d`/`30d`, and rejects fake placeholders such as `较昨日`, `1.28`, `* 37`, `queuedCount || 6`, `共 12 个模型`, `请求数 2,431`, `今日 00:00 ~ 23:59`, and `每页 10 条`.
 - Static frontend tests should assert latency tabs keep `handleLatencyWindowChange`, `fetchStatus({ silent: true, force: true })`, and `aria-pressed`, while rejecting `activeLatencyWindow`, `latencySampleCount`, `当前窗口`, and latency-window switch toast copy.
 - Static frontend tests should assert the admin topbar rejects `BellDot`, `openAdminNotifications`, `auditNotificationLabel`, `aurora-admin-notification-*`, and `{topbarAdminLabel} · 退出`, while keeping the GitHub Issues button and direct `退出` label.
-- Existing static tests must continue to assert account management strings, processing mode statistics anchors, left sidebar navigation, operations panel anchors, and admin tab URL persistence.
+- Existing static tests must continue to assert account management strings, processing mode statistics anchors, left sidebar navigation, operations panel anchors, removal of the old data-diagnostics page, and admin tab URL persistence.
 - Run `cd package/frontend && npm run build`, sync `dist` into `../static`, remove stale hashed assets, and verify `package/static/index.html` asset references exist.
 
 ### 7. Wrong vs Correct

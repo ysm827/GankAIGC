@@ -560,35 +560,23 @@ def test_admin_dashboard_hides_word_formatter_statistics_until_feature_is_ready(
     assert "Word 排版任务" not in admin_dashboard
 
 
-def test_database_manager_honors_backend_read_only_flag():
-    database_manager = (FRONTEND_SRC / "components" / "DatabaseManager.jsx").read_text(encoding="utf-8")
-    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+def test_admin_dashboard_removes_database_diagnostics_page():
+    admin_dashboard_path = FRONTEND_SRC / "pages" / "AdminDashboard.jsx"
+    admin_dashboard = admin_dashboard_path.read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
 
-    assert "canWrite" in database_manager
-    assert "response.data.can_write" in database_manager
-    assert "只读模式" in database_manager
-    assert "canWrite && (" in database_manager
-    assert "{canWrite && editingRecord && (" in database_manager
-    assert "label: '数据诊断'" in admin_dashboard
-    assert "hint: '排障'" in admin_dashboard
-    assert "TABLE_METADATA" in database_manager
-    assert "COLUMN_LABELS" in database_manager
-    assert "IMPORTANT_COLUMNS_BY_TABLE" in database_manager
-    assert "getColumnLabel(column)" in database_manager
-    assert "renderCellValue(record, column)" in database_manager
-    assert "visibleColumns.map(column" in database_manager
-    assert "排障摘要" in database_manager
-    assert "排障明细（只读）" in database_manager
-    assert "选择排障对象" in database_manager
-    assert "搜索用户名 / ID / 状态 / 错误" in database_manager
-    assert "字段数量" not in database_manager
-    assert "索引数量" not in database_manager
-    assert "表大小" not in database_manager
-    assert "getColumnTypeLabel" not in database_manager
-    assert "aurora-database-diagnosis-grid" in index_css
-    assert "aurora-database-status.is-good" in index_css
-    assert "aurora-database-readable-table th span" in index_css
+    assert not (FRONTEND_SRC / "components" / "DatabaseManager.jsx").exists()
+    assert "DatabaseManager" not in admin_dashboard
+    assert "数据诊断" not in admin_dashboard
+    assert "数据库相关配置" not in admin_dashboard
+    assert "openDatabaseSettings" not in admin_dashboard
+    assert "搜索表、字段、记录" not in admin_dashboard
+    assert "id: 'database'" not in admin_dashboard
+    assert "case 'database'" not in admin_dashboard
+    assert "'database', 'config'" not in admin_dashboard
+    assert "aurora-database" not in index_css
+    assert "aurora-admin-list-footer" in admin_dashboard
+    assert ".aurora-admin-list-footer" in index_css
 
 
 def test_admin_dashboard_does_not_duplicate_session_monitor_status_metrics():
@@ -670,7 +658,6 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
     session_monitor = (FRONTEND_SRC / "components" / "SessionMonitor.jsx").read_text(encoding="utf-8")
     operations_panel = (FRONTEND_SRC / "components" / "AdminOperationsPanel.jsx").read_text(encoding="utf-8")
-    database_manager = (FRONTEND_SRC / "components" / "DatabaseManager.jsx").read_text(encoding="utf-8")
     config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
 
@@ -711,7 +698,7 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert '<span className="aurora-admin-avatar">A</span>' not in admin_dashboard
     assert '<span className="hidden sm:inline">退出</span>' in admin_dashboard
 
-    for source in (session_monitor, operations_panel, database_manager, config_manager):
+    for source in (session_monitor, operations_panel, config_manager):
         assert "aurora-admin-section space-y-6" in source
         assert "aurora-admin-section-head" in source
 
@@ -977,7 +964,7 @@ def test_admin_user_management_polishes_layout_and_actions():
 def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
-    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'database' && (", 1)[0]
+    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'audit' && (", 1)[0]
 
     assert "aurora-admin-breadcrumb" not in announcements_section
     assert "<h2>公告</h2>" not in announcements_section
@@ -1015,7 +1002,7 @@ def test_admin_announcement_markdown_toolbar_is_functional_and_previewed():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
     markdown_preview = (FRONTEND_SRC / "components" / "MarkdownPreview.jsx").read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
-    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'database' && (", 1)[0]
+    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'audit' && (", 1)[0]
 
     assert "ANNOUNCEMENT_MARKDOWN_TOOLS" in admin_dashboard
     assert "applyAnnouncementMarkdownTool" in admin_dashboard
@@ -1640,7 +1627,8 @@ def test_served_static_bundle_includes_admin_tab_url_persistence():
 
     assert "URLSearchParams" in static_bundle
     assert '"tab"' in static_bundle
-    assert '"dashboard","operations","sessions","accounts","announcements","database","config"' in static_bundle
+    assert '"dashboard","operations","sessions","accounts","announcements","config","audit"' in static_bundle
+    assert "数据诊断" not in static_bundle
     assert "Word 排版文件大小限制" not in static_bundle
     assert "MAX_UPLOAD_FILE_SIZE_MB" not in static_bundle
     assert "max_upload_file_size_mb" not in static_bundle

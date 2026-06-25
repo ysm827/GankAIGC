@@ -4360,7 +4360,6 @@ code {
 .aurora-admin-mode-head h3,
 .aurora-admin-list-head h3,
 .aurora-admin-audit-detail h3,
-.aurora-database-summary-card h3,
 .aurora-config-status-card h3,
 .aurora-config-ready-card h3 {
   color: #0f172a;
@@ -5226,50 +5225,6 @@ code {
 .aurora-ops-event-list strong { justify-self:start; border-radius:8px; background:#eff6ff; color:var(--admin-blue); padding:.15rem .45rem; font-size:12px; }
 .aurora-ops-event-list small { color:#64748b; }
 
-.aurora-database-top-grid { display:grid; grid-template-columns: minmax(22rem,.8fr) minmax(0,1.4fr); gap:1rem; }
-.aurora-database-selector-card,
-.aurora-database-summary-card,
-.aurora-database-record-head { padding:1.25rem; }
-.aurora-database-summary-grid { display:grid; grid-template-columns:repeat(5,1fr); margin-top:1.5rem; }
-.aurora-database-summary-grid div { border-left:1px solid #e2e8f0; padding:0 1.2rem; }
-.aurora-database-summary-grid div:first-child { border-left:0; padding-left:0; }
-.aurora-database-summary-grid span { display:block; color:#64748b; font-size:13px; font-weight:760; }
-.aurora-database-summary-grid strong { display:block; margin-top:.65rem; color:#0f172a; font-size:1.55rem; font-weight:840; }
-.aurora-database-summary-title { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
-.aurora-database-summary-title h3 { color:#0f172a; font-size:1.05rem; font-weight:860; }
-.aurora-database-summary-title p { margin-top:.35rem; color:#64748b; font-size:13px; line-height:1.55; }
-.aurora-database-health { display:inline-flex; align-items:center; gap:.35rem; flex:0 0 auto; border-radius:999px; padding:.35rem .65rem; font-size:12px; font-weight:820; }
-.aurora-database-health.is-good { border:1px solid #bbf7d0; background:#f0fdf4; color:#15803d; }
-.aurora-database-health.is-danger { border:1px solid #fecaca; background:#fef2f2; color:#dc2626; }
-.aurora-database-diagnosis-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin-top:1.1rem; }
-.aurora-database-diagnosis-card { border:1px solid #e2e8f0; border-radius:16px; background:#fff; padding:.9rem 1rem; }
-.aurora-database-diagnosis-card span { display:block; color:#64748b; font-size:12px; font-weight:760; }
-.aurora-database-diagnosis-card strong { display:block; margin-top:.4rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#0f172a; font-size:1.28rem; font-weight:880; }
-.aurora-database-diagnosis-card.is-blue { border-color:#bfdbfe; background:#eff6ff; }
-.aurora-database-diagnosis-card.is-green { border-color:#bbf7d0; background:#f0fdf4; }
-.aurora-database-diagnosis-card.is-amber { border-color:#fde68a; background:#fffbeb; }
-.aurora-database-diagnosis-card.is-red { border-color:#fecaca; background:#fef2f2; }
-.aurora-database-record-head { display:flex; justify-content:space-between; gap:1rem; align-items:center; }
-.aurora-database-record-head h3 { color:#0f172a; font-weight:840; }
-.aurora-database-record-head p { margin-top:.25rem; color:#64748b; font-size:13px; }
-.aurora-database-record-actions { display:flex; gap:.75rem; align-items:center; }
-.aurora-database-record-actions label { min-width:18rem; }
-.aurora-database-action-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
-.aurora-database-action-card { padding:1.25rem; display:flex; gap:1rem; }
-.aurora-database-action-card h3 { color:#0f172a; font-size:1.1rem; font-weight:840; }
-.aurora-database-action-card p { color:#64748b; font-size:13px; margin:.25rem 0 1rem; }
-.aurora-database-action-card input { margin-bottom:.8rem; }
-.aurora-database-readable-table th span { display:block; color:#334155; font-size:12px; font-weight:860; letter-spacing:0; text-transform:none; }
-.aurora-database-readable-table th small { display:block; margin-top:.16rem; color:#94a3b8; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; }
-.aurora-database-readable-table td { max-width:18rem; min-width:7.5rem; white-space:normal; word-break:break-word; }
-.aurora-database-status { display:inline-flex; align-items:center; justify-content:center; min-width:3.6rem; border-radius:999px; padding:.22rem .58rem; font-size:12px; font-weight:820; white-space:nowrap; }
-.aurora-database-status.is-good { border:1px solid #bbf7d0; background:#dcfce7; color:#15803d; }
-.aurora-database-status.is-warn { border:1px solid #fde68a; background:#fef3c7; color:#b45309; }
-.aurora-database-status.is-danger { border:1px solid #fecaca; background:#fee2e2; color:#dc2626; }
-.aurora-database-status.is-neutral { border:1px solid #e2e8f0; background:#f8fafc; color:#475569; }
-.aurora-database-number { display:inline-flex; align-items:center; border-radius:8px; background:#eff6ff; color:#075ee8; padding:.18rem .42rem; font-weight:820; white-space:nowrap; }
-.aurora-database-muted-value { color:#64748b; white-space:nowrap; }
-.aurora-database-error-text { display:inline-flex; max-width:20rem; color:#b91c1c; font-weight:760; white-space:normal; }
 
 .aurora-config-status-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(28rem,.9fr); gap:1rem; }
 .aurora-config-status-card,
@@ -5299,7 +5254,6 @@ code {
   .aurora-ops-live-grid,
   .aurora-ops-middle-grid,
   .aurora-ops-bottom-grid,
-  .aurora-database-top-grid,
   .aurora-config-status-row,
   .aurora-config-grid { grid-template-columns: 1fr; }
   .aurora-ops-health-grid,
@@ -5308,16 +5262,13 @@ code {
   .aurora-ops-reference-panel { grid-template-columns: 1fr; gap: 2rem; min-height: auto; }
   .aurora-ops-reference-divider { width: 100%; height: 1px; }
   .aurora-ops-reference-info-head { flex-wrap: wrap; }
-  .aurora-database-diagnosis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 
 @media (max-width: 768px) {
   .aurora-admin-dashboard-toolbar,
   .aurora-admin-users-toolbar,
-  .aurora-database-record-head,
   .aurora-config-status-card { flex-direction:column; align-items:stretch; }
-  .aurora-admin-users-filters,
-  .aurora-database-record-actions { flex-direction:column; align-items:stretch; }
+  .aurora-admin-users-filters { flex-direction:column; align-items:stretch; }
   .aurora-admin-account-tabs-row {
     flex-direction: column;
     align-items: stretch;
@@ -5333,10 +5284,7 @@ code {
   .aurora-ops-metric-grid,
   .aurora-ops-runtime-grid,
   .aurora-ops-reference-stats,
-  .aurora-ops-job-grid,
-  .aurora-database-summary-grid,
-  .aurora-database-diagnosis-grid,
-  .aurora-database-action-grid { grid-template-columns:1fr; }
+  .aurora-ops-job-grid { grid-template-columns:1fr; }
   .aurora-admin-kpi-grid,
   .aurora-session-kpi-grid { grid-template-columns: 1fr; }
   .aurora-ops-reference-panel { padding: 1rem; }
@@ -5427,7 +5375,7 @@ code {
 }
 
 .aurora-session-table-footer,
-.aurora-database-pagination {
+.aurora-admin-list-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5442,14 +5390,14 @@ code {
 
 .aurora-session-table-footer nav,
 .aurora-session-table-footer div,
-.aurora-database-pagination div {
+.aurora-admin-list-footer div {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
 }
 
 .aurora-session-table-footer button,
-.aurora-database-pagination button {
+.aurora-admin-list-footer button {
   display: inline-flex;
   min-width: 34px;
   height: 34px;
@@ -5465,7 +5413,7 @@ code {
 }
 
 .aurora-session-table-footer button.is-active,
-.aurora-database-pagination button.is-active {
+.aurora-admin-list-footer button.is-active {
   border-color: #0b6ff6;
   background: #0b6ff6;
   color: #fff;
@@ -5584,50 +5532,6 @@ code {
 .aurora-ops-job-grid div.is-danger,
 .aurora-ops-job-grid div.is-danger strong { color: #ef4444; }
 
-.aurora-database-readonly-badge,
-.aurora-database-warning {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: 1px solid rgba(147, 197, 253, 0.78);
-  border-radius: 12px;
-  background: rgba(239, 246, 255, 0.9);
-  color: #075ee8;
-  padding: 0.55rem 0.8rem;
-  font-size: 13px;
-  font-weight: 760;
-}
-
-.aurora-database-warning {
-  width: 100%;
-  justify-content: flex-start;
-  border-color: #dbeafe;
-  background: rgba(248, 250, 252, 0.86);
-  color: #64748b;
-}
-
-.aurora-database-file-input {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  margin-bottom: 0.8rem;
-}
-
-.aurora-database-file-input input {
-  border-radius: 12px 0 0 12px !important;
-  margin-bottom: 0 !important;
-}
-
-.aurora-database-file-input button {
-  border: 1px solid #dbe4ef;
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
-  background: #fff;
-  color: #334155;
-  padding: 0 1rem;
-  font-size: 13px;
-  font-weight: 760;
-}
 
 /* System config API guide: visible, but skinned to the Aurora admin theme. */
 .aurora-config-guide-shell {
@@ -6301,8 +6205,7 @@ code {
   gap: 0.45rem;
 }
 
-.aurora-admin-icon-mini,
-.aurora-database-view-action {
+.aurora-admin-icon-mini {
   display: inline-flex;
   min-width: 34px;
   height: 34px;
@@ -6317,8 +6220,7 @@ code {
   font-weight: 760;
 }
 
-.aurora-admin-icon-mini:hover,
-.aurora-database-view-action:hover {
+.aurora-admin-icon-mini:hover {
   border-color: #bfdbfe;
   background: #eff6ff;
   color: #0b6ff6;
@@ -6453,18 +6355,6 @@ code {
   border-radius: 24px 0 0 24px;
 }
 
-.aurora-database-title-line {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.aurora-database-view-action {
-  color: #0b6ff6;
-  border: 0;
-  background: transparent;
-}
 
 .aurora-admin-page[data-admin-tab="audit"] .aurora-admin-main {
   padding-right: 0 !important;
@@ -6517,7 +6407,7 @@ code {
 
 @media (max-width: 768px) {
   .aurora-session-table-footer,
-  .aurora-database-pagination,
+  .aurora-admin-list-footer,
   .aurora-config-connection-row,
   .aurora-config-bottom-actions,
   .aurora-config-bottom-bar {
