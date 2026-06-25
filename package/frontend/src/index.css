@@ -6055,9 +6055,9 @@ code {
 
 .aurora-admin-accounts-page .aurora-admin-users-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  padding: 1.25rem 1.25rem 0.85rem;
+  padding: 1rem 1.25rem 0.85rem;
 }
 
 .aurora-admin-user-filter-strip {
@@ -6089,12 +6089,16 @@ code {
 }
 
 .aurora-admin-user-filter-strip {
-  grid-column: 1 / -1;
   justify-self: stretch;
-  margin-top: 0.85rem;
   padding: 0 0.7rem;
   gap: 0.2rem;
   overflow: visible;
+}
+
+.aurora-admin-user-filter-search {
+  margin-left: auto;
+  min-width: 18rem;
+  width: min(31rem, 36vw);
 }
 
 .aurora-admin-user-filter-strip span {
@@ -6112,12 +6116,11 @@ code {
 }
 
 .aurora-admin-users-table-actions {
-  grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 0.7rem;
-  margin-top: 0.85rem;
+  margin-top: 0.7rem;
 }
 
 .aurora-admin-users-table-actions > span {

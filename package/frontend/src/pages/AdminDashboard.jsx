@@ -2136,18 +2136,6 @@ const AdminDashboard = () => {
               <div className="aurora-admin-users-layout">
                 <div className="aurora-admin-card overflow-hidden">
                   <div className="aurora-admin-users-toolbar">
-                    <div className="aurora-admin-users-filters">
-                      <label className="relative flex-1 min-w-[16rem] lg:max-w-md">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="search"
-                          value={userSearchTerm}
-                          onChange={(e) => setUserSearchTerm(e.target.value)}
-                          placeholder="搜索用户名 / 邮箱 / UID"
-                          className="aurora-admin-input h-11 w-full pl-9 pr-3 text-sm"
-                        />
-                      </label>
-                    </div>
                     <div className="aurora-admin-user-filter-strip">
                       <span>角色：</span>
                       <button type="button" className={userApiFilter === 'all' ? 'is-active' : ''} onClick={() => setUserApiFilter('all')}>全部</button>
@@ -2159,6 +2147,16 @@ const AdminDashboard = () => {
                       <button type="button" className={userStatusFilter === 'all' ? 'is-active' : ''} onClick={() => setUserStatusFilter('all')}>全部</button>
                       <button type="button" className={userStatusFilter === 'active' ? 'is-active' : ''} onClick={() => setUserStatusFilter('active')}>正常</button>
                       <button type="button" className={userStatusFilter === 'blocked' ? 'is-active' : ''} onClick={() => setUserStatusFilter('blocked')}>封禁</button>
+                      <label className="aurora-admin-user-filter-search relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="search"
+                          value={userSearchTerm}
+                          onChange={(e) => setUserSearchTerm(e.target.value)}
+                          placeholder="搜索用户名 / 邮箱 / UID"
+                          className="aurora-admin-input h-11 w-full pl-9 pr-3 text-sm"
+                        />
+                      </label>
                     </div>
                     <div className="aurora-admin-users-table-actions">
                       <span>共 {filteredUsers.length || users.length} 条</span>

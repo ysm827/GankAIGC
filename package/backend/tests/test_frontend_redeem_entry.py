@@ -854,8 +854,10 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "{accountPanelTab === 'users' && (" in admin_dashboard
     assert admin_dashboard.index("{accountPanelTab === 'users' && (") < admin_dashboard.index("清除筛选")
     assert "aurora-admin-tab-button-active bg-indigo-600 text-white shadow-sm" not in admin_dashboard
-    assert "aurora-admin-users-filters" in users_section
+    assert "aurora-admin-users-filters" not in users_section
     assert "aurora-admin-user-filter-strip" in users_section
+    assert "aurora-admin-user-filter-search" in users_section
+    assert users_section.index("aurora-admin-user-filter-strip") < users_section.index("搜索用户名 / 邮箱 / UID")
     assert "aurora-admin-user-scope-tabs" not in users_section
     assert "近7天" not in users_section
     assert "['vip', 'VIP']" not in users_section
@@ -876,6 +878,8 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "<MoreHorizontal" not in users_section
 
     assert ".aurora-admin-user-table" in index_css
+    assert ".aurora-admin-user-filter-search" in index_css
+    assert "width: min(31rem, 36vw)" in index_css
     assert ".aurora-admin-user-role-badge" in index_css
     assert "white-space: nowrap" in index_css
     assert "writing-mode: horizontal-tb" in index_css
