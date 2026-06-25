@@ -4571,6 +4571,14 @@ code {
 .aurora-admin-switch-row strong { color:#334155; font-size:13px; }
 .aurora-admin-switch-row small { display:block; color:#64748b; font-size:12px; }
 .aurora-admin-switch-row input[type="checkbox"] { width:2.8rem !important; height:1.55rem !important; accent-color:var(--admin-blue); }
+.aurora-admin-preview-card {
+  max-height: min(35rem, calc(100dvh - 12rem));
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.aurora-admin-preview-card::-webkit-scrollbar { width: 8px; }
+.aurora-admin-preview-card::-webkit-scrollbar-thumb { border-radius: 999px; background: #cbd5e1; }
+.aurora-admin-preview-card::-webkit-scrollbar-track { background: transparent; }
 .aurora-admin-announcement-preview { margin:1.25rem; border:1px solid #e2e8f0; border-radius:16px; background:#fff; padding:1.25rem; }
 .aurora-admin-announcement-preview h3 { margin-top:1rem; color:#0f172a; font-size:1.45rem; font-weight:840; letter-spacing:-.035em; }
 .aurora-admin-preview-body { margin-top:1rem; border-top:1px solid #e2e8f0; padding-top:1rem; color:#334155; line-height:1.8; }

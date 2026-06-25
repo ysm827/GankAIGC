@@ -982,6 +982,10 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert "aurora-admin-secondary-action" not in announcements_section
     assert ".aurora-admin-announcement-composer .aurora-admin-editor-head" in index_css
     assert "border-bottom: 0" in index_css
+    assert ".aurora-admin-preview-card" in index_css
+    assert "max-height: min(35rem, calc(100dvh - 12rem))" in index_css
+    assert "overflow-y: auto" in index_css
+    assert "scrollbar-gutter: stable" in index_css
     assert ".aurora-admin-list-actions" in index_css
 
 
