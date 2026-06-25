@@ -9,7 +9,6 @@ import {
   Key,
   Search,
   Calendar,
-  ChevronDown,
   CheckCircle,
   Shield,
   Plus,
@@ -1592,16 +1591,20 @@ const AdminDashboard = () => {
       <div className="apple-global-nav aurora-topbar aurora-admin-topbar sticky top-0 z-50">
         <div className="w-full px-4 sm:px-6 lg:px-8 py-3">
           <div className="aurora-admin-topbar-row flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BrandLogo size="sm" className="aurora-brand-logo" />
-              <button
-                onClick={openUpdateModal}
-                className="aurora-admin-topbar-chip"
-                title="查看版本和 SSH 升级命令"
-              >
-                {topbarVersionLabel}
-                <ChevronDown className="w-4 h-4" />
-              </button>
+            <div className="aurora-admin-brand-stack">
+              <BrandLogo size="sm" showText={false} className="aurora-brand-logo aurora-admin-brand-mark-only" />
+              <div className="aurora-admin-brand-copy">
+                <span className="aurora-admin-brand-title">GankAIGC</span>
+                <button
+                  type="button"
+                  onClick={openUpdateModal}
+                  className="aurora-admin-version-badge"
+                  title="查看版本和 SSH 升级命令"
+                  aria-label={`当前版本 ${topbarVersionLabel}，点击查看版本和 SSH 升级命令`}
+                >
+                  {topbarVersionLabel}
+                </button>
+              </div>
             </div>
             {showCommandSearch && (
               <label className="aurora-admin-topbar-search hidden xl:flex">

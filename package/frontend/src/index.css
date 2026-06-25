@@ -3638,7 +3638,6 @@ code {
   box-shadow: 0 8px 28px rgba(15, 23, 42, 0.035);
 }
 
-.aurora-admin-topbar-chip,
 .aurora-admin-logout,
 .aurora-admin-secondary-action,
 .aurora-admin-action,
@@ -3662,7 +3661,6 @@ code {
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
 
-.aurora-admin-topbar-chip:hover,
 .aurora-admin-secondary-action:hover,
 .aurora-admin-tab-button:hover,
 .aurora-admin-subtle-button:hover {
@@ -3670,7 +3668,6 @@ code {
   background: rgba(219, 234, 254, 0.94);
 }
 
-.aurora-admin-topbar-chip:active,
 .aurora-admin-secondary-action:active,
 .aurora-admin-action:active,
 .aurora-admin-tab-button:active,
@@ -4010,6 +4007,61 @@ code {
 
 .aurora-admin-topbar.apple-global-nav {
   min-height: 76px;
+}
+
+.aurora-admin-brand-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.aurora-admin-brand-mark-only {
+  flex: 0 0 auto;
+}
+
+.aurora-admin-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.34rem;
+}
+
+.aurora-admin-brand-title {
+  display: block;
+  color: #020617;
+  font-size: 24px;
+  font-weight: 820;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+}
+
+.aurora-admin-version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 0;
+  border-radius: 9px;
+  background: #eef3f8;
+  color: #334155;
+  padding: 0.26rem 0.58rem;
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  box-shadow: none;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.aurora-admin-version-badge:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.aurora-admin-version-badge:active {
+  transform: scale(0.97);
 }
 
 .aurora-admin-topbar-search,
@@ -5310,12 +5362,6 @@ code {
 
 .aurora-admin-topbar .aurora-brand-logo img {
   border-radius: 9px;
-}
-
-.aurora-admin-topbar .aurora-brand-logo span {
-  font-size: 24px;
-  font-weight: 820;
-  letter-spacing: -0.055em;
 }
 
 .aurora-admin-nav-item {
