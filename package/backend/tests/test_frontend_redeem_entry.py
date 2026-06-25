@@ -970,6 +970,13 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert "预览效果" not in announcements_section
     assert "管理已发布、隐藏和草稿公告" not in announcements_section
     assert "当前显示全部公告" not in announcements_section
+    assert "announcementIsActive" not in admin_dashboard
+    assert "setAnnouncementIsActive" not in admin_dashboard
+    assert "aurora-admin-switch-row" not in announcements_section
+    assert "submitAnnouncement(false)" in admin_dashboard
+    assert "submitAnnouncement(true)" in admin_dashboard
+    assert "is_active: isActive" in admin_dashboard
+    assert "草稿已保存" in admin_dashboard
     assert "aurora-admin-secondary-action" not in announcements_section
     assert ".aurora-admin-list-actions" in index_css
 

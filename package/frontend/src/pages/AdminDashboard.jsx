@@ -522,7 +522,6 @@ const AdminDashboard = () => {
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCategory, setAnnouncementCategory] = useState('notice');
-  const [announcementIsActive, setAnnouncementIsActive] = useState(true);
   const [announcementContentHistory, setAnnouncementContentHistory] = useState(['']);
   const [announcementContentHistoryIndex, setAnnouncementContentHistoryIndex] = useState(0);
   const [isAnnouncementEditorExpanded, setIsAnnouncementEditorExpanded] = useState(false);
@@ -1173,17 +1172,10 @@ const AdminDashboard = () => {
     setAnnouncementContent(announcement.content || '');
     resetAnnouncementContentHistory(announcement.content || '');
     setAnnouncementCategory(announcement.category || 'notice');
-    setAnnouncementIsActive(Boolean(announcement.is_active));
     toast.success('已载入公告到编辑区');
   };
 
-  const saveAnnouncementDraft = () => {
-    setAnnouncementIsActive(false);
-    toast('已切换为草稿，点击发布公告即可保存草稿');
-  };
-
-  const handleCreateAnnouncement = async (e) => {
-    e.preventDefault();
+  const submitAnnouncement = async (isActive) => {
     if (!announcementTitle.trim() || !announcementContent.trim()) {
       toast.error('请填写公告标题和内容');
       return;
@@ -1195,7 +1187,7 @@ const AdminDashboard = () => {
           title: announcementTitle.trim(),
           content: announcementContent.trim(),
           category: announcementCategory,
-          is_active: announcementIsActive,
+          is_active: isActive,
         },
         { headers: { Authorization: `Bearer ${adminToken}` } }
       );
@@ -1203,12 +1195,20 @@ const AdminDashboard = () => {
       setAnnouncementContent('');
       resetAnnouncementContentHistory('');
       setAnnouncementCategory('notice');
-      setAnnouncementIsActive(true);
-      toast.success('公告已发布');
+      toast.success(isActive ? '公告已发布' : '草稿已保存');
       fetchAnnouncements();
     } catch (error) {
-      toast.error(error.response?.data?.detail || '发布公告失败');
+      toast.error(error.response?.data?.detail || (isActive ? '发布公告失败' : '保存草稿失败'));
     }
+  };
+
+  const saveAnnouncementDraft = () => {
+    submitAnnouncement(false);
+  };
+
+  const handleCreateAnnouncement = (e) => {
+    e.preventDefault();
+    submitAnnouncement(true);
   };
 
   const handleToggleAnnouncement = async (announcement) => {
@@ -2515,31 +2515,18 @@ const AdminDashboard = () => {
                       maxLength={120}
                     />
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">类型</label>
-                      <select
-                        value={announcementCategory}
-                        onChange={(e) => setAnnouncementCategory(e.target.value)}
-                        className={ADMIN_ACCOUNT_INPUT_CLASS}
-                      >
-                        <option value="notice">通知</option>
-                        <option value="maintenance">维护</option>
-                        <option value="model">模型</option>
-                        <option value="guide">说明</option>
-                      </select>
-                    </div>
-                    <label className="aurora-admin-switch-row mt-7">
-                      <span>
-                        <strong>状态</strong>
-                        <small>{announcementIsActive ? '发布中' : '草稿'}</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={announcementIsActive}
-                        onChange={(e) => setAnnouncementIsActive(e.target.checked)}
-                      />
-                    </label>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">类型</label>
+                    <select
+                      value={announcementCategory}
+                      onChange={(e) => setAnnouncementCategory(e.target.value)}
+                      className={ADMIN_ACCOUNT_INPUT_CLASS}
+                    >
+                      <option value="notice">通知</option>
+                      <option value="maintenance">维护</option>
+                      <option value="model">模型</option>
+                      <option value="guide">说明</option>
+                    </select>
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">内容</label>
@@ -2615,7 +2602,7 @@ const AdminDashboard = () => {
                 </div>
                 <article className="aurora-admin-announcement-preview">
                   <span className={`inline-flex w-max rounded-full border px-2.5 py-1 text-xs font-semibold ${getAnnouncementCategoryClass(announcementCategory)}`}>
-                    {announcementIsActive ? '发布中' : '草稿'}
+                    预览
                   </span>
                   <h3>{announcementTitle || 'GankAIGC 平台功能更新说明'}</h3>
                   <p className="text-xs text-slate-400">发布于 {formatChinaDateTime(new Date().toISOString())}</p>
