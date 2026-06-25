@@ -89,6 +89,9 @@ class AdminLoginResponse(BaseModel):
 
 class ModelConnectionTestRequest(BaseModel):
     stage: str
+    model: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class ModelListRequest(BaseModel):
@@ -464,7 +467,12 @@ async def test_admin_model_connection(
     admin_username: str = Depends(get_admin_from_token),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    result = await operations_service.test_model_connection(payload.stage)
+    result = await operations_service.test_model_connection(
+        payload.stage,
+        model=payload.model,
+        base_url=payload.base_url,
+        api_key=payload.api_key,
+    )
     write_admin_audit_log(
         db,
         admin_username,

@@ -861,18 +861,27 @@ def _normalize_model(model: Optional[str]) -> str:
     return value
 
 
-def get_model_config(stage: str) -> Dict[str, str]:
+def get_model_config(
+    stage: str,
+    *,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, str]:
     config = _raw_model_stage_config(stage)
-    if _is_placeholder_api_key(config["api_key"]):
+    merged_model = model if (model or "").strip() else config.get("model")
+    merged_api_key = api_key if (api_key or "").strip() else config.get("api_key")
+    merged_base_url = base_url if (base_url or "").strip() else config.get("base_url")
+    if _is_placeholder_api_key(merged_api_key):
         raise ValueError("API Key 仍是占位值")
-    if _is_placeholder_base_url(config["base_url"]):
+    if _is_placeholder_base_url(merged_base_url):
         raise ValueError("Base URL 仍是占位值")
     return {
         "stage": stage,
         "label": config["label"],
-        "model": _normalize_model(config["model"]),
-        "api_key": _normalize_api_key(config["api_key"]),
-        "base_url": _normalize_base_url(config["base_url"]),
+        "model": _normalize_model(merged_model),
+        "api_key": _normalize_api_key(merged_api_key),
+        "base_url": _normalize_base_url(merged_base_url),
     }
 
 
@@ -1004,9 +1013,15 @@ async def list_provider_models(
         }
 
 
-async def test_model_connection(stage: str) -> Dict[str, Any]:
+async def test_model_connection(
+    stage: str,
+    *,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
     try:
-        config = get_model_config(stage)
+        config = get_model_config(stage, model=model, base_url=base_url, api_key=api_key)
     except ValueError as exc:
         return {
             "ok": False,

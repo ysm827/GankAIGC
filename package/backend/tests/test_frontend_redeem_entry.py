@@ -1594,7 +1594,10 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "handleTestModel" in config_manager
     assert "renderTestButton" in config_manager
     assert "测试连接" in config_manager
-    assert "handleTestModel(stage)" in config_manager
+    assert "getStageFormConfig" in config_manager
+    assert "...getStageFormConfig(stage)" in config_manager
+    assert "测试当前页面填写的模型配置" in config_manager
+    assert "正式生效请保存配置" in config_manager
     assert "renderTestButton('polish')" in config_manager
     assert "renderTestButton('enhance')" in config_manager
     assert "renderTestButton('emotion')" in config_manager
@@ -1605,6 +1608,8 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "stage: 'polish'" in config_manager
     assert "base_url: formData.POLISH_BASE_URL" in config_manager
     assert "api_key: formData.POLISH_API_KEY" in config_manager
+    assert "polish: ['POLISH_MODEL', 'POLISH_BASE_URL', 'POLISH_API_KEY']" in config_manager
+    assert "enhance: ['ENHANCE_MODEL', 'ENHANCE_BASE_URL', 'ENHANCE_API_KEY']" in config_manager
     assert "availableModelOptions.map" in config_manager
     assert "<select" in config_manager
     assert "aurora-detected-models" not in config_manager

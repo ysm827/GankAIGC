@@ -150,13 +150,31 @@ const ConfigManager = ({ adminToken }) => {
     }
   };
 
+  const getStageFormConfig = (stage) => {
+    const stageKeyMap = {
+      polish: ['POLISH_MODEL', 'POLISH_BASE_URL', 'POLISH_API_KEY'],
+      enhance: ['ENHANCE_MODEL', 'ENHANCE_BASE_URL', 'ENHANCE_API_KEY'],
+      emotion: ['EMOTION_MODEL', 'EMOTION_BASE_URL', 'EMOTION_API_KEY'],
+      compression: ['COMPRESSION_MODEL', 'COMPRESSION_BASE_URL', 'COMPRESSION_API_KEY'],
+    };
+    const [modelKey, baseUrlKey, apiKeyKey] = stageKeyMap[stage] || stageKeyMap.polish;
+    return {
+      model: formData[modelKey],
+      base_url: formData[baseUrlKey],
+      api_key: formData[apiKeyKey],
+    };
+  };
+
   const handleTestModel = async (stage) => {
     setTestingStage(stage);
     try {
-      const response = await axios.post('/api/admin/operations/model-test', { stage }, {
+      const response = await axios.post('/api/admin/operations/model-test', {
+        stage,
+        ...getStageFormConfig(stage),
+      }, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
-      toast.success(response.data?.message || 'API 连接测试通过');
+      toast.success(response.data?.message || 'API 连接测试通过；如需正式生效请保存配置');
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(detail?.message || detail || 'API 连接测试失败');
@@ -241,7 +259,7 @@ const ConfigManager = ({ adminToken }) => {
       onClick={() => handleTestModel(stage)}
       disabled={testingStage === stage}
       className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-      title="测试已保存到服务端的模型配置"
+      title="测试当前页面填写的模型配置；成功后仍需保存才会正式生效"
     >
       {testingStage === stage ? (
         <RefreshCw className="h-4 w-4 animate-spin" />

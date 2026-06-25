@@ -230,13 +230,17 @@ def test_admin_backup_download_rejects_path_traversal(client):
 
 
 def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypatch):
-    async def fake_test_model_connection(stage):
+    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None):
+        assert stage == "polish"
+        assert model == "gpt-new"
+        assert base_url == "https://api.example/v1"
+        assert api_key == "sk-transient-secret"
         return {
             "ok": True,
             "stage": stage,
             "label": "润色模型",
-            "model": "gpt-test",
-            "base_url": "https://api.example/v1",
+            "model": model,
+            "base_url": base_url,
             "message": "API 连接测试通过",
         }
 
@@ -244,7 +248,12 @@ def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypat
 
     response = client.post(
         "/api/admin/operations/model-test",
-        json={"stage": "polish"},
+        json={
+            "stage": "polish",
+            "model": "gpt-new",
+            "base_url": "https://api.example/v1",
+            "api_key": "sk-transient-secret",
+        },
         headers=_admin_auth_headers(client),
     )
 
@@ -255,13 +264,14 @@ def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypat
     try:
         log = db.query(AdminAuditLog).filter(AdminAuditLog.action == "test_model_connection").one()
         assert "polish" in (log.detail or "")
-        assert "gpt-test" in (log.detail or "")
+        assert "gpt-new" in (log.detail or "")
+        assert "sk-transient-secret" not in (log.detail or "")
     finally:
         db.close()
 
 
 def test_admin_model_test_returns_structured_failure(client, monkeypatch):
-    async def fake_test_model_connection(stage):
+    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None):
         return {
             "ok": False,
             "stage": stage,
