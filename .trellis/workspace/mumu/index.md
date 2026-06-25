@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-06-24
+- **Total Sessions**: 4
+- **Last Active**: 2026-06-25
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~105 | Active |
+| `journal-1.md` | ~144 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-06-25 | Real session monitor metrics | `48488ad` | `main` |
 | 3 | 2026-06-24 | Sync Zhuque anonymous quota after detection | `4e20687` | `main` |
 | 2 | 2026-06-24 | Fix Zhuque anonymous free quota probe | `ee5337f` | `main` |
 | 1 | 2026-06-24 | Fix Zhuque anonymous fingerprint persistence | `c801f9a` | `main` |

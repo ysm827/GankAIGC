@@ -57,7 +57,11 @@ Seed Zhuque anonymous page probes with token-free browser fp, including legacy l
 
 ### Main Changes
 
-(Add details)
+- Replaced `SessionMonitor.jsx` fabricated KPI/trend values with `/api/admin/statistics?range=today|7d|30d`.
+- Rendered throughput from `statistics.processing.series.sessions` with zero/empty states.
+- Removed fake queue and timeline fallbacks; empty queue/timeline now show explicit empty states.
+- Added static regression assertions for the session monitor fake placeholders.
+- Rebuilt frontend and synced `package/static` hashed assets.
 
 ### Git Commits
 
@@ -67,7 +71,9 @@ Seed Zhuque anonymous page probes with token-free browser fp, including legacy l
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `package/venv/bin/python -m pytest package/backend/tests/test_frontend_redeem_entry.py -q`
+- [OK] `cd package/frontend && npm run build`
+- [OK] placeholder scan over `package/frontend/src` and `package/static`
 
 ### Status
 
@@ -97,6 +103,39 @@ Fixed anonymous Zhuque quota refresh identity drift by persisting the detection 
 | Hash | Message |
 |------|---------|
 | `4e20687` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 4: Real session monitor metrics
+
+**Date**: 2026-06-25
+**Task**: Real session monitor metrics
+**Branch**: `main`
+
+### Summary
+
+Replaced fabricated admin session monitor KPIs, queue fallback, throughput chart, timeline, and footer copy with real statistics/session API data; added static regression coverage and synced production assets.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `48488ad` | (see git log) |
 
 ### Testing
 
