@@ -858,8 +858,6 @@ def test_admin_user_management_polishes_layout_and_actions():
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
     accounts_section = admin_dashboard.split("{activeTab === 'accounts' && (", 1)[1].split("{activeTab === 'announcements' && (", 1)[0]
     users_section = admin_dashboard.split("accountPanelTab === 'users'", 1)[1].split("accountPanelTab === 'creditTransactions'", 1)[0]
-    detail_panel = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("</aside>", 1)[0]
-    detail_header = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("{highlightedUser ? (", 1)[0]
 
     assert "{accountPanelTab === 'users' && (" in admin_dashboard
     assert "<h2>用户管理</h2>" not in accounts_section
@@ -878,22 +876,23 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "['vip', 'VIP']" not in users_section
     assert "['blocked', '异常']" not in users_section
 
-    assert "aurora-admin-icon-button" not in detail_header
-    assert "MoreHorizontal" not in detail_header
-    assert "aurora-admin-user-detail-only-list" in detail_panel
-    assert "aurora-admin-user-profile-card" not in detail_panel
-    assert "aurora-admin-user-assets" not in detail_panel
-    assert "aurora-admin-user-actions" not in detail_panel
-    assert "调整资产" not in detail_panel
-    assert "封禁用户" not in detail_panel
-    assert "启用用户" not in detail_panel
-    assert "啤酒余额" not in detail_panel
-    assert "最近登录" not in detail_panel
-    assert "登录 IP" not in detail_panel
-    assert "设备" not in detail_panel
-    assert "累计用量" in admin_dashboard
+    assert "aurora-admin-user-detail-panel" not in users_section
+    assert "aurora-admin-user-detail-panel" not in index_css
+    assert "用户详情" not in users_section
+    assert "暂无用户详情" not in users_section
+    assert "selectedAccountUserId" not in admin_dashboard
+    assert "setSelectedAccountUserId" not in admin_dashboard
+    assert "highlightedUser" not in admin_dashboard
+    assert "aurora-admin-selected-row" not in users_section
+    assert ".aurora-admin-selected-row" not in index_css
+    assert "aurora-admin-user-detail-only-list" not in users_section
+    assert ".aurora-admin-user-detail-only-list" not in index_css
+    assert "aurora-admin-user-profile-card" not in users_section
+    assert "aurora-admin-user-assets" not in users_section
+    assert "aurora-admin-user-actions" not in users_section
+    assert "累计用量" not in users_section
+    assert "模型配置" not in users_section
     assert "邀请码" in admin_dashboard
-    assert "模型配置" in admin_dashboard
 
     assert "w-full min-w-[1260px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
     assert "aurora-admin-user-role-badge" in users_section
@@ -929,7 +928,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "width: 6.35rem" in index_css
     assert ".aurora-admin-account-tabs-row" in index_css
     assert ".aurora-admin-status-toggle.is-danger" in index_css
-    assert ".aurora-admin-user-detail-only-list" in index_css
+    assert "grid-template-columns: minmax(0, 1fr)" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
 

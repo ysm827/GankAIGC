@@ -519,7 +519,6 @@ const AdminDashboard = () => {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [userStatusFilter, setUserStatusFilter] = useState('all');
   const [userApiFilter, setUserApiFilter] = useState('all');
-  const [selectedAccountUserId, setSelectedAccountUserId] = useState(null);
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCategory, setAnnouncementCategory] = useState('notice');
@@ -875,11 +874,6 @@ const AdminDashboard = () => {
   const selectedInvites = invites.filter((invite) => selectedInviteIds.includes(invite.id));
   const selectedCreditCodes = creditCodes.filter((code) => selectedCreditCodeIds.includes(code.id));
   const providerConfigByUserId = new Map(providerConfigs.map((config) => [config.user_id, config]));
-  const usedInviteByUserId = new Map(
-    invites
-      .filter((invite) => invite.used_by_user_id)
-      .map((invite) => [invite.used_by_user_id, invite])
-  );
   const normalizedUserSearchTerm = userSearchTerm.trim().toLowerCase();
   const filteredUsers = users.filter((user) => {
     const providerConfig = providerConfigByUserId.get(user.id);
@@ -899,19 +893,6 @@ const AdminDashboard = () => {
 
     return matchesSearch && matchesStatus && matchesApi;
   });
-  const activeUserCount = users.filter((user) => user.is_active).length;
-  const blockedUserCount = users.length - activeUserCount;
-  const highlightedUser = filteredUsers.find((user) => user.id === selectedAccountUserId) || filteredUsers[0] || users[0] || null;
-  const highlightedProviderConfig = highlightedUser ? providerConfigByUserId.get(highlightedUser.id) : null;
-  const highlightedInvite = highlightedUser ? usedInviteByUserId.get(highlightedUser.id) : null;
-  const highlightedUserDetails = highlightedUser ? [
-    { label: '昵称', value: highlightedUser.nickname || '-' },
-    { label: '注册时间', value: formatChinaDateTime(highlightedUser.created_at) },
-    { label: '最近使用', value: highlightedUser.last_used ? formatChinaDateTime(highlightedUser.last_used) : '-' },
-    { label: '累计用量', value: `${formatAdminNumber(highlightedUser.usage_count ?? 0)} / ${formatAdminNumber(highlightedUser.usage_limit ?? 0)}` },
-    { label: '邀请码', value: highlightedInvite?.code || '-' },
-    { label: '模型配置', value: highlightedProviderConfig ? '已配置' : '未配置', isPill: Boolean(highlightedProviderConfig) },
-  ] : [];
 
   const toggleInviteSelection = (inviteId) => {
     setSelectedInviteIds((current) => (
@@ -2318,8 +2299,7 @@ const AdminDashboard = () => {
                           return (
                           <tr
                             key={user.id}
-                            onClick={() => setSelectedAccountUserId(user.id)}
-                            className={`${user.is_active ? 'hover:bg-gray-50' : 'bg-red-50/40 hover:bg-red-50'} ${highlightedUser?.id === user.id ? 'aurora-admin-selected-row' : ''}`}
+                            className={user.is_active ? 'hover:bg-gray-50' : 'bg-red-50/40 hover:bg-red-50'}
                           >
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex items-center gap-3">
@@ -2414,23 +2394,6 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <aside className="aurora-admin-user-detail-panel">
-                  <div className="flex items-center justify-between">
-                    <h3>用户详情</h3>
-                  </div>
-                  {highlightedUser ? (
-                    <div className="aurora-admin-user-info-list aurora-admin-user-detail-only-list">
-                      {highlightedUserDetails.map((item) => (
-                        <div key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.isPill ? <em>{item.value}</em> : item.value}</strong>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="py-12 text-center text-sm text-slate-500">暂无用户详情</div>
-                  )}
-                </aside>
               </div>
             )}
 
