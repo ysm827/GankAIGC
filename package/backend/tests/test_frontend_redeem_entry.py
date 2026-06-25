@@ -876,6 +876,12 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "设为无限啤酒" in users_section
     assert 'CircleDollarSign className="h-4 w-4"' in users_section
     assert "<MoreHorizontal" not in users_section
+    assert "啤酒余额" in users_section
+    assert "余额 (Credits)" not in users_section
+    assert "啤彩 (Beer)" not in users_section
+    assert "啤酒 (Beer)" not in users_section
+    assert 'colSpan="6"' in users_section
+    assert 'colSpan="7"' not in users_section
 
     assert ".aurora-admin-user-table" in index_css
     assert ".aurora-admin-user-filter-search" in index_css
@@ -885,6 +891,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "writing-mode: horizontal-tb" in index_css
     assert ".aurora-admin-unlimited-toggle" in index_css
     assert "width: 6.35rem" in index_css
+    assert ".aurora-admin-user-assets { display:grid; grid-template-columns: 1fr;" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
 

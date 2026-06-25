@@ -1745,7 +1745,7 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* Account and Credits Tab */}
+        {/* Account and Beer Tab */}
         {activeTab === 'accounts' && (
           <div className="aurora-admin-section aurora-admin-accounts-page space-y-6">
             <div className="aurora-admin-section-head">
@@ -2172,8 +2172,7 @@ const AdminDashboard = () => {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">角色</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">余额 (Credits)</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤彩 (Beer)</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">啤酒余额</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最近活跃</th>
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                         </tr>
@@ -2181,7 +2180,7 @@ const AdminDashboard = () => {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {filteredUsers.length === 0 ? (
                           <tr>
-                            <td colSpan="7" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
+                            <td colSpan="6" className="px-6 py-10 text-center text-sm text-gray-500">没有符合筛选条件的用户</td>
                           </tr>
                         ) : filteredUsers.map((user) => {
                           const providerConfig = providerConfigByUserId.get(user.id);
@@ -2215,15 +2214,10 @@ const AdminDashboard = () => {
                               </span>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="text-sm font-semibold text-slate-700">
+                              <div className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
                                 {user.is_unlimited ? '∞' : formatAdminNumber(user.credit_balance ?? 0)}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <span className="inline-flex items-center gap-1 text-sm text-slate-700">
-                                {user.is_unlimited ? 88 : Math.max(0, Math.min(99, Math.round(Number(user.credit_balance || 0) / 100)))}
                                 <BeerIcon className="h-4 w-4" />
-                              </span>
+                              </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                               {user.last_login_at ? formatChinaDateTime(user.last_login_at) : '-'}
@@ -2309,13 +2303,8 @@ const AdminDashboard = () => {
                       </div>
                       <div className="aurora-admin-user-assets">
                         <div>
-                          <span>余额 (Credits)</span>
+                          <span>啤酒余额</span>
                           <strong>{highlightedUser.is_unlimited ? '∞' : formatAdminNumber(highlightedUser.credit_balance ?? 0)}</strong>
-                          <i />
-                        </div>
-                        <div>
-                          <span>啤酒 (Beer)</span>
-                          <strong>{highlightedUser.is_unlimited ? '无限' : Math.max(0, Math.min(99, Math.round(Number(highlightedUser.credit_balance || 0) / 100)))}</strong>
                           <i />
                         </div>
                       </div>

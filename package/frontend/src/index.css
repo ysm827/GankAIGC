@@ -4493,7 +4493,7 @@ code {
 }
 .aurora-admin-user-profile-card strong { display:block; color:#0f172a; font-size:1.1rem; }
 .aurora-admin-user-profile-card p { color:#64748b; font-size:13px; }
-.aurora-admin-user-assets { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem; margin-top:1rem; }
+.aurora-admin-user-assets { display:grid; grid-template-columns: 1fr; gap:.75rem; margin-top:1rem; }
 .aurora-admin-user-assets div { border:1px solid #e2e8f0; border-radius:16px; padding:1rem; }
 .aurora-admin-user-assets span { color:#64748b; font-size:12px; font-weight:760; }
 .aurora-admin-user-assets strong { display:block; margin-top:.45rem; color:var(--admin-blue); font-size:1.45rem; font-weight:840; }
