@@ -2337,7 +2337,7 @@ const AdminDashboard = () => {
                                     <span className="text-xs font-medium text-slate-400">次</span>
                                   </>
                                 ) : (
-                                  <span className="text-sm font-semibold text-slate-500">-次</span>
+                                  <span className="text-sm font-semibold text-slate-500">--次</span>
                                 )}
                               </div>
                             </td>
