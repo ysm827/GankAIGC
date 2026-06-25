@@ -6255,8 +6255,12 @@ code {
   vertical-align: middle;
 }
 
+.aurora-admin-user-table tbody td:first-child {
+  text-align: left !important;
+}
+
 .aurora-admin-user-table td:first-child > div {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .aurora-admin-user-table tbody tr {
