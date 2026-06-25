@@ -1015,9 +1015,6 @@ class OptimizationService:
                 user = self.db.get(User, self.session_obj.user_id)
                 if user:
                     user.zhuque_total_uses = int(user.zhuque_total_uses or 0) + 1
-                    remaining_uses = result.get("remaining_uses")
-                    if isinstance(remaining_uses, int) and remaining_uses >= 0:
-                        user.zhuque_free_uses_remaining = remaining_uses
             result_json = json.dumps(result, ensure_ascii=False)
             for seg in segments:
                 seg.zhuque_detect_rate = detect_rate

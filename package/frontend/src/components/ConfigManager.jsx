@@ -314,7 +314,7 @@ const ConfigManager = ({ adminToken }) => {
             <div className="aurora-config-connection-row">
               <span className="text-emerald-600">● 连接状态</span>
               <strong>{primaryBaseUrl ? '已配置' : '待配置'}</strong>
-              <small>{primaryBaseUrl || '请填写 Sub/OpenAI Compatible Base URL'}</small>
+              <small className="aurora-config-mono-value">{primaryBaseUrl || '请填写 Sub/OpenAI Compatible Base URL'}</small>
               {renderTestButton('polish')}
             </div>
           </div>
