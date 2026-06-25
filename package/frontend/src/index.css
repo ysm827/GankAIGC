@@ -6249,6 +6249,16 @@ code {
   table-layout: auto;
 }
 
+.aurora-admin-user-table th,
+.aurora-admin-user-table td {
+  text-align: center !important;
+  vertical-align: middle;
+}
+
+.aurora-admin-user-table td:first-child > div {
+  justify-content: center;
+}
+
 .aurora-admin-user-table tbody tr {
   height: 58px;
 }
@@ -6256,7 +6266,7 @@ code {
 .aurora-admin-user-row-actions {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 0.45rem;
 }
 
