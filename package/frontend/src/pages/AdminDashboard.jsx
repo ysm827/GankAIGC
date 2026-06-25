@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
@@ -48,6 +48,7 @@ import DatabaseManager from '../components/DatabaseManager';
 import AdminOperationsPanel from '../components/AdminOperationsPanel';
 import BrandLogo from '../components/BrandLogo';
 import BeerIcon from '../components/BeerIcon';
+import MarkdownPreview, { DEFAULT_ANNOUNCEMENT_MARKDOWN } from '../components/MarkdownPreview';
 import { formatChinaDateTime } from '../utils/dateTime';
 
 const DEFAULT_ADMIN_TAB = 'dashboard';
@@ -68,6 +69,20 @@ const ACCOUNT_PANEL_TABS = [
   { id: 'apiConfigs', label: 'API 配置' },
 ];
 const CURRENT_APP_VERSION = window.__GANKAIGC_RUNTIME__?.appVersion || import.meta.env.VITE_APP_VERSION || 'v1.0.9';
+const ANNOUNCEMENT_MARKDOWN_TOOLS = [
+  { id: 'heading', label: 'H', title: '标题', syntax: 'line-prefix', prefix: '## ' },
+  { id: 'bold', label: 'B', title: '加粗', syntax: 'wrap', prefix: '**', suffix: '**', sample: '加粗文字' },
+  { id: 'italic', label: 'I', title: '斜体', syntax: 'wrap', prefix: '*', suffix: '*', sample: '斜体文字' },
+  { id: 'strike', label: 'S', title: '删除线', syntax: 'wrap', prefix: '~~', suffix: '~~', sample: '删除线文字' },
+  { id: 'bullet', label: '•', title: '无序列表', syntax: 'line-prefix', prefix: '- ' },
+  { id: 'ordered', label: '1.', title: '有序列表', syntax: 'line-prefix', prefix: '1. ' },
+  { id: 'task', label: '☑', title: '任务列表', syntax: 'line-prefix', prefix: '- [ ] ' },
+  { id: 'code', label: '</>', title: '代码块', syntax: 'block', before: '```\n', after: '\n```', sample: '代码内容' },
+  { id: 'link', label: '🔗', title: '链接', syntax: 'wrap', prefix: '[', suffix: '](https://example.com)', sample: '链接文字' },
+  { id: 'table', label: '▦', title: '表格', syntax: 'insert', text: '\n| 项目 | 说明 |\n| --- | --- |\n| 功能 | 内容 |\n' },
+  { id: 'quote', label: '“', title: '引用', syntax: 'line-prefix', prefix: '> ' },
+  { id: 'divider', label: '—', title: '分割线', syntax: 'insert', text: '\n---\n' },
+];
 
 const formatAdminNumber = (value) => Number(value || 0).toLocaleString();
 
@@ -514,6 +529,10 @@ const AdminDashboard = () => {
   const [announcementContent, setAnnouncementContent] = useState('');
   const [announcementCategory, setAnnouncementCategory] = useState('notice');
   const [announcementIsActive, setAnnouncementIsActive] = useState(true);
+  const [announcementContentHistory, setAnnouncementContentHistory] = useState(['']);
+  const [announcementContentHistoryIndex, setAnnouncementContentHistoryIndex] = useState(0);
+  const [isAnnouncementEditorExpanded, setIsAnnouncementEditorExpanded] = useState(false);
+  const announcementTextareaRef = useRef(null);
   const [creditTopUps, setCreditTopUps] = useState({});
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
@@ -1075,9 +1094,119 @@ const AdminDashboard = () => {
     toast.success('操作日志筛选已重置');
   };
 
+  const updateAnnouncementContent = (nextContent, { selectionStart = null, selectionEnd = null, pushHistory = true } = {}) => {
+    if (nextContent.length > 1000) {
+      toast.error('公告内容最多 1000 字');
+      return;
+    }
+
+    setAnnouncementContent(nextContent);
+    if (pushHistory && nextContent !== announcementContent) {
+      setAnnouncementContentHistory((current) => {
+        const baseHistory = current.slice(0, announcementContentHistoryIndex + 1);
+        return [...baseHistory, nextContent].slice(-50);
+      });
+      setAnnouncementContentHistoryIndex((current) => Math.min(current + 1, 49));
+    }
+
+    if (Number.isInteger(selectionStart) && Number.isInteger(selectionEnd)) {
+      window.requestAnimationFrame(() => {
+        announcementTextareaRef.current?.focus();
+        announcementTextareaRef.current?.setSelectionRange(selectionStart, selectionEnd);
+      });
+    }
+  };
+
+  const resetAnnouncementContentHistory = (nextContent = '') => {
+    setAnnouncementContentHistory([nextContent]);
+    setAnnouncementContentHistoryIndex(0);
+  };
+
+  const undoAnnouncementContent = () => {
+    if (announcementContentHistoryIndex <= 0) {
+      toast('没有可撤销的 Markdown 编辑');
+      return;
+    }
+    const nextIndex = announcementContentHistoryIndex - 1;
+    const nextContent = announcementContentHistory[nextIndex] || '';
+    setAnnouncementContentHistoryIndex(nextIndex);
+    setAnnouncementContent(nextContent);
+  };
+
+  const redoAnnouncementContent = () => {
+    if (announcementContentHistoryIndex >= announcementContentHistory.length - 1) {
+      toast('没有可重做的 Markdown 编辑');
+      return;
+    }
+    const nextIndex = announcementContentHistoryIndex + 1;
+    const nextContent = announcementContentHistory[nextIndex] || '';
+    setAnnouncementContentHistoryIndex(nextIndex);
+    setAnnouncementContent(nextContent);
+  };
+
+  const applyAnnouncementMarkdownTool = (tool) => {
+    if (tool.id === 'undo') {
+      undoAnnouncementContent();
+      return;
+    }
+    if (tool.id === 'redo') {
+      redoAnnouncementContent();
+      return;
+    }
+    if (tool.id === 'fullscreen') {
+      setIsAnnouncementEditorExpanded((current) => !current);
+      return;
+    }
+
+    const textarea = announcementTextareaRef.current;
+    const content = announcementContent;
+    const start = textarea?.selectionStart ?? content.length;
+    const end = textarea?.selectionEnd ?? start;
+    const selectedText = content.slice(start, end);
+    let nextContent = content;
+    let nextSelectionStart = start;
+    let nextSelectionEnd = end;
+
+    if (tool.syntax === 'line-prefix') {
+      const lineStart = content.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+      const nextLineBreak = content.indexOf('\n', end);
+      const lineEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
+      const block = content.slice(lineStart, lineEnd) || '';
+      const replacement = block
+        .split('\n')
+        .map((line) => `${tool.prefix}${line.replace(/^\s*/, '') || '内容'}`)
+        .join('\n');
+      nextContent = `${content.slice(0, lineStart)}${replacement}${content.slice(lineEnd)}`;
+      nextSelectionStart = lineStart + tool.prefix.length;
+      nextSelectionEnd = lineStart + replacement.length;
+    } else if (tool.syntax === 'wrap') {
+      const body = selectedText || tool.sample || '内容';
+      const replacement = `${tool.prefix}${body}${tool.suffix}`;
+      nextContent = `${content.slice(0, start)}${replacement}${content.slice(end)}`;
+      nextSelectionStart = start + tool.prefix.length;
+      nextSelectionEnd = nextSelectionStart + body.length;
+    } else if (tool.syntax === 'block') {
+      const body = selectedText || tool.sample || '内容';
+      const replacement = `${tool.before}${body}${tool.after}`;
+      nextContent = `${content.slice(0, start)}${replacement}${content.slice(end)}`;
+      nextSelectionStart = start + tool.before.length;
+      nextSelectionEnd = nextSelectionStart + body.length;
+    } else if (tool.syntax === 'insert') {
+      nextContent = `${content.slice(0, start)}${tool.text}${content.slice(end)}`;
+      nextSelectionStart = start + tool.text.length;
+      nextSelectionEnd = nextSelectionStart;
+    }
+
+    updateAnnouncementContent(nextContent, {
+      selectionStart: nextSelectionStart,
+      selectionEnd: nextSelectionEnd,
+    });
+  };
+
   const startNewAnnouncementDraft = () => {
     setAnnouncementTitle('');
     setAnnouncementContent('');
+    resetAnnouncementContentHistory('');
     setAnnouncementCategory('notice');
     setAnnouncementIsActive(true);
     toast('已清空公告编辑区');
@@ -1086,6 +1215,7 @@ const AdminDashboard = () => {
   const editAnnouncementDraft = (announcement) => {
     setAnnouncementTitle(announcement.title || '');
     setAnnouncementContent(announcement.content || '');
+    resetAnnouncementContentHistory(announcement.content || '');
     setAnnouncementCategory(announcement.category || 'notice');
     setAnnouncementIsActive(Boolean(announcement.is_active));
     toast.success('已载入公告到编辑区');
@@ -1115,6 +1245,7 @@ const AdminDashboard = () => {
       );
       setAnnouncementTitle('');
       setAnnouncementContent('');
+      resetAnnouncementContentHistory('');
       setAnnouncementCategory('notice');
       setAnnouncementIsActive(true);
       toast.success('公告已发布');
@@ -2419,7 +2550,7 @@ const AdminDashboard = () => {
 
         {activeTab === 'announcements' && (
           <div className="aurora-admin-section space-y-6">
-            <div className="aurora-admin-announcement-composer">
+            <div className={`aurora-admin-announcement-composer ${isAnnouncementEditorExpanded ? 'is-expanded' : ''}`}>
               <div className="aurora-admin-card aurora-admin-editor-card">
                 <div className="aurora-admin-editor-head">
                   <div>
@@ -2470,15 +2601,50 @@ const AdminDashboard = () => {
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">内容（支持 Markdown）</label>
                     <div className="aurora-admin-editor-toolbar">
-                      {['H', 'B', 'I', 'S', '•', '1.', '☑', '</>', '🔗', '▦', '“', '—', '↶', '↷', '⛶'].map((item) => (
-                        <span key={item}>{item}</span>
+                      {ANNOUNCEMENT_MARKDOWN_TOOLS.map((tool) => (
+                        <button
+                          key={tool.id}
+                          type="button"
+                          onClick={() => applyAnnouncementMarkdownTool(tool)}
+                          title={tool.title}
+                          aria-label={`插入 Markdown ${tool.title}`}
+                        >
+                          {tool.label}
+                        </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={undoAnnouncementContent}
+                        disabled={announcementContentHistoryIndex <= 0}
+                        title="撤销"
+                        aria-label="撤销 Markdown 编辑"
+                      >
+                        ↶
+                      </button>
+                      <button
+                        type="button"
+                        onClick={redoAnnouncementContent}
+                        disabled={announcementContentHistoryIndex >= announcementContentHistory.length - 1}
+                        title="重做"
+                        aria-label="重做 Markdown 编辑"
+                      >
+                        ↷
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsAnnouncementEditorExpanded((current) => !current)}
+                        title={isAnnouncementEditorExpanded ? '退出大编辑区' : '展开编辑区'}
+                        aria-label={isAnnouncementEditorExpanded ? '退出 Markdown 大编辑区' : '展开 Markdown 编辑区'}
+                      >
+                        ⛶
+                      </button>
                     </div>
                     <textarea
+                      ref={announcementTextareaRef}
                       value={announcementContent}
-                      onChange={(e) => setAnnouncementContent(e.target.value)}
+                      onChange={(e) => updateAnnouncementContent(e.target.value)}
                       placeholder={'## 功能更新\n- 新增会话监控实时分析能力\n- 优化知识库检索相关体验\n\n> 感谢您一直以来的支持与信任！'}
-                      className="aurora-admin-input h-44 w-full resize-none rounded-lg border border-gray-300 px-4 py-3 font-mono text-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      className={`aurora-admin-input w-full resize-none rounded-lg border border-gray-300 px-4 py-3 font-mono text-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-blue-500 ${isAnnouncementEditorExpanded ? 'h-[30rem]' : 'h-44'}`}
                       maxLength={1000}
                     />
                   </div>
@@ -2512,13 +2678,7 @@ const AdminDashboard = () => {
                   <h3>{announcementTitle || 'GankAIGC 平台功能更新说明'}</h3>
                   <p className="text-xs text-slate-400">发布于 {formatChinaDateTime(new Date().toISOString())}</p>
                   <div className="aurora-admin-preview-body">
-                    {(announcementContent || '## 功能更新\n- 新增会话监控实时分析能力\n- 优化知识库检索相关体验\n- 修复若干已知问题，提升系统稳定性\n\n> 感谢您一直以来的支持与信任！')
-                      .split('\n')
-                      .filter(Boolean)
-                      .slice(0, 8)
-                      .map((line, index) => (
-                        <p key={`${line}-${index}`}>{line.replace(/^#+\s?/, '').replace(/^[-*>]\s?/, '• ')}</p>
-                      ))}
+                    <MarkdownPreview content={announcementContent} fallback={DEFAULT_ANNOUNCEMENT_MARKDOWN} />
                   </div>
                 </article>
               </div>

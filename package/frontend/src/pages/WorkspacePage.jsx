@@ -10,6 +10,7 @@ import {
 import { optimizationAPI, projectAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import UserMenu from '../components/UserMenu';
+import MarkdownPreview from '../components/MarkdownPreview';
 import { formatChinaDate } from '../utils/dateTime';
 
 const CREDIT_UNIT_CHARACTERS = 1000;
@@ -1320,7 +1321,7 @@ const WorkspacePage = () => {
                 </span>
                 <div className="min-w-0">
                   <div className="break-words text-sm font-semibold text-slate-950">{announcement.title}</div>
-                  <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{announcement.content}</div>
+                  <MarkdownPreview content={announcement.content} className="mt-1" compact />
                 </div>
               </div>
             ))}

@@ -941,6 +941,33 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert ".aurora-admin-list-actions" in index_css
 
 
+def test_admin_announcement_markdown_toolbar_is_functional_and_previewed():
+    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    markdown_preview = (FRONTEND_SRC / "components" / "MarkdownPreview.jsx").read_text(encoding="utf-8")
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'database' && (", 1)[0]
+
+    assert "ANNOUNCEMENT_MARKDOWN_TOOLS" in admin_dashboard
+    assert "applyAnnouncementMarkdownTool" in admin_dashboard
+    assert "announcementTextareaRef" in admin_dashboard
+    assert "onClick={() => applyAnnouncementMarkdownTool(tool)}" in announcements_section
+    assert "<span key={item}>{item}</span>" not in announcements_section
+    assert "撤销 Markdown 编辑" in announcements_section
+    assert "重做 Markdown 编辑" in announcements_section
+    assert "展开 Markdown 编辑区" in announcements_section
+    assert "<MarkdownPreview content={announcementContent}" in announcements_section
+    assert "DEFAULT_ANNOUNCEMENT_MARKDOWN" in admin_dashboard
+    assert "renderInlineMarkdown" in markdown_preview
+    assert "renderMarkdownBlocks" in markdown_preview
+    assert "isSafeMarkdownHref" in markdown_preview
+    assert "dangerouslySetInnerHTML" not in markdown_preview
+    assert "MarkdownPreview content={announcement.content}" in workspace
+    assert ".aurora-admin-editor-toolbar button" in index_css
+    assert ".aurora-markdown-preview" in index_css
+    assert ".aurora-markdown-table-wrap" in index_css
+
+
 def test_api_interceptor_clears_user_token_for_unauthorized_and_forbidden():
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
 
