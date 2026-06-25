@@ -157,10 +157,6 @@ const getAdminUserRole = (user, providerConfig) => {
   return { label: '普通用户', className: 'bg-blue-50 text-blue-700 border-blue-100' };
 };
 
-const getAdminUserLevel = (user) => {
-  const balance = Number(user?.credit_balance || 0);
-  return balance >= 10000 ? 'Lv.6' : balance >= 5000 ? 'Lv.5' : balance >= 1000 ? 'Lv.3' : 'Lv.1';
-};
 
 const getAdminTabFromSearchParams = (searchParams) => {
   const requestedTab = searchParams.get('tab');
@@ -910,7 +906,6 @@ const AdminDashboard = () => {
   const highlightedInvite = highlightedUser ? usedInviteByUserId.get(highlightedUser.id) : null;
   const highlightedUserDetails = highlightedUser ? [
     { label: '昵称', value: highlightedUser.nickname || '-' },
-    { label: '等级', value: getAdminUserLevel(highlightedUser), isPill: true },
     { label: '注册时间', value: formatChinaDateTime(highlightedUser.created_at) },
     { label: '最近使用', value: highlightedUser.last_used ? formatChinaDateTime(highlightedUser.last_used) : '-' },
     { label: '累计用量', value: `${formatAdminNumber(highlightedUser.usage_count ?? 0)} / ${formatAdminNumber(highlightedUser.usage_limit ?? 0)}` },
