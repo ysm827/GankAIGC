@@ -868,6 +868,8 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "aurora-admin-user-role-badge" in users_section
     assert "aurora-admin-user-vip-badge" not in users_section
     assert "aurora-admin-unlimited-toggle" in users_section
+    assert "设无限" not in users_section
+    assert "设为无限" in users_section
     assert "取消无限啤酒" in users_section
     assert "设为无限啤酒" in users_section
     assert 'CircleDollarSign className="h-4 w-4"' in users_section
@@ -878,6 +880,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "white-space: nowrap" in index_css
     assert "writing-mode: horizontal-tb" in index_css
     assert ".aurora-admin-unlimited-toggle" in index_css
+    assert "width: 6.35rem" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
 

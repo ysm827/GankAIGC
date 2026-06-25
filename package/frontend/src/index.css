@@ -6173,8 +6173,8 @@ code {
 }
 
 .aurora-admin-unlimited-toggle {
-  min-width: 5.25rem;
-  width: auto;
+  min-width: 6.35rem;
+  width: 6.35rem;
   padding: 0 0.62rem;
   white-space: nowrap;
 }

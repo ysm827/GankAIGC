@@ -2274,7 +2274,7 @@ const AdminDashboard = () => {
                                   aria-label={user.is_unlimited ? '取消无限啤酒' : '设为无限啤酒'}
                                 >
                                   <CircleDollarSign className="h-4 w-4" />
-                                  <span>{user.is_unlimited ? '取消无限' : '设无限'}</span>
+                                  <span>{user.is_unlimited ? '取消无限' : '设为无限'}</span>
                                 </button>
                               </div>
                             </td>
