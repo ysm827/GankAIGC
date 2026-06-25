@@ -918,6 +918,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert ".aurora-admin-user-table" in index_css
     assert ".aurora-admin-user-filter-search" in index_css
     assert "flex: 1 1 28rem" in index_css
+    assert "margin-left: 0" in index_css
     assert "margin-left: auto" in index_css
     assert "aurora-admin-user-filter-export" in users_section
     assert ".aurora-admin-user-filter-export" in index_css
