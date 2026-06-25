@@ -797,12 +797,11 @@ def test_admin_dashboard_exposes_operations_status_tab():
     assert "aurora-ops-score-reference-ring" in operations_panel
     assert "aurora-ops-window-tabs" in operations_panel
     assert "aurora-ops-reference-chart" in operations_panel
-    assert "OpsInfoTip" in operations_panel
-    assert "healthTooltipItems" in operations_panel
-    assert "realtimeTooltipItems" in operations_panel
-    assert "查看健康状况说明" in operations_panel
-    assert "查看实时信息说明" in operations_panel
-    assert 'placement="bottom"' in operations_panel
+    assert "健康状况 <i" not in operations_panel
+    assert "实时信息 <i" not in operations_panel
+    assert "OpsInfoTip" not in operations_panel
+    assert "查看健康状况说明" not in operations_panel
+    assert "查看实时信息说明" not in operations_panel
     assert "网络入站" in operations_panel
     assert "网络出站" in operations_panel
     assert "aurora-ops-score-ring" not in operations_panel
@@ -812,9 +811,8 @@ def test_admin_dashboard_exposes_operations_status_tab():
     assert ".aurora-ops-score-reference-ring" in index_css
     assert ".aurora-ops-window-tabs" in index_css
     assert ".aurora-ops-info-title em" not in index_css
-    assert ".aurora-ops-tooltip-card" in index_css
-    assert ".aurora-ops-info-trigger" in index_css
-    assert ".aurora-ops-tooltip-wrap.is-bottom" in index_css
+    assert ".aurora-ops-tooltip-card" not in index_css
+    assert ".aurora-ops-info-trigger" not in index_css
     assert ".aurora-ops-reference-chart" in index_css
     live_grid_block = re.search(r"\.aurora-ops-live-grid\s*\{(?P<body>[^}]*)\}", index_css)
     assert live_grid_block

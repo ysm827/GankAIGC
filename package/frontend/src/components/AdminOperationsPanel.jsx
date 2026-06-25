@@ -43,24 +43,6 @@ const StatusPill = ({ ok, children }) => (
   </span>
 );
 
-const OpsInfoTip = ({ label, title, summary, items, placement = 'top' }) => (
-  <span className={`aurora-ops-tooltip-wrap is-${placement}`}>
-    <button type="button" className="aurora-ops-info-trigger" aria-label={label}>i</button>
-    <span className="aurora-ops-tooltip-card" role="tooltip">
-      <strong>{title}</strong>
-      <small>{summary}</small>
-      <span className="aurora-ops-tooltip-list">
-        {items.map((item) => (
-          <span className="aurora-ops-tooltip-row" key={item.label}>
-            <span>{item.label}</span>
-            <b>{item.value}</b>
-          </span>
-        ))}
-      </span>
-    </span>
-  </span>
-);
-
 const valueOrDash = (value, suffix = '') => (
   value === null || value === undefined || Number.isNaN(value) ? '不可用' : `${value}${suffix}`
 );
@@ -320,21 +302,6 @@ const AdminOperationsPanel = ({ adminToken }) => {
     return { label: '健康', className: 'is-ok' };
   }, [healthScore, overallOk, status]);
   const currentLatencyMs = toFiniteNumber(status?.database?.average_latency_ms);
-  const healthTooltipItems = [
-    { label: '健康分', value: `${healthScore}/100` },
-    { label: '系统', value: systemOk ? '正常' : '异常' },
-    { label: '数据库', value: databaseOk ? `${valueOrDash(status?.database?.average_latency_ms, ' ms')}` : '异常' },
-    { label: 'Worker', value: workerOk ? `${workerAvailable}/${workerCapacity} 槽位可用` : '异常' },
-    { label: '模型配置', value: modelItems.length > 0 ? `${configuredModelCount}/${modelItems.length} 正常` : '未配置' },
-  ];
-  const realtimeTooltipItems = [
-    { label: '当前延迟', value: `${formatOpsNumber(currentLatencyMs, 1)} ms` },
-    { label: '正在处理', value: `${workerProcessing} 任务` },
-    { label: '峰值延迟', value: `${formatOpsNumber(latencyPeak, 1)} ms` },
-    { label: '排队任务', value: `${status?.worker?.queued_count ?? 0} 队列` },
-    { label: '平均延迟', value: `${formatOpsNumber(latencyAverage, 1)} ms` },
-    { label: '可用槽位', value: `${workerAvailable}/${workerCapacity}` },
-  ];
 
   const metricTiles = [
     {
@@ -488,15 +455,7 @@ const AdminOperationsPanel = ({ adminToken }) => {
                   </div>
                 </div>
                 <div className="aurora-ops-health-status">
-                  <span>
-                    健康状况
-                    <OpsInfoTip
-                      label="查看健康状况说明"
-                      title="健康分计算"
-                      summary="综合系统、数据库、Worker、资源负载和模型配置生成当前健康分。"
-                      items={healthTooltipItems}
-                    />
-                  </span>
+                  <span>健康状况</span>
                   <strong>{healthState.label}</strong>
                 </div>
               </div>
@@ -505,16 +464,7 @@ const AdminOperationsPanel = ({ adminToken }) => {
 
               <div className="aurora-ops-reference-info">
                 <div className="aurora-ops-reference-info-head">
-                  <span className="aurora-ops-info-title">
-                    <b aria-hidden="true" />实时信息
-                    <OpsInfoTip
-                      label="查看实时信息说明"
-                      title="实时采样说明"
-                      summary="展示数据库延迟、任务处理量、队列和 Worker 槽位状态。"
-                      items={realtimeTooltipItems}
-                      placement="bottom"
-                    />
-                  </span>
+                  <span className="aurora-ops-info-title"><b aria-hidden="true" />实时信息</span>
                   <div className="aurora-ops-window-tabs" role="group" aria-label="数据库延迟采样窗口">
                     {OPS_LATENCY_WINDOWS.map((windowOption) => (
                       <button
