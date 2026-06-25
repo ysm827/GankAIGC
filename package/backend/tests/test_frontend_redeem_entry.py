@@ -851,6 +851,8 @@ def test_admin_user_management_polishes_layout_and_actions():
     users_section = admin_dashboard.split("accountPanelTab === 'users'", 1)[1].split("accountPanelTab === 'creditTransactions'", 1)[0]
     detail_header = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("{highlightedUser ? (", 1)[0]
 
+    assert "{accountPanelTab === 'users' && (" in admin_dashboard
+    assert admin_dashboard.index("{accountPanelTab === 'users' && (") < admin_dashboard.index("清除筛选")
     assert "aurora-admin-users-filters" in users_section
     assert "aurora-admin-user-filter-strip" in users_section
     assert "aurora-admin-user-scope-tabs" not in users_section

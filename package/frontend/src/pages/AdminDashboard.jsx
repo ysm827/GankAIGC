@@ -1754,18 +1754,20 @@ const AdminDashboard = () => {
                 <p>检索、筛选并管理用户资产、角色状态和最近活动。</p>
               </div>
               <div className="aurora-admin-user-head-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserStatusFilter('all');
-                    setUserApiFilter('all');
-                    setUserSearchTerm('');
-                  }}
-                  className="aurora-admin-subtle-button"
-                >
-                  <Filter className="h-4 w-4" />
-                  清除筛选
-                </button>
+                {accountPanelTab === 'users' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserStatusFilter('all');
+                      setUserApiFilter('all');
+                      setUserSearchTerm('');
+                    }}
+                    className="aurora-admin-subtle-button"
+                  >
+                    <Filter className="h-4 w-4" />
+                    清除筛选
+                  </button>
+                )}
                 <button
                   onClick={fetchAccountData}
                   disabled={loadingAccountData}
