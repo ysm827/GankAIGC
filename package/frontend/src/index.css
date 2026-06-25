@@ -4447,8 +4447,12 @@ code {
 
 .aurora-admin-users-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   gap: 1rem;
+}
+
+.aurora-admin-users-layout > .aurora-admin-card {
+  min-width: 0;
 }
 .aurora-admin-users-toolbar,
 .aurora-admin-list-head,
@@ -6056,7 +6060,6 @@ code {
   padding: 1.25rem 1.25rem 0.85rem;
 }
 
-.aurora-admin-user-scope-tabs,
 .aurora-admin-user-filter-strip {
   display: inline-flex;
   align-items: center;
@@ -6066,7 +6069,6 @@ code {
   overflow: hidden;
 }
 
-.aurora-admin-user-scope-tabs button,
 .aurora-admin-user-filter-strip button {
   min-height: 42px;
   border-left: 1px solid #edf2f7;
@@ -6076,12 +6078,10 @@ code {
   font-weight: 760;
 }
 
-.aurora-admin-user-scope-tabs button:first-child,
 .aurora-admin-user-filter-strip button:first-of-type {
   border-left: 0;
 }
 
-.aurora-admin-user-scope-tabs button.is-active,
 .aurora-admin-user-filter-strip button.is-active {
   background: #eaf3ff;
   color: #0b6ff6;
@@ -6127,6 +6127,11 @@ code {
   font-weight: 650;
 }
 
+.aurora-admin-user-table {
+  width: 100%;
+  table-layout: auto;
+}
+
 .aurora-admin-user-table tbody tr {
   height: 58px;
 }
@@ -6167,6 +6172,20 @@ code {
   color: #fff;
 }
 
+.aurora-admin-unlimited-toggle {
+  min-width: 5.25rem;
+  width: auto;
+  padding: 0 0.62rem;
+  white-space: nowrap;
+}
+
+.aurora-admin-unlimited-toggle.is-active {
+  border-color: #bfdbfe;
+  background: #eaf3ff;
+  color: #0b6ff6;
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.58);
+}
+
 .aurora-admin-row-credit-input {
   width: 4.4rem;
   height: 34px !important;
@@ -6187,16 +6206,27 @@ code {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  min-width: 0;
 }
 
-.aurora-admin-user-vip-badge {
-  border: 1px solid #fed7aa;
+.aurora-admin-user-profile-title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.aurora-admin-user-role-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
   border-radius: 999px;
-  background: #fff7ed;
-  color: #c2410c;
-  padding: 0.16rem 0.5rem;
+  padding: 0.18rem 0.55rem;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 .aurora-admin-user-info-list em {

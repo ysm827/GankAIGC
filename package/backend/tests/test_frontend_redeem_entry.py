@@ -845,6 +845,39 @@ def test_admin_dashboard_exposes_user_management_ban_controls():
     assert "ID #${user.id}" in admin_dashboard
 
 
+def test_admin_user_management_polishes_layout_and_actions():
+    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+    users_section = admin_dashboard.split("accountPanelTab === 'users'", 1)[1].split("accountPanelTab === 'creditTransactions'", 1)[0]
+    detail_header = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("{highlightedUser ? (", 1)[0]
+
+    assert "aurora-admin-users-filters" in users_section
+    assert "aurora-admin-user-filter-strip" in users_section
+    assert "aurora-admin-user-scope-tabs" not in users_section
+    assert "近7天" not in users_section
+    assert "['vip', 'VIP']" not in users_section
+    assert "['blocked', '异常']" not in users_section
+
+    assert "aurora-admin-icon-button" not in detail_header
+    assert "MoreHorizontal" not in detail_header
+
+    assert "w-full min-w-[1180px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
+    assert "aurora-admin-user-role-badge" in users_section
+    assert "aurora-admin-user-vip-badge" not in users_section
+    assert "aurora-admin-unlimited-toggle" in users_section
+    assert "取消无限啤酒" in users_section
+    assert "设为无限啤酒" in users_section
+    assert 'CircleDollarSign className="h-4 w-4"' in users_section
+    assert "<MoreHorizontal" not in users_section
+
+    assert ".aurora-admin-user-table" in index_css
+    assert ".aurora-admin-user-role-badge" in index_css
+    assert "white-space: nowrap" in index_css
+    assert "writing-mode: horizontal-tb" in index_css
+    assert ".aurora-admin-unlimited-toggle" in index_css
+    assert ".aurora-admin-user-scope-tabs" not in index_css
+
+
 def test_api_interceptor_clears_user_token_for_unauthorized_and_forbidden():
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
 

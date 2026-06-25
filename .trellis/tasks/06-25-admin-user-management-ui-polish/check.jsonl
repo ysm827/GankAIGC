@@ -1,0 +1,3 @@
+{"file":"package/backend/tests/test_frontend_redeem_entry.py","reason":"Static frontend regression tests"}
+{"file":"package/frontend/src/pages/AdminDashboard.jsx","reason":"Admin user-management UI implementation"}
+{"file":"package/frontend/src/index.css","reason":"Admin user-management layout styles"}

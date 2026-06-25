@@ -21,7 +21,6 @@ import {
   Clock,
   FileText,
   MessageSquare,
-  MoreHorizontal,
   Filter,
   Eye,
   Edit2,
@@ -893,6 +892,7 @@ const AdminDashboard = () => {
   const blockedUserCount = users.length - activeUserCount;
   const highlightedUser = filteredUsers.find((user) => user.id === selectedAccountUserId) || filteredUsers[0] || users[0] || null;
   const highlightedProviderConfig = highlightedUser ? providerConfigByUserId.get(highlightedUser.id) : null;
+  const highlightedRole = highlightedUser ? getAdminUserRole(highlightedUser, highlightedProviderConfig) : null;
   const highlightedInvite = highlightedUser ? usedInviteByUserId.get(highlightedUser.id) : null;
 
   const toggleInviteSelection = (inviteId) => {
@@ -2135,7 +2135,7 @@ const AdminDashboard = () => {
                 <div className="aurora-admin-card overflow-hidden">
                   <div className="aurora-admin-users-toolbar">
                     <div className="aurora-admin-users-filters">
-                      <label className="relative flex-1 lg:max-w-xs">
+                      <label className="relative flex-1 min-w-[16rem] lg:max-w-md">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <input
                           type="search"
@@ -2145,40 +2145,6 @@ const AdminDashboard = () => {
                           className="aurora-admin-input h-11 w-full pl-9 pr-3 text-sm"
                         />
                       </label>
-                      <div className="aurora-admin-user-scope-tabs" role="group" aria-label="用户范围">
-                        {[
-                          ['all', '全部'],
-                          ['recent', '近7天'],
-                          ['vip', 'VIP'],
-                          ['blocked', '异常'],
-                        ].map(([value, label]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => {
-                              if (value === 'blocked') {
-                                setUserStatusFilter('blocked');
-                                setUserApiFilter('all');
-                              } else if (value === 'vip') {
-                                setUserStatusFilter('all');
-                                setUserApiFilter('configured');
-                              } else {
-                                setUserStatusFilter('all');
-                                setUserApiFilter('all');
-                              }
-                            }}
-                            className={
-                              (value === 'all' && userStatusFilter === 'all' && userApiFilter === 'all')
-                              || (value === 'blocked' && userStatusFilter === 'blocked')
-                              || (value === 'vip' && userApiFilter === 'configured')
-                                ? 'is-active'
-                                : ''
-                            }
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                     <div className="aurora-admin-user-filter-strip">
                       <span>角色：</span>
@@ -2200,7 +2166,7 @@ const AdminDashboard = () => {
                   </div>
 
                   <div className={ADMIN_TABLE_SCROLL_CLASS}>
-                    <table className="min-w-[980px] divide-y divide-gray-200 aurora-admin-user-table">
+                    <table className="w-full min-w-[1180px] divide-y divide-gray-200 aurora-admin-user-table">
                       <thead className={ADMIN_TABLE_HEAD_CLASS}>
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
@@ -2301,10 +2267,12 @@ const AdminDashboard = () => {
                                     event.stopPropagation();
                                     handleToggleUnlimited(user);
                                   }}
-                                  className="aurora-admin-icon-mini"
+                                  className={`aurora-admin-icon-mini aurora-admin-unlimited-toggle ${user.is_unlimited ? 'is-active' : ''}`}
                                   title={user.is_unlimited ? '取消无限' : '设为无限'}
+                                  aria-label={user.is_unlimited ? '取消无限啤酒' : '设为无限啤酒'}
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
+                                  <CircleDollarSign className="h-4 w-4" />
+                                  <span>{user.is_unlimited ? '取消无限' : '设无限'}</span>
                                 </button>
                               </div>
                             </td>
@@ -2318,14 +2286,6 @@ const AdminDashboard = () => {
                 <aside className="aurora-admin-user-detail-panel">
                   <div className="flex items-center justify-between">
                     <h3>用户详情</h3>
-                    <button
-                      type="button"
-                      onClick={() => highlightedUser && copyToClipboard(`UID: ${highlightedUser.id}\\n用户名: ${highlightedUser.username || '-'}\\n状态: ${highlightedUser.is_active ? '正常' : '封禁'}`)}
-                      className="aurora-admin-icon-button"
-                      aria-label="复制用户摘要"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
                   </div>
                   {highlightedUser ? (
                     <>
@@ -2336,7 +2296,9 @@ const AdminDashboard = () => {
                         <div>
                           <div className="aurora-admin-user-profile-title">
                             <strong>{highlightedUser.username || '未绑定账号'}</strong>
-                            <span className="aurora-admin-user-vip-badge">{getAdminUserRole(highlightedUser, highlightedProviderConfig).label}</span>
+                            <span className={`aurora-admin-user-role-badge ${highlightedRole?.className || ''}`}>
+                              {highlightedRole?.label}
+                            </span>
                           </div>
                           <p>UID: {highlightedUser.id}</p>
                           <p>{highlightedUser.nickname || `${highlightedUser.username || 'user'}@example.com`}</p>
@@ -2359,7 +2321,7 @@ const AdminDashboard = () => {
                       </div>
                       <div className="aurora-admin-user-info-list">
                         <div><span>等级</span><strong><em>{getAdminUserLevel(highlightedUser)}</em></strong></div>
-                        <div><span>角色</span><strong><em>{getAdminUserRole(highlightedUser, highlightedProviderConfig).label}</em></strong></div>
+                        <div><span>角色</span><strong><em>{highlightedRole?.label}</em></strong></div>
                         <div><span>状态</span><strong className={highlightedUser.is_active ? 'text-emerald-600' : 'text-red-600'}>● {highlightedUser.is_active ? '正常' : '封禁'}</strong></div>
                         <div><span>注册时间</span><strong>{formatChinaDateTime(highlightedUser.created_at)}</strong></div>
                         <div><span>最近登录</span><strong>{highlightedUser.last_login_at ? formatChinaDateTime(highlightedUser.last_login_at) : '-'}</strong></div>
