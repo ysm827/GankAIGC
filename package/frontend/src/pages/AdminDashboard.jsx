@@ -686,18 +686,6 @@ const AdminDashboard = () => {
     fetchUpdateStatus();
   };
 
-  const focusAdminSearch = () => {
-    const searchInput = document.querySelector(
-      '.aurora-admin-topbar-search input, .aurora-admin-main input[type="search"], .aurora-admin-main input[placeholder*="搜索"]'
-    );
-    if (searchInput) {
-      searchInput.focus();
-      searchInput.select?.();
-      return;
-    }
-    toast('当前页面暂无搜索框');
-  };
-
   const openGithubIssues = () => {
     window.open('https://github.com/mumu-0922/GankAIGC/issues', '_blank', 'noopener,noreferrer');
   };
@@ -1180,15 +1168,6 @@ const AdminDashboard = () => {
     });
   };
 
-  const startNewAnnouncementDraft = () => {
-    setAnnouncementTitle('');
-    setAnnouncementContent('');
-    resetAnnouncementContentHistory('');
-    setAnnouncementCategory('notice');
-    setAnnouncementIsActive(true);
-    toast('已清空公告编辑区');
-  };
-
   const editAnnouncementDraft = (announcement) => {
     setAnnouncementTitle(announcement.title || '');
     setAnnouncementContent(announcement.content || '');
@@ -1592,11 +1571,6 @@ const AdminDashboard = () => {
               </label>
             )}
             <div className="flex items-center gap-2 sm:gap-3">
-              {['announcements', 'database', 'audit'].includes(activeTab) && (
-                <button type="button" onClick={focusAdminSearch} className="aurora-admin-icon-button" aria-label="搜索当前页面">
-                  <Search className="h-5 w-5" />
-                </button>
-              )}
               <button
                 type="button"
                 onClick={openGithubIssues}
@@ -2525,10 +2499,8 @@ const AdminDashboard = () => {
               <div className="aurora-admin-card aurora-admin-editor-card">
                 <div className="aurora-admin-editor-head">
                   <div>
-                    <span>编辑公告</span>
                     <strong>公告内容</strong>
                   </div>
-                  <span className="text-xs font-semibold text-slate-400">支持 Markdown</span>
                 </div>
 
                 <form onSubmit={handleCreateAnnouncement} className="space-y-4">
@@ -2570,7 +2542,7 @@ const AdminDashboard = () => {
                     </label>
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">内容（支持 Markdown）</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">内容</label>
                     <div className="aurora-admin-editor-toolbar">
                       {ANNOUNCEMENT_MARKDOWN_TOOLS.map((tool) => (
                         <button
@@ -2638,7 +2610,6 @@ const AdminDashboard = () => {
               <div className="aurora-admin-card aurora-admin-preview-card">
                 <div className="aurora-admin-editor-head">
                   <div>
-                    <span>预览效果</span>
                     <strong>{announcementTitle || 'GankAIGC 平台功能更新说明'}</strong>
                   </div>
                 </div>
@@ -2659,7 +2630,6 @@ const AdminDashboard = () => {
               <div className="aurora-admin-list-head">
                 <div>
                   <h3>公告列表</h3>
-                  <p>管理已发布、隐藏和草稿公告</p>
                 </div>
                 <div className="aurora-admin-list-actions">
                   <button
@@ -2671,10 +2641,6 @@ const AdminDashboard = () => {
                     title="刷新公告列表"
                   >
                     <RefreshCw className={`h-4 w-4 ${loadingAnnouncements ? 'animate-spin' : ''}`} />
-                  </button>
-                  <button type="button" onClick={startNewAnnouncementDraft} className="aurora-admin-action bg-blue-600">
-                    <Plus className="h-4 w-4" />
-                    新建公告
                   </button>
                 </div>
               </div>
@@ -2732,7 +2698,6 @@ const AdminDashboard = () => {
               {announcements.length > 0 && (
                 <div className="aurora-database-pagination">
                   <span>共 {announcements.length} 条</span>
-                  <div><span>当前显示全部公告</span></div>
                 </div>
               )}
             </div>

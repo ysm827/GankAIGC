@@ -680,6 +680,8 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert "openGithubIssues" in admin_dashboard
     assert "打开 GitHub Issues" in admin_dashboard
     assert '<Github className="h-5 w-5" />' in admin_dashboard
+    assert "focusAdminSearch" not in admin_dashboard
+    assert "搜索当前页面" not in admin_dashboard
     assert "openAdminHelp" not in admin_dashboard
     assert "打开帮助与反馈" not in admin_dashboard
     assert "topbarAdminLabel" not in admin_dashboard
@@ -962,6 +964,12 @@ def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh
     assert 'aria-label="刷新公告"' in announcements_section
     assert "aurora-admin-list-actions" in announcements_section
     assert "<RefreshCw" in announcements_section
+    assert "新建公告" not in announcements_section
+    assert "startNewAnnouncementDraft" not in admin_dashboard
+    assert "编辑公告" not in announcements_section
+    assert "预览效果" not in announcements_section
+    assert "管理已发布、隐藏和草稿公告" not in announcements_section
+    assert "当前显示全部公告" not in announcements_section
     assert "aurora-admin-secondary-action" not in announcements_section
     assert ".aurora-admin-list-actions" in index_css
 
