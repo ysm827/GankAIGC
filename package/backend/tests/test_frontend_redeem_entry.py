@@ -917,7 +917,8 @@ def test_admin_user_management_polishes_layout_and_actions():
 
     assert ".aurora-admin-user-table" in index_css
     assert ".aurora-admin-user-filter-search" in index_css
-    assert "width: min(23rem, 28vw)" in index_css
+    assert "flex: 1 1 28rem" in index_css
+    assert "margin-left: auto" in index_css
     assert "aurora-admin-user-filter-export" in users_section
     assert ".aurora-admin-user-filter-export" in index_css
     assert "新增用户" not in users_section
@@ -928,6 +929,7 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "width: 6.35rem" in index_css
     assert ".aurora-admin-account-tabs-row" in index_css
     assert ".aurora-admin-status-toggle.is-danger" in index_css
+    assert "width: 42px" in index_css
     assert "grid-template-columns: minmax(0, 1fr)" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
