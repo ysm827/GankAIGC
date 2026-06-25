@@ -832,6 +832,7 @@ def test_admin_dashboard_exposes_operations_status_tab():
 
 def test_admin_dashboard_exposes_user_management_ban_controls():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+    users_section = admin_dashboard.split("accountPanelTab === 'users'", 1)[1].split("accountPanelTab === 'creditTransactions'", 1)[0]
 
     assert "用户管理" in admin_dashboard
     assert "账号啤酒" not in admin_dashboard
@@ -843,16 +844,30 @@ def test_admin_dashboard_exposes_user_management_ban_controls():
     assert "window.confirm" in admin_dashboard
     assert "确认封禁用户" in admin_dashboard
     assert "ID #${user.id}" in admin_dashboard
+    assert "Ban," in admin_dashboard
+    assert "UserCheck" in admin_dashboard
+    assert "aurora-admin-status-toggle" in users_section
+    assert "is-danger" in users_section
+    assert "is-restore" in users_section
+    assert "aria-label={user.is_active ? '封禁用户' : '启用用户'}" in users_section
+    assert '{user.is_active ? <Ban className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}' in users_section
 
 
 def test_admin_user_management_polishes_layout_and_actions():
     admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
     index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+    accounts_section = admin_dashboard.split("{activeTab === 'accounts' && (", 1)[1].split("{activeTab === 'announcements' && (", 1)[0]
     users_section = admin_dashboard.split("accountPanelTab === 'users'", 1)[1].split("accountPanelTab === 'creditTransactions'", 1)[0]
+    detail_panel = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("</aside>", 1)[0]
     detail_header = users_section.split('<aside className="aurora-admin-user-detail-panel">', 1)[1].split("{highlightedUser ? (", 1)[0]
 
     assert "{accountPanelTab === 'users' && (" in admin_dashboard
-    assert admin_dashboard.index("{accountPanelTab === 'users' && (") < admin_dashboard.index("清除筛选")
+    assert "<h2>用户管理</h2>" not in accounts_section
+    assert "检索、筛选并管理用户资产、角色状态和最近活动。" not in accounts_section
+    assert "aurora-admin-account-tabs-row" in accounts_section
+    assert "aurora-admin-account-tab-list" in accounts_section
+    assert accounts_section.index("aurora-admin-account-utility-tabs") < accounts_section.index("清除筛选")
+    assert accounts_section.index("aurora-admin-account-tab-list") < accounts_section.index("aurora-admin-user-head-actions")
     assert "aurora-admin-tab-button-active bg-indigo-600 text-white shadow-sm" not in admin_dashboard
     assert "aurora-admin-users-filters" not in users_section
     assert "aurora-admin-user-filter-strip" in users_section
@@ -865,6 +880,20 @@ def test_admin_user_management_polishes_layout_and_actions():
 
     assert "aurora-admin-icon-button" not in detail_header
     assert "MoreHorizontal" not in detail_header
+    assert "aurora-admin-user-detail-only-list" in detail_panel
+    assert "aurora-admin-user-profile-card" not in detail_panel
+    assert "aurora-admin-user-assets" not in detail_panel
+    assert "aurora-admin-user-actions" not in detail_panel
+    assert "调整资产" not in detail_panel
+    assert "封禁用户" not in detail_panel
+    assert "启用用户" not in detail_panel
+    assert "啤酒余额" not in detail_panel
+    assert "最近登录" not in detail_panel
+    assert "登录 IP" not in detail_panel
+    assert "设备" not in detail_panel
+    assert "累计用量" in admin_dashboard
+    assert "邀请码" in admin_dashboard
+    assert "模型配置" in admin_dashboard
 
     assert "w-full min-w-[1180px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
     assert "aurora-admin-user-role-badge" in users_section
@@ -891,8 +920,25 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "writing-mode: horizontal-tb" in index_css
     assert ".aurora-admin-unlimited-toggle" in index_css
     assert "width: 6.35rem" in index_css
-    assert ".aurora-admin-user-assets { display:grid; grid-template-columns: 1fr;" in index_css
+    assert ".aurora-admin-account-tabs-row" in index_css
+    assert ".aurora-admin-status-toggle.is-danger" in index_css
+    assert ".aurora-admin-user-detail-only-list" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
+
+
+def test_admin_announcement_page_removes_redundant_header_and_keeps_icon_refresh():
+    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+    announcements_section = admin_dashboard.split("{activeTab === 'announcements' && (", 1)[1].split("{activeTab === 'database' && (", 1)[0]
+
+    assert "aurora-admin-breadcrumb" not in announcements_section
+    assert "<h2>公告</h2>" not in announcements_section
+    assert "创建、管理和发布平台公告" not in announcements_section
+    assert 'aria-label="刷新公告"' in announcements_section
+    assert "aurora-admin-list-actions" in announcements_section
+    assert "<RefreshCw" in announcements_section
+    assert "aurora-admin-secondary-action" not in announcements_section
+    assert ".aurora-admin-list-actions" in index_css
 
 
 def test_api_interceptor_clears_user_token_for_unauthorized_and_forbidden():

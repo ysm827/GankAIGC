@@ -4473,6 +4473,12 @@ code {
 .aurora-admin-users-stats span { display: block; font-size: 12px; font-weight: 760; color: #64748b; }
 .aurora-admin-users-stats strong { display: block; margin-top: .15rem; color: #0f172a; font-size: 1.25rem; font-weight: 840; }
 .aurora-admin-users-filters { display: flex; flex: 1; justify-content: flex-end; gap: .75rem; align-items: center; }
+.aurora-admin-list-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
 
 .aurora-admin-user-detail-panel,
 .aurora-admin-audit-detail {
@@ -4499,6 +4505,7 @@ code {
 .aurora-admin-user-assets strong { display:block; margin-top:.45rem; color:var(--admin-blue); font-size:1.45rem; font-weight:840; }
 .aurora-admin-user-assets i { display:block; margin-top:.8rem; width:68%; height:4px; border-radius:999px; background:var(--admin-blue); }
 .aurora-admin-user-info-list { margin-top: 1rem; }
+.aurora-admin-user-detail-only-list { margin-top: 1.25rem; }
 .aurora-admin-user-info-list div { display:flex; justify-content:space-between; gap:1rem; padding:.75rem 0; border-bottom:1px solid #edf2f7; font-size:13px; }
 .aurora-admin-user-info-list span { color:#64748b; }
 .aurora-admin-user-info-list strong { color:#334155; text-align:right; }
@@ -5212,6 +5219,16 @@ code {
   .aurora-config-status-card { flex-direction:column; align-items:stretch; }
   .aurora-admin-users-filters,
   .aurora-database-record-actions { flex-direction:column; align-items:stretch; }
+  .aurora-admin-account-tabs-row {
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+  }
+  .aurora-admin-account-tab-list,
+  .aurora-admin-user-head-actions,
+  .aurora-admin-list-actions {
+    flex-wrap: wrap;
+  }
   .aurora-admin-users-stats,
   .aurora-ops-health-grid,
   .aurora-ops-metric-grid,
@@ -6042,15 +6059,26 @@ code {
 }
 
 .aurora-admin-account-utility-tabs {
-  max-width: max-content;
-  margin-top: -0.5rem;
-  opacity: 0.72;
-  transform: scale(0.96);
-  transform-origin: left center;
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+  opacity: 1;
+  overflow-x: auto;
+  transform: none;
 }
 
-.aurora-admin-account-utility-tabs:hover {
-  opacity: 1;
+.aurora-admin-account-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: max-content;
+}
+
+.aurora-admin-account-tab-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .aurora-admin-accounts-page .aurora-admin-users-toolbar {
@@ -6175,6 +6203,30 @@ code {
   color: #fff;
 }
 
+.aurora-admin-status-toggle.is-danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #dc2626;
+}
+
+.aurora-admin-status-toggle.is-danger:hover {
+  border-color: #fca5a5;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.aurora-admin-status-toggle.is-restore {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.aurora-admin-status-toggle.is-restore:hover {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #15803d;
+}
+
 .aurora-admin-unlimited-toggle {
   min-width: 6.35rem;
   width: 6.35rem;
@@ -6200,7 +6252,7 @@ code {
 .aurora-admin-user-detail-panel {
   position: sticky;
   top: 92px;
-  min-height: calc(100dvh - 116px);
+  min-height: auto;
   border-radius: 22px;
   padding: 1.35rem;
 }

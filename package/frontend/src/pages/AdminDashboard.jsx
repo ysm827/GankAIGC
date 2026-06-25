@@ -23,6 +23,7 @@ import {
   MessageSquare,
   Filter,
   Eye,
+  Ban,
   Edit2,
   PanelLeftClose,
   Send,
@@ -38,7 +39,8 @@ import {
   Save,
   Trash2,
   X,
-  DownloadCloud
+  DownloadCloud,
+  UserCheck
 } from 'lucide-react';
 import ConfigManager from '../components/ConfigManager';
 import SessionMonitor from '../components/SessionMonitor';
@@ -144,11 +146,6 @@ const getAdminUserRole = (user, providerConfig) => {
 const getAdminUserLevel = (user) => {
   const balance = Number(user?.credit_balance || 0);
   return balance >= 10000 ? 'Lv.6' : balance >= 5000 ? 'Lv.5' : balance >= 1000 ? 'Lv.3' : 'Lv.1';
-};
-
-const getAdminUserMockIp = (user) => {
-  const id = Number(user?.id || 1);
-  return `114.239.${(28 + id) % 255}.${(112 + id) % 255}`;
 };
 
 const getAdminTabFromSearchParams = (searchParams) => {
@@ -892,8 +889,16 @@ const AdminDashboard = () => {
   const blockedUserCount = users.length - activeUserCount;
   const highlightedUser = filteredUsers.find((user) => user.id === selectedAccountUserId) || filteredUsers[0] || users[0] || null;
   const highlightedProviderConfig = highlightedUser ? providerConfigByUserId.get(highlightedUser.id) : null;
-  const highlightedRole = highlightedUser ? getAdminUserRole(highlightedUser, highlightedProviderConfig) : null;
   const highlightedInvite = highlightedUser ? usedInviteByUserId.get(highlightedUser.id) : null;
+  const highlightedUserDetails = highlightedUser ? [
+    { label: '昵称', value: highlightedUser.nickname || '-' },
+    { label: '等级', value: getAdminUserLevel(highlightedUser), isPill: true },
+    { label: '注册时间', value: formatChinaDateTime(highlightedUser.created_at) },
+    { label: '最近使用', value: highlightedUser.last_used ? formatChinaDateTime(highlightedUser.last_used) : '-' },
+    { label: '累计用量', value: `${formatAdminNumber(highlightedUser.usage_count ?? 0)} / ${formatAdminNumber(highlightedUser.usage_limit ?? 0)}` },
+    { label: '邀请码', value: highlightedInvite?.code || '-' },
+    { label: '模型配置', value: highlightedProviderConfig ? '已配置' : '未配置', isPill: Boolean(highlightedProviderConfig) },
+  ] : [];
 
   const toggleInviteSelection = (inviteId) => {
     setSelectedInviteIds((current) => (
@@ -1748,53 +1753,48 @@ const AdminDashboard = () => {
         {/* Account and Beer Tab */}
         {activeTab === 'accounts' && (
           <div className="aurora-admin-section aurora-admin-accounts-page space-y-6">
-            <div className="aurora-admin-section-head">
-              <div>
-                <h2>用户管理</h2>
-                <p>检索、筛选并管理用户资产、角色状态和最近活动。</p>
-              </div>
-              <div className="aurora-admin-user-head-actions">
-                {accountPanelTab === 'users' && (
+            <div className="aurora-admin-card aurora-admin-account-utility-tabs p-1">
+              <div className="aurora-admin-account-tabs-row">
+                <div className="aurora-admin-account-tab-list">
+                  {ACCOUNT_PANEL_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAccountPanelTab(tab.id)}
+                      className={`aurora-admin-tab-button rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                        accountPanelTab === tab.id
+                          ? 'aurora-admin-tab-button-active'
+                          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="aurora-admin-user-head-actions">
+                  {accountPanelTab === 'users' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserStatusFilter('all');
+                        setUserApiFilter('all');
+                        setUserSearchTerm('');
+                      }}
+                      className="aurora-admin-subtle-button"
+                    >
+                      <Filter className="h-4 w-4" />
+                      清除筛选
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    onClick={() => {
-                      setUserStatusFilter('all');
-                      setUserApiFilter('all');
-                      setUserSearchTerm('');
-                    }}
-                    className="aurora-admin-subtle-button"
+                    onClick={fetchAccountData}
+                    disabled={loadingAccountData}
+                    className="aurora-admin-icon-button"
+                    aria-label="刷新用户数据"
                   >
-                    <Filter className="h-4 w-4" />
-                    清除筛选
+                    <RefreshCw className={`w-4 h-4 ${loadingAccountData ? 'animate-spin' : ''}`} />
                   </button>
-                )}
-                <button
-                  onClick={fetchAccountData}
-                  disabled={loadingAccountData}
-                  className="aurora-admin-icon-button"
-                  aria-label="刷新用户数据"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loadingAccountData ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-            </div>
-
-            <div className="aurora-admin-card aurora-admin-account-utility-tabs overflow-x-auto p-1">
-              <div className="flex min-w-max gap-1">
-                {ACCOUNT_PANEL_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setAccountPanelTab(tab.id)}
-                    className={`aurora-admin-tab-button rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                      accountPanelTab === tab.id
-                        ? 'aurora-admin-tab-button-active'
-                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                </div>
               </div>
             </div>
 
@@ -2201,7 +2201,7 @@ const AdminDashboard = () => {
                               </div>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${role.className}`}>
+                              <span className={`aurora-admin-user-role-badge ${role.className}`}>
                                 {role.label}
                               </span>
                             </td>
@@ -2230,10 +2230,11 @@ const AdminDashboard = () => {
                                     event.stopPropagation();
                                     handleToggleUserStatus(user);
                                   }}
-                                  className="aurora-admin-icon-mini"
+                                  className={`aurora-admin-icon-mini aurora-admin-status-toggle ${user.is_active ? 'is-danger' : 'is-restore'}`}
                                   title={user.is_active ? '封禁' : '启用'}
+                                  aria-label={user.is_active ? '封禁用户' : '启用用户'}
                                 >
-                                  <Edit2 className="h-4 w-4" />
+                                  {user.is_active ? <Ban className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
                                 </button>
                                 <input
                                   type="number"
@@ -2282,48 +2283,14 @@ const AdminDashboard = () => {
                     <h3>用户详情</h3>
                   </div>
                   {highlightedUser ? (
-                    <>
-                      <div className="aurora-admin-user-profile-card">
-                        <span className="aurora-admin-user-avatar is-large">
-                          {(highlightedUser.nickname || highlightedUser.username || 'U').slice(0, 1).toUpperCase()}
-                        </span>
-                        <div>
-                          <div className="aurora-admin-user-profile-title">
-                            <strong>{highlightedUser.username || '未绑定账号'}</strong>
-                            <span className={`aurora-admin-user-role-badge ${highlightedRole?.className || ''}`}>
-                              {highlightedRole?.label}
-                            </span>
-                          </div>
-                          <p>UID: {highlightedUser.id}</p>
-                          <p>{highlightedUser.nickname || `${highlightedUser.username || 'user'}@example.com`}</p>
-                          <span className={highlightedUser.is_active ? 'text-emerald-600' : 'text-red-600'}>
-                            ● {highlightedUser.is_active ? '正常' : '已封禁'}
-                          </span>
+                    <div className="aurora-admin-user-info-list aurora-admin-user-detail-only-list">
+                      {highlightedUserDetails.map((item) => (
+                        <div key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.isPill ? <em>{item.value}</em> : item.value}</strong>
                         </div>
-                      </div>
-                      <div className="aurora-admin-user-assets">
-                        <div>
-                          <span>啤酒余额</span>
-                          <strong>{highlightedUser.is_unlimited ? '∞' : formatAdminNumber(highlightedUser.credit_balance ?? 0)}</strong>
-                          <i />
-                        </div>
-                      </div>
-                      <div className="aurora-admin-user-info-list">
-                        <div><span>等级</span><strong><em>{getAdminUserLevel(highlightedUser)}</em></strong></div>
-                        <div><span>角色</span><strong><em>{highlightedRole?.label}</em></strong></div>
-                        <div><span>状态</span><strong className={highlightedUser.is_active ? 'text-emerald-600' : 'text-red-600'}>● {highlightedUser.is_active ? '正常' : '封禁'}</strong></div>
-                        <div><span>注册时间</span><strong>{formatChinaDateTime(highlightedUser.created_at)}</strong></div>
-                        <div><span>最近登录</span><strong>{highlightedUser.last_login_at ? formatChinaDateTime(highlightedUser.last_login_at) : '-'}</strong></div>
-                        <div><span>设备</span><strong>Chrome / Windows 11</strong></div>
-                        <div><span>登录 IP</span><strong>{getAdminUserMockIp(highlightedUser)}</strong></div>
-                        <div><span>备注</span><strong>{highlightedInvite?.code || '-'}</strong></div>
-                      </div>
-                      <div className="aurora-admin-user-actions">
-                        <button type="button" onClick={() => highlightedUser && copyToClipboard(`UID: ${highlightedUser.id}\n用户名: ${highlightedUser.username || '-'}\n状态: ${highlightedUser.is_active ? '正常' : '封禁'}`)}><Copy className="h-4 w-4" /> 复制摘要</button>
-                        <button type="button" onClick={() => promptAddCredits(highlightedUser)}><CircleDollarSign className="h-4 w-4" /> 调整资产</button>
-                        <button type="button" className="is-danger" onClick={() => handleToggleUserStatus(highlightedUser)}>{highlightedUser.is_active ? '封禁用户' : '启用用户'}</button>
-                      </div>
-                    </>
+                      ))}
+                    </div>
                   ) : (
                     <div className="py-12 text-center text-sm text-slate-500">暂无用户详情</div>
                   )}
@@ -2452,22 +2419,6 @@ const AdminDashboard = () => {
 
         {activeTab === 'announcements' && (
           <div className="aurora-admin-section space-y-6">
-            <div className="aurora-admin-section-head">
-              <div>
-                <div className="aurora-admin-breadcrumb">首页 <span>/</span> 公告</div>
-                <h2>公告</h2>
-                <p>创建、管理和发布平台公告，支持编辑区、预览效果和公告列表联动。</p>
-              </div>
-              <button
-                onClick={fetchAnnouncements}
-                disabled={loadingAnnouncements}
-                className="aurora-admin-secondary-action"
-              >
-                <RefreshCw className={`h-4 w-4 ${loadingAnnouncements ? 'animate-spin' : ''}`} />
-                刷新
-              </button>
-            </div>
-
             <div className="aurora-admin-announcement-composer">
               <div className="aurora-admin-card aurora-admin-editor-card">
                 <div className="aurora-admin-editor-head">
@@ -2579,10 +2530,22 @@ const AdminDashboard = () => {
                   <h3>公告列表</h3>
                   <p>管理已发布、隐藏和草稿公告</p>
                 </div>
-                <button type="button" onClick={startNewAnnouncementDraft} className="aurora-admin-action bg-blue-600">
-                  <Plus className="h-4 w-4" />
-                  新建公告
-                </button>
+                <div className="aurora-admin-list-actions">
+                  <button
+                    type="button"
+                    onClick={fetchAnnouncements}
+                    disabled={loadingAnnouncements}
+                    className="aurora-admin-icon-button"
+                    aria-label="刷新公告"
+                    title="刷新公告列表"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loadingAnnouncements ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button type="button" onClick={startNewAnnouncementDraft} className="aurora-admin-action bg-blue-600">
+                    <Plus className="h-4 w-4" />
+                    新建公告
+                  </button>
+                </div>
               </div>
               <div className="max-h-[37rem] overflow-auto">
                 {announcements.length === 0 ? (
