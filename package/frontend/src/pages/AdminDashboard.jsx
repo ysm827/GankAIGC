@@ -2286,11 +2286,10 @@ const AdminDashboard = () => {
                           className="aurora-admin-input h-11 w-full pl-9 pr-3 text-sm"
                         />
                       </label>
+                      <button type="button" onClick={downloadUsers} className="aurora-admin-user-filter-export"><Download className="h-4 w-4" /> 导出</button>
                     </div>
                     <div className="aurora-admin-users-table-actions">
                       <span>共 {filteredUsers.length || users.length} 条</span>
-                      <button type="button" onClick={downloadUsers} className="aurora-admin-subtle-button"><Download className="h-4 w-4" /> 导出</button>
-                      <button type="button" onClick={() => { setAccountPanelTab('invites'); toast.success('已切换到邀请码管理'); }} className="aurora-admin-action"><Plus className="h-4 w-4" /> 新增用户</button>
                     </div>
                   </div>
 

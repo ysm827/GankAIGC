@@ -6211,8 +6211,26 @@ code {
 
 .aurora-admin-user-filter-search {
   margin-left: auto;
-  min-width: 18rem;
-  width: min(31rem, 36vw);
+  min-width: 13.5rem;
+  width: min(23rem, 28vw);
+}
+
+.aurora-admin-user-filter-export {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-left: 1px solid #edf2f7;
+  padding: 0 1rem;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.aurora-admin-user-filter-export:hover {
+  background: #f8fafc;
+  color: #0b6ff6;
 }
 
 .aurora-admin-user-filter-strip span {
@@ -6231,7 +6249,7 @@ code {
 
 .aurora-admin-users-table-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 0.7rem;
   margin-top: 0.7rem;

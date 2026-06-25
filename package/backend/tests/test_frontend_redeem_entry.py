@@ -914,7 +914,10 @@ def test_admin_user_management_polishes_layout_and_actions():
 
     assert ".aurora-admin-user-table" in index_css
     assert ".aurora-admin-user-filter-search" in index_css
-    assert "width: min(31rem, 36vw)" in index_css
+    assert "width: min(23rem, 28vw)" in index_css
+    assert "aurora-admin-user-filter-export" in users_section
+    assert ".aurora-admin-user-filter-export" in index_css
+    assert "新增用户" not in users_section
     assert ".aurora-admin-user-role-badge" in index_css
     assert "white-space: nowrap" in index_css
     assert "writing-mode: horizontal-tb" in index_css
