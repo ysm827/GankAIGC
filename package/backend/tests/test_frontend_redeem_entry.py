@@ -601,6 +601,10 @@ def test_admin_dashboard_statistics_use_backend_range_and_real_series():
 
     assert "params: { range: dashboardDateRange }" in admin_dashboard
     assert "[isAuthenticated, dashboardDateRange]" in admin_dashboard
+    assert "aurora-admin-dashboard-head" in admin_dashboard
+    assert "aurora-admin-dashboard-toolbar aurora-admin-dashboard-toolbar-inline" in admin_dashboard
+    dashboard_head_source = admin_dashboard.split('className="aurora-admin-dashboard-grid"')[0]
+    assert "aurora-admin-dashboard-toolbar-inline" in dashboard_head_source
     assert "statistics.processing.series" in admin_dashboard or "processingStats.series" in admin_dashboard
     assert "processingStats.mode_rows" in admin_dashboard
     assert "mode.trend_percent" in admin_dashboard
@@ -657,6 +661,7 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert "服务节点" not in admin_dashboard
     assert "handleAdminTabChange('operations')" not in admin_dashboard
     assert "aurora-admin-section-head" in admin_dashboard
+    assert ".aurora-admin-dashboard-toolbar-inline" in index_css
     assert "用户管理" in admin_dashboard
     assert "公告" in admin_dashboard
     assert "操作日志" in admin_dashboard

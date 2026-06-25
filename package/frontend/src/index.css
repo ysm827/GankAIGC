@@ -4220,6 +4220,16 @@ code {
   margin-top: -0.5rem;
 }
 
+.aurora-admin-dashboard-head {
+  align-items: center;
+}
+
+.aurora-admin-dashboard-toolbar-inline {
+  align-self: center;
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
 .aurora-admin-kpi-grid,
 .aurora-session-kpi-grid {
   display: grid;

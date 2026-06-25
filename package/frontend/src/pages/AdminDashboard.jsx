@@ -1664,12 +1664,44 @@ const AdminDashboard = () => {
         {/* Tab Content */}
         {activeTab === 'dashboard' && (
           <div className="aurora-admin-section space-y-6">
-            <div className="aurora-admin-section-head">
+            <div className="aurora-admin-section-head aurora-admin-dashboard-head">
                       <div>
                         <span className="sr-only">平均输入规模</span>
                         <h1>数据面板</h1>
                       </div>
-              <span />
+              <div className="aurora-admin-dashboard-toolbar aurora-admin-dashboard-toolbar-inline">
+                <select
+                  value={dashboardDateRange}
+                  onChange={(event) => setDashboardDateRange(event.target.value)}
+                  className="aurora-admin-date-range"
+                  aria-label="选择统计时间范围"
+                >
+                  <option value="7d">最近 7 天</option>
+                  <option value="today">今日数据</option>
+                  <option value="30d">近 30 天</option>
+                </select>
+                <button
+                  onClick={fetchStatistics}
+                  disabled={loadingStats}
+                  className="aurora-admin-icon-button"
+                  aria-label="刷新数据"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingStats ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => createTextDownload(
+                    JSON.stringify(statistics, null, 2),
+                    `gankaigc-admin-statistics-${dashboardDateRange}.json`,
+                    'application/json;charset=utf-8'
+                  )}
+                  className="aurora-admin-icon-button"
+                  aria-label="下载统计数据"
+                  disabled={!statistics}
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             {loadingStats && !statistics && (
@@ -1682,38 +1714,6 @@ const AdminDashboard = () => {
             {/* Statistics Cards */}
             {statistics && (
               <div className="aurora-admin-dashboard-grid">
-                <div className="aurora-admin-dashboard-toolbar">
-                  <select
-                    value={dashboardDateRange}
-                    onChange={(event) => setDashboardDateRange(event.target.value)}
-                    className="aurora-admin-date-range"
-                    aria-label="选择统计时间范围"
-                  >
-                    <option value="7d">最近 7 天</option>
-                    <option value="today">今日数据</option>
-                    <option value="30d">近 30 天</option>
-                  </select>
-                  <button
-                    onClick={fetchStatistics}
-                    disabled={loadingStats}
-                    className="aurora-admin-icon-button"
-                    aria-label="刷新数据"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${loadingStats ? 'animate-spin' : ''}`} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => createTextDownload(
-                      JSON.stringify(statistics, null, 2),
-                      `gankaigc-admin-statistics-${dashboardDateRange}.json`,
-                      'application/json;charset=utf-8'
-                    )}
-                    className="aurora-admin-icon-button"
-                    aria-label="下载统计数据"
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-                </div>
 
                 <div className="aurora-admin-kpi-grid">
                   <AdminMetricCard
