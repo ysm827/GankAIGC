@@ -2332,12 +2332,9 @@ const AdminDashboard = () => {
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">
                                 {(user.zhuque_free_uses_remaining ?? -1) >= 0 ? (
-                                  <>
-                                    {formatAdminNumber(user.zhuque_free_uses_remaining)}
-                                    <span className="text-xs font-medium text-slate-400">次</span>
-                                  </>
+                                  formatAdminNumber(user.zhuque_free_uses_remaining)
                                 ) : (
-                                  <span className="text-sm font-semibold text-slate-500">--次</span>
+                                  <span className="text-sm font-semibold text-slate-500">--</span>
                                 )}
                               </div>
                             </td>

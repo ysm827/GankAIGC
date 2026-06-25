@@ -1,4 +1,4 @@
-import{c}from"./BrandLogo-JjO-afLy.js";
+import{c}from"./BrandLogo-z4ybPqgl.js";
 /**
  * @license lucide-react v0.298.0 - ISC
  *
