@@ -148,3 +148,36 @@ Replaced fabricated admin session monitor KPIs, queue fallback, throughput chart
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Polish admin user management UI
+
+**Date**: 2026-06-25
+**Task**: Polish admin user management UI
+**Branch**: `main`
+
+### Summary
+
+Fixed admin user-management layout polish: removed duplicate quick filters and inert detail ellipsis, widened the user table, normalized role badges, replaced the unlimited ellipsis action with an explicit control, added static regression coverage, rebuilt and synced package/static.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `df1cadc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
