@@ -334,7 +334,6 @@ const SessionMonitor = ({ adminToken }) => {
       <div className="aurora-admin-section-head">
         <div>
           <h2>会话监控</h2>
-          <p>实时分析在线会话、活动队列、吞吐变化和最近任务时间线。</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="aurora-admin-card flex rounded-lg p-1 aurora-session-view-toggle">

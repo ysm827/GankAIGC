@@ -268,7 +268,6 @@ const ConfigManager = ({ adminToken }) => {
       <div className="aurora-admin-section-head">
         <div>
           <h2>系统配置</h2>
-          <p>配置模型中转站、安全策略、配额限制、朱雀检测状态和系统功能开关；保存后立即生效。</p>
         </div>
       </div>
 

@@ -181,7 +181,6 @@ const DatabaseManager = ({ adminToken }) => {
               当前为只读模式，禁止直接修改数据
             </span>
           </div>
-          <p>查看允许访问的数据表，敏感字段由后端脱敏；优先保持只读安全。</p>
         </div>
         <div className="flex items-center gap-3">
           {canWrite ? (

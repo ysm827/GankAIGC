@@ -408,12 +408,11 @@ const AdminOperationsPanel = ({ adminToken }) => {
   }
 
   return (
-    <div className="aurora-admin-section space-y-6 aurora-ops-console" data-admin-operations-panel="true">
+    <div className="aurora-admin-section space-y-6 aurora-ops-console" data-admin-operations-panel="true" data-ops-layout-reference="Sub2API">
       <div className="aurora-admin-card aurora-ops-board-shell">
         <div className="aurora-admin-section-head aurora-ops-header">
           <div>
             <h2>运维监控</h2>
-            <p>参考 Sub2API 的实时监控编排，但所有数值只取本机与后台接口真实采集结果。</p>
           </div>
           <div className="aurora-ops-header-actions">
             <StatusPill ok={overallOk}>{overallOk ? '实时在线' : '部分异常'}</StatusPill>

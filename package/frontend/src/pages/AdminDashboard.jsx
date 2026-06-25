@@ -1685,7 +1685,6 @@ const AdminDashboard = () => {
                       <div>
                         <span className="sr-only">平均输入规模</span>
                         <h1>数据面板</h1>
-                        <p>系统运行总览与数据统计，统一观察用户、会话和降 AI 处理吞吐。</p>
                       </div>
               <span />
             </div>
@@ -2776,7 +2775,6 @@ const AdminDashboard = () => {
             <div className="aurora-admin-section-head">
               <div>
                 <h2>操作日志</h2>
-                <p>记录系统内所有管理员操作与重要事件，支持查询与审计追踪。</p>
               </div>
               <button
                 onClick={fetchAuditLogs}
