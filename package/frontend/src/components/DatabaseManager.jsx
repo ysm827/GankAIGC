@@ -1,7 +1,172 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
-import { Database, Table as TableIcon, RefreshCw, Search, X, ShieldCheck, Filter, Eye } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Database, Table as TableIcon, RefreshCw, Search, X, ShieldCheck, Filter, Eye } from 'lucide-react';
+
+
+const TABLE_METADATA = {
+  users: { label: '用户账号', purpose: '排查登录、封禁、啤酒余额、VIP/无限状态和朱雀次数。' },
+  optimization_sessions: { label: '任务记录', purpose: '排查任务排队、处理中、失败原因、扣费状态和处理模式。' },
+  optimization_segments: { label: '段落明细', purpose: '排查单段失败、朱雀检测率、降 AI 尝试次数和段落输出。' },
+  credit_transactions: { label: '啤酒流水', purpose: '排查啤酒充值、扣费、退款、兑换后余额变化。' },
+  credit_codes: { label: '兑换码', purpose: '排查兑换码额度、启用状态、过期时间和兑换用户。' },
+  registration_invites: { label: '邀请码', purpose: '排查邀请码是否启用、是否过期、谁创建和谁使用。' },
+  announcements: { label: '公告', purpose: '排查公告是否发布、分类、内容和更新时间。' },
+  admin_audit_logs: { label: '后台操作日志', purpose: '排查管理员做过什么操作、影响对象和操作时间。' },
+  user_provider_configs: { label: '用户 API 配置', purpose: '排查用户自带模型配置、模型名称和 Key 尾号。' },
+  system_settings: { label: '系统设置', purpose: '排查系统参数当前值；敏感项会被后端保护。' },
+  paper_projects: { label: '论文项目', purpose: '排查用户项目、归档状态和项目下任务。' },
+  session_history: { label: '上下文历史', purpose: '排查 AI 上下文压缩、历史长度和会话关联。' },
+  custom_prompts: { label: '自定义提示词', purpose: '排查用户提示词、系统提示词、启用状态和处理阶段。' },
+  saved_specs: { label: '排版规范', purpose: '排查用户保存的排版规则和更新时间。' },
+  change_logs: { label: '文本变更记录', purpose: '排查段落修改前后差异和审计记录。' },
+  queue_status: { label: '任务队列', purpose: '排查任务排队位置、开始时间和队列状态。' },
+  zhuque_prompt_memories: { label: '朱雀提示词记忆', purpose: '排查降 AI 提示词进化效果、成功次数和失败特征。' },
+};
+
+const COLUMN_LABELS = {
+  id: 'ID',
+  username: '用户名',
+  nickname: '昵称',
+  password_hash: '密码哈希',
+  access_link: '访问链接',
+  is_active: '状态',
+  is_unlimited: '无限啤酒',
+  credit_balance: '啤酒余额',
+  created_at: '创建时间',
+  updated_at: '更新时间',
+  last_used: '最后使用',
+  last_login_at: '最后登录',
+  usage_limit: '使用上限',
+  usage_count: '已用次数',
+  token_version: '令牌版本',
+  zhuque_free_uses_remaining: '朱雀剩余',
+  zhuque_total_uses: '朱雀已用',
+  user_id: '用户ID',
+  session_id: '任务ID',
+  project_id: '项目ID',
+  task_title: '任务标题',
+  title: '标题',
+  description: '说明',
+  original_text: '原文',
+  current_stage: '当前阶段',
+  status: '状态',
+  progress: '进度',
+  current_position: '当前位置',
+  total_segments: '段落总数',
+  error_message: '错误信息',
+  failed_segment_index: '失败段落',
+  queued_at: '排队时间',
+  started_at: '开始时间',
+  finished_at: '结束时间',
+  completed_at: '完成时间',
+  worker_id: 'Worker',
+  processing_mode: '处理模式',
+  billing_mode: '计费模式',
+  credential_source: '凭据来源',
+  charge_status: '扣费状态',
+  charged_credits: '扣费啤酒',
+  segment_index: '段落序号',
+  stage: '阶段',
+  polished_text: '润色结果',
+  enhanced_text: '增强结果',
+  is_title: '是否标题',
+  zhuque_detect_rate: '朱雀AI率',
+  zhuque_detect_result: '朱雀结果',
+  zhuque_detect_count: '检测次数',
+  zhuque_reduce_attempt: '降AI次数',
+  zhuque_reduced_text: '降AI结果',
+  delta: '变动啤酒',
+  balance_after: '变动后余额',
+  reason: '原因',
+  related_code_id: '兑换码ID',
+  related_session_id: '关联任务ID',
+  code: '码值',
+  credit_amount: '啤酒数量',
+  expires_at: '过期时间',
+  redeemed_by_user_id: '兑换用户ID',
+  redeemed_at: '兑换时间',
+  created_by_user_id: '创建人ID',
+  used_by_user_id: '使用人ID',
+  admin_username: '管理员',
+  action: '操作',
+  target_type: '对象类型',
+  target_id: '对象ID',
+  detail: '详情',
+  content: '内容',
+  category: '分类',
+  key: '配置项',
+  value: '配置值',
+  base_url: 'Base URL',
+  api_key_encrypted: 'API Key密文',
+  api_key_last4: 'Key尾号',
+  polish_model: '润色模型',
+  enhance_model: '增强模型',
+  emotion_model: '情感模型',
+  name: '名称',
+  is_default: '默认',
+  is_system: '系统内置',
+  is_archived: '已归档',
+  position: '队列位置',
+};
+
+const STATUS_LABELS = {
+  queued: '排队中',
+  processing: '处理中',
+  completed: '已完成',
+  failed: '失败',
+  pending: '待处理',
+  stopped: '已停止',
+  not_charged: '未扣费',
+  charged: '已扣费',
+  refunded: '已退回',
+  platform: '平台啤酒',
+  user: '用户自带',
+  system: '系统',
+  notice: '通知',
+  maintenance: '维护',
+  model: '模型',
+  guide: '说明',
+  polish: '润色',
+  enhance: '增强',
+  paper_polish: '论文润色',
+  paper_enhance: '论文增强',
+  paper_polish_enhance: '润色+增强',
+  emotion_polish: '情感文章润色',
+  ai_detect_reduce: 'AI检测+降重',
+};
+
+const IMPORTANT_COLUMNS_BY_TABLE = {
+  users: ['id', 'username', 'nickname', 'is_active', 'is_unlimited', 'credit_balance', 'zhuque_free_uses_remaining', 'zhuque_total_uses', 'last_login_at', 'last_used', 'created_at'],
+  optimization_sessions: ['id', 'user_id', 'session_id', 'task_title', 'status', 'progress', 'processing_mode', 'billing_mode', 'charge_status', 'charged_credits', 'error_message', 'created_at', 'completed_at'],
+  optimization_segments: ['id', 'session_id', 'segment_index', 'status', 'zhuque_detect_rate', 'zhuque_detect_count', 'zhuque_reduce_attempt', 'error_message', 'completed_at'],
+  credit_transactions: ['id', 'user_id', 'delta', 'balance_after', 'reason', 'related_code_id', 'related_session_id', 'created_at'],
+  credit_codes: ['id', 'code', 'credit_amount', 'is_active', 'expires_at', 'redeemed_by_user_id', 'redeemed_at', 'created_at'],
+  registration_invites: ['id', 'code', 'is_active', 'expires_at', 'created_by_user_id', 'used_by_user_id', 'created_at'],
+  announcements: ['id', 'title', 'category', 'is_active', 'created_at', 'updated_at', 'content'],
+  admin_audit_logs: ['id', 'admin_username', 'action', 'target_type', 'target_id', 'detail', 'created_at'],
+  paper_projects: ['id', 'user_id', 'title', 'is_archived', 'created_at', 'updated_at'],
+  user_provider_configs: ['id', 'user_id', 'base_url', 'api_key_last4', 'polish_model', 'enhance_model', 'emotion_model', 'updated_at'],
+};
+
+const getTableMeta = (tableName) => TABLE_METADATA[tableName] || {
+  label: tableName,
+  purpose: '查看这张表的只读记录，用于管理员排查原始数据。',
+};
+
+const getColumnLabel = (column) => COLUMN_LABELS[column] || column
+  .replace(/_/g, ' ')
+  .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getStatusTone = (value, column = '') => {
+  const normalized = String(value ?? '').toLowerCase();
+  if (['completed', 'charged', 'success'].includes(normalized)) return 'is-good';
+  if (['failed', 'error', 'disabled'].includes(normalized)) return 'is-danger';
+  if (['queued', 'processing', 'pending', 'not_charged'].includes(normalized)) return 'is-warn';
+  if (normalized === 'true') return column === 'is_archived' ? 'is-warn' : 'is-good';
+  if (normalized === 'false') return column === 'is_active' ? 'is-danger' : 'is-neutral';
+  return 'is-neutral';
+};
 
 const DatabaseManager = ({ adminToken }) => {
   const [loading, setLoading] = useState(false);
@@ -126,13 +291,64 @@ const DatabaseManager = ({ adminToken }) => {
     }
   };
 
-  const formatValue = (value) => {
-    if (value === null || value === undefined) return '-';
+  const getTableNameInChinese = (tableName) => getTableMeta(tableName).label;
+
+  const getPrioritizedColumns = () => {
+    const preferred = IMPORTANT_COLUMNS_BY_TABLE[selectedTable] || [];
+    const existingPreferred = preferred.filter((column) => tableColumns.includes(column));
+    const rest = tableColumns.filter((column) => !existingPreferred.includes(column));
+    return [...existingPreferred, ...rest];
+  };
+
+  const formatValue = (value, column = '') => {
+    if (value === null || value === undefined || value === '') return '-';
     if (typeof value === 'boolean') return value ? '是' : '否';
-    if (typeof value === 'string' && value.length > 50) {
-      return value.substring(0, 50) + '...';
+    if (['is_active', 'is_unlimited', 'is_default', 'is_system', 'is_archived', 'is_compressed'].includes(column)) {
+      return String(value) === 'true' || value === 1 ? '是' : '否';
+    }
+    if (column.includes('zhuque') && Number(value) < 0) return '--';
+    if (column.includes('rate') && Number.isFinite(Number(value))) return `${Number(value).toFixed(1)}%`;
+    if (column === 'progress' && Number.isFinite(Number(value))) return `${Math.round(Number(value))}%`;
+    if (column === 'delta' && Number.isFinite(Number(value))) return `${Number(value) > 0 ? '+' : ''}${value} 啤酒`;
+    if (column.includes('credit') && Number.isFinite(Number(value))) return `${value} 啤酒`;
+    if (column.endsWith('_at') || column.includes('time') || column.includes('date')) {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) return date.toLocaleString('zh-CN', { hour12: false });
+    }
+    const mapped = STATUS_LABELS[String(value).toLowerCase()];
+    if (mapped) return mapped;
+    if (typeof value === 'string' && value.length > 64) {
+      return `${value.substring(0, 64)}...`;
     }
     return String(value);
+  };
+
+  const getCellKind = (column) => {
+    const normalized = column.toLowerCase();
+    if (normalized === 'status' || normalized.startsWith('is_') || ['charge_status', 'billing_mode', 'category', 'processing_mode'].includes(normalized)) return 'status';
+    if (normalized.includes('balance') || normalized.includes('credit') || normalized.includes('zhuque') || normalized === 'delta') return 'number';
+    if (normalized.includes('error')) return 'danger';
+    if (normalized.endsWith('_at') || normalized.includes('time') || normalized.includes('date')) return 'time';
+    return 'text';
+  };
+
+  const renderCellValue = (record, column) => {
+    const value = record[column];
+    const displayValue = formatValue(value, column);
+    const kind = getCellKind(column);
+    if (kind === 'status') {
+      return <span className={`aurora-database-status ${getStatusTone(value, column)}`}>{displayValue}</span>;
+    }
+    if (kind === 'number') {
+      return <span className="aurora-database-number">{displayValue}</span>;
+    }
+    if (kind === 'danger' && displayValue !== '-') {
+      return <span className="aurora-database-error-text">{displayValue}</span>;
+    }
+    if (kind === 'time') {
+      return <span className="aurora-database-muted-value">{displayValue}</span>;
+    }
+    return displayValue;
   };
 
   const filteredData = tableData.filter(record => {
@@ -142,25 +358,21 @@ const DatabaseManager = ({ adminToken }) => {
     );
   });
 
-  const getTableNameInChinese = (tableName) => {
-    const nameMap = {
-      'users': '用户表',
-      'optimization_sessions': '优化会话表',
-      'optimization_segments': '优化段落表',
-      'system_settings': '系统设置表',
-      'session_history': '会话历史表'
-    };
-    return nameMap[tableName] || tableName;
-  };
-
-  const getColumnTypeLabel = (column) => {
-    const normalized = column.toLowerCase();
-    if (normalized === 'id' || normalized.endsWith('_id')) return 'BIGINT';
-    if (normalized.includes('time') || normalized.includes('date') || normalized.endsWith('_at')) return 'DATETIME';
-    if (normalized.includes('status') || normalized.startsWith('is_') || normalized.startsWith('can_')) return 'TINYINT';
-    if (normalized.includes('count') || normalized.includes('amount') || normalized.includes('balance') || normalized.includes('limit')) return 'INT';
-    return 'VARCHAR';
-  };
+  const visibleColumns = getPrioritizedColumns();
+  const selectedMeta = getTableMeta(selectedTable);
+  const activeCount = tableData.filter((record) => record.is_active === true || record.is_active === 1).length;
+  const inactiveCount = tableData.filter((record) => record.is_active === false || record.is_active === 0).length;
+  const failedCount = tableData.filter((record) => String(record.status || '').toLowerCase() === 'failed' || record.error_message).length;
+  const queuedOrProcessingCount = tableData.filter((record) => ['queued', 'processing', 'pending'].includes(String(record.status || '').toLowerCase())).length;
+  const diagnosticCards = [
+    { label: '当前表', value: selectedMeta.label, tone: 'blue' },
+    { label: '当前页记录', value: filteredData.length, tone: 'slate' },
+    { label: '异常/失败', value: failedCount, tone: failedCount > 0 ? 'red' : 'green' },
+    { label: '排队/处理中', value: queuedOrProcessingCount, tone: queuedOrProcessingCount > 0 ? 'amber' : 'slate' },
+  ];
+  if (tableData.some((record) => Object.prototype.hasOwnProperty.call(record, 'is_active'))) {
+    diagnosticCards.push({ label: '启用/禁用', value: `${activeCount}/${inactiveCount}`, tone: inactiveCount > 0 ? 'amber' : 'green' });
+  }
 
   if (loading && !tableData.length) {
     return (
@@ -175,10 +387,10 @@ const DatabaseManager = ({ adminToken }) => {
       <div className="aurora-admin-section-head">
         <div>
           <div className="aurora-database-title-line">
-            <h2>数据库管理</h2>
+            <h2>数据诊断</h2>
             <span className="aurora-database-readonly-badge">
               <ShieldCheck className="h-4 w-4" />
-              当前为只读模式，禁止直接修改数据
+              只读排障视图，禁止直接修改数据
             </span>
           </div>
         </div>
@@ -203,14 +415,14 @@ const DatabaseManager = ({ adminToken }) => {
               <Database className="w-5 h-5 text-blue-600" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">数据库表选择</h3>
-              <p className="text-xs text-gray-500">共 {tables.length} 张表</p>
+              <h3 className="text-lg font-bold text-gray-900">选择排障对象</h3>
+              <p className="text-xs text-gray-500">共 {tables.length} 类数据</p>
             </div>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-500 mb-2">选择数据表</label>
+              <label className="block text-sm font-medium text-gray-500 mb-2">选择要排查的数据</label>
               <select
                 value={selectedTable}
                 onChange={(e) => setSelectedTable(e.target.value)}
@@ -222,29 +434,40 @@ const DatabaseManager = ({ adminToken }) => {
               </select>
             </div>
             <p className="text-xs leading-5 text-gray-500">
-              数据库管理器当前为只读模式；仅展示允许查看的数据表，敏感字段和长文本会被后端脱敏。
+              {selectedMeta.purpose}
             </p>
           </div>
         </div>
 
         <div className="aurora-admin-card aurora-database-summary-card">
-          <h3>表结构摘要</h3>
-          <div className="aurora-database-summary-grid">
-            <div><span>字段数量</span><strong>{tableColumns.length}</strong></div>
-            <div><span>索引数量</span><strong>{Math.max(1, Math.min(3, tableColumns.length))}</strong></div>
-            <div><span>记录总数</span><strong>{totalRecords}</strong></div>
-            <div><span>表大小</span><strong>{Math.max(1, Math.ceil(totalRecords / 3500))}.48 MB</strong></div>
-            <div><span>更新时间</span><strong>{new Date().toLocaleDateString('zh-CN')}</strong></div>
+          <div className="aurora-database-summary-title">
+            <div>
+              <h3>排障摘要</h3>
+              <p>{selectedMeta.purpose}</p>
+            </div>
+            {failedCount > 0 ? (
+              <span className="aurora-database-health is-danger"><AlertTriangle className="h-4 w-4" />发现异常</span>
+            ) : (
+              <span className="aurora-database-health is-good"><CheckCircle2 className="h-4 w-4" />当前页无失败</span>
+            )}
+          </div>
+          <div className="aurora-database-diagnosis-grid">
+            {diagnosticCards.map((card) => (
+              <div key={card.label} className={`aurora-database-diagnosis-card is-${card.tone}`}>
+                <span>{card.label}</span>
+                <strong>{card.value}</strong>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
       {/* 数据表格 */}
-      <div className="aurora-admin-card overflow-hidden">
+      <div className="aurora-admin-card aurora-database-readable-card overflow-hidden">
         <div className="aurora-database-record-head">
           <div>
-            <h3>记录数据（只读）</h3>
-            <p>当前显示 {filteredData.length} 条，本表共 {totalRecords} 条{currentLimit ? `，单页上限 ${currentLimit} 条` : ''}</p>
+            <h3>排障明细（只读）</h3>
+            <p>{selectedMeta.purpose} 当前显示 {filteredData.length} 条，共 {totalRecords} 条{currentLimit ? `，单页上限 ${currentLimit} 条` : ''}</p>
           </div>
           <div className="aurora-database-record-actions">
             <label className="relative">
@@ -253,7 +476,7 @@ const DatabaseManager = ({ adminToken }) => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="搜索记录..."
+                placeholder="搜索用户名 / ID / 状态 / 错误..."
                 className="aurora-admin-input w-full pl-10 pr-4 py-2.5 text-sm"
               />
             </label>
@@ -277,15 +500,16 @@ const DatabaseManager = ({ adminToken }) => {
           </div>
         ) : (
           <div className="max-h-[41rem] overflow-auto">
-            <table className="w-full">
+            <table className="w-full aurora-database-readable-table">
               <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {tableColumns.map(column => (
+                  {visibleColumns.map(column => (
                     <th
                       key={column}
-                      className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap"
+                      className="px-5 py-3 text-left text-xs font-semibold text-slate-500 whitespace-nowrap"
                     >
-                      {column} <span className="font-medium text-slate-400">({getColumnTypeLabel(column)})</span>
+                      <span>{getColumnLabel(column)}</span>
+                      <small>{column}</small>
                     </th>
                   ))}
                   <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-50/95 border-l border-gray-100">
@@ -296,9 +520,9 @@ const DatabaseManager = ({ adminToken }) => {
               <tbody className="divide-y divide-gray-100">
                 {filteredData.map((record, index) => (
                   <tr key={record.id || index} className="hover:bg-blue-50/30 transition-colors">
-                    {tableColumns.map(column => (
-                      <td key={column} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        {formatValue(record[column])}
+                    {visibleColumns.map(column => (
+                      <td key={column} className="px-5 py-4 text-sm text-slate-700">
+                        {renderCellValue(record, column)}
                       </td>
                     ))}
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white/95 border-l border-gray-100 group-hover:bg-blue-50/30 transition-colors">
@@ -322,13 +546,13 @@ const DatabaseManager = ({ adminToken }) => {
           <span>
             共 {totalRecords} 条记录
           </span>
-          <div><span>当前后端返回 {currentLimit || filteredData.length} 条，只读查看</span></div>
+          <div><span>当前页展示重点字段，横向滚动可看全部原始字段</span></div>
         </div>
       </div>
 
       <div className="aurora-database-warning">
         <ShieldCheck className="h-4 w-4" />
-        当前数据库管理页为只读审计视图；备份与恢复请使用“运维状态”页的最近备份与服务器 SSH 流程，避免误操作覆盖生产数据。
+        当前为管理员只读排障视图：先用搜索定位用户、任务或错误，再看状态徽章和啤酒/朱雀字段；需要修改时回到用户管理、公告、兑换码等业务页操作。
       </div>
 
       {/* 写入模式操作区 */}
@@ -354,10 +578,11 @@ const DatabaseManager = ({ adminToken }) => {
             </div>
 
             <div className="p-6 space-y-4">
-              {tableColumns.map(column => (
+              {visibleColumns.map(column => (
                 <div key={column}>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {column}
+                    {getColumnLabel(column)}
+                    <small className="ml-2 text-xs text-slate-400">{column}</small>
                   </label>
                   {column === 'id' ? (
                     <input

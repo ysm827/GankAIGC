@@ -1422,9 +1422,9 @@ const AdminDashboard = () => {
     },
     {
       id: 'database',
-      label: '数据库管理',
+      label: '数据诊断',
       glyph: 'database',
-      hint: '只读',
+      hint: '排障',
     },
     {
       id: 'config',

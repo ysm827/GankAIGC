@@ -562,12 +562,33 @@ def test_admin_dashboard_hides_word_formatter_statistics_until_feature_is_ready(
 
 def test_database_manager_honors_backend_read_only_flag():
     database_manager = (FRONTEND_SRC / "components" / "DatabaseManager.jsx").read_text(encoding="utf-8")
+    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
 
     assert "canWrite" in database_manager
     assert "response.data.can_write" in database_manager
     assert "只读模式" in database_manager
     assert "canWrite && (" in database_manager
     assert "{canWrite && editingRecord && (" in database_manager
+    assert "label: '数据诊断'" in admin_dashboard
+    assert "hint: '排障'" in admin_dashboard
+    assert "TABLE_METADATA" in database_manager
+    assert "COLUMN_LABELS" in database_manager
+    assert "IMPORTANT_COLUMNS_BY_TABLE" in database_manager
+    assert "getColumnLabel(column)" in database_manager
+    assert "renderCellValue(record, column)" in database_manager
+    assert "visibleColumns.map(column" in database_manager
+    assert "排障摘要" in database_manager
+    assert "排障明细（只读）" in database_manager
+    assert "选择排障对象" in database_manager
+    assert "搜索用户名 / ID / 状态 / 错误" in database_manager
+    assert "字段数量" not in database_manager
+    assert "索引数量" not in database_manager
+    assert "表大小" not in database_manager
+    assert "getColumnTypeLabel" not in database_manager
+    assert "aurora-database-diagnosis-grid" in index_css
+    assert "aurora-database-status.is-good" in index_css
+    assert "aurora-database-readable-table th span" in index_css
 
 
 def test_admin_dashboard_does_not_duplicate_session_monitor_status_metrics():
