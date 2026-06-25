@@ -853,6 +853,7 @@ def test_admin_user_management_polishes_layout_and_actions():
 
     assert "{accountPanelTab === 'users' && (" in admin_dashboard
     assert admin_dashboard.index("{accountPanelTab === 'users' && (") < admin_dashboard.index("清除筛选")
+    assert "aurora-admin-tab-button-active bg-indigo-600 text-white shadow-sm" not in admin_dashboard
     assert "aurora-admin-users-filters" in users_section
     assert "aurora-admin-user-filter-strip" in users_section
     assert "aurora-admin-user-scope-tabs" not in users_section

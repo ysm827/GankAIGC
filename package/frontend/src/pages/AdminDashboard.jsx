@@ -1788,7 +1788,7 @@ const AdminDashboard = () => {
                     onClick={() => setAccountPanelTab(tab.id)}
                     className={`aurora-admin-tab-button rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
                       accountPanelTab === tab.id
-                        ? 'aurora-admin-tab-button-active bg-indigo-600 text-white shadow-sm'
+                        ? 'aurora-admin-tab-button-active'
                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
