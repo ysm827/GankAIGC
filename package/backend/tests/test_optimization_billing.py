@@ -90,6 +90,22 @@ def test_parse_markdown_document_upload_returns_editable_text(client):
     assert payload["char_count"] > 0
 
 
+def test_parse_document_upload_zero_config_falls_back_to_default_limit(client, monkeypatch):
+    from app.routes import optimization
+
+    _, token = _create_user(credit_balance=0)
+    monkeypatch.setattr(optimization.settings, "MAX_UPLOAD_FILE_SIZE_MB", 0, raising=False)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.md", b"# Title\n\nMarkdown body", "text/markdown")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "# Title\n\nMarkdown body"
+
+
 def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
     _, token = _create_user(credit_balance=0)
     seen_extensions = []

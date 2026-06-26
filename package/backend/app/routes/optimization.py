@@ -58,6 +58,7 @@ DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES = {
     "text/plain",
     "application/octet-stream",
 }
+DEFAULT_DOCUMENT_UPLOAD_FILE_SIZE_MB = 20
 
 
 def _clean_export_filename_part(value: str, fallback: str) -> str:
@@ -101,8 +102,14 @@ def _build_docx_base64(text: str) -> str:
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
+def _document_upload_limit_mb() -> int:
+    configured_limit = int(settings.MAX_UPLOAD_FILE_SIZE_MB or 0)
+    return configured_limit if configured_limit > 0 else DEFAULT_DOCUMENT_UPLOAD_FILE_SIZE_MB
+
+
 async def _read_document_upload_with_limit(file: UploadFile) -> bytes:
-    max_bytes = settings.MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
+    upload_limit_mb = _document_upload_limit_mb()
+    max_bytes = upload_limit_mb * 1024 * 1024
     chunks: list[bytes] = []
     total_size = 0
 
@@ -115,7 +122,7 @@ async def _read_document_upload_with_limit(file: UploadFile) -> bytes:
             file_size_mb = total_size / (1024 * 1024)
             raise HTTPException(
                 status_code=400,
-                detail=f"文件大小 ({file_size_mb:.1f} MB) 超过限制 ({settings.MAX_UPLOAD_FILE_SIZE_MB} MB)",
+                detail=f"文件大小 ({file_size_mb:.1f} MB) 超过限制 ({upload_limit_mb} MB)",
             )
         chunks.append(chunk)
 
