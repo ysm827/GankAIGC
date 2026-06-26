@@ -80,7 +80,7 @@ const WelcomePage = () => {
   };
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#FBFBFA] text-[#111111]">
+    <div className="min-h-screen overflow-x-hidden bg-[#FBFBFA] text-[#111111]">
       <a
         href="#home"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-[#111111] focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
@@ -88,7 +88,7 @@ const WelcomePage = () => {
         跳到主要内容
       </a>
 
-      <header className="sticky top-0 z-30 border-b border-[#EAEAEA]/90 bg-[#FBFBFA]/88 backdrop-blur-xl">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-[#EAEAEA]/90 bg-[#FBFBFA]/92 backdrop-blur-xl">
         <nav className="mx-auto flex min-h-[72px] max-w-6xl items-center justify-between px-5 sm:px-8" aria-label="首页导航">
           <BrandLogo size="sm" />
 
@@ -119,7 +119,7 @@ const WelcomePage = () => {
         </nav>
       </header>
 
-      <main id="home" className="relative">
+      <main id="home" className="relative pt-[72px]">
         <section className="mx-auto max-w-5xl px-5 pb-20 pt-20 text-center sm:px-8 sm:pb-24 sm:pt-24">
           <div className="mx-auto mb-7 inline-flex items-center gap-2 rounded-full bg-[#E6F1FB] px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#185FA5]">
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -157,7 +157,7 @@ const WelcomePage = () => {
             </button>
           </div>
 
-          <div id="security" className="mx-auto mt-8 flex max-w-3xl flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#6B7280]">
+          <div id="security" className="mx-auto mt-8 flex scroll-mt-24 max-w-3xl flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#6B7280]">
             {['语义保持', '账号隔离', '按啤酒使用', '啤酒与自带 API 双模式'].map((item) => (
               <span key={item} className="inline-flex items-center gap-1.5">
                 <CheckCircle className="h-4 w-4 text-[#346538]" aria-hidden="true" />
@@ -238,7 +238,7 @@ const WelcomePage = () => {
           </div>
         </section>
 
-        <section id="features" className="mx-auto max-w-6xl px-5 py-20 sm:px-8" aria-labelledby="feature-title">
+        <section id="features" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8" aria-labelledby="feature-title">
           <div className="grid gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-start">
             <div className="text-left">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">核心能力</p>
@@ -266,7 +266,7 @@ const WelcomePage = () => {
           </div>
         </section>
 
-        <section id="scenarios" data-home-scenarios="workflow" className="mx-auto max-w-6xl px-5 py-20 sm:px-8" aria-labelledby="workflow-title">
+        <section id="scenarios" data-home-scenarios="workflow" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8" aria-labelledby="workflow-title">
           <div className="rounded-xl border border-[#EAEAEA] bg-white p-6 sm:p-8">
             <div className="mb-8 max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">论文处理链路</p>
