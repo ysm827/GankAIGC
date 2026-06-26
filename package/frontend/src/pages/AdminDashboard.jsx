@@ -81,6 +81,7 @@ const ANNOUNCEMENT_MARKDOWN_TOOLS = [
   { id: 'divider', label: '—', title: '分割线', syntax: 'insert', text: '\n---\n' },
 ];
 
+
 const formatAdminNumber = (value) => Number(value || 0).toLocaleString();
 
 const formatBeerDelta = (delta) => {
@@ -538,6 +539,7 @@ const AdminDashboard = () => {
   const [loadingAdminProfile, setLoadingAdminProfile] = useState(false);
   const [savingAdminProfile, setSavingAdminProfile] = useState(false);
   const [uploadingAdminAvatar, setUploadingAdminAvatar] = useState(false);
+  const [adminAvatarLoadFailed, setAdminAvatarLoadFailed] = useState(false);
   const [savingAdminPassword, setSavingAdminPassword] = useState(false);
   const [adminDisplayName, setAdminDisplayName] = useState('');
   const [adminPasswordForm, setAdminPasswordForm] = useState({
@@ -640,6 +642,7 @@ const AdminDashboard = () => {
     setPassword('');
     setAdminProfile(null);
     setAdminDisplayName('');
+    setAdminAvatarLoadFailed(false);
     setAdminPasswordForm({
       current_password: '',
       new_password: '',
@@ -797,6 +800,7 @@ const AdminDashboard = () => {
       });
       setAdminProfile(response.data);
       setAdminDisplayName(response.data.display_name || response.data.username || '');
+      setAdminAvatarLoadFailed(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || '获取管理员资料失败');
     } finally {
@@ -820,6 +824,7 @@ const AdminDashboard = () => {
       );
       setAdminProfile(response.data);
       setAdminDisplayName(response.data.display_name || '');
+      setAdminAvatarLoadFailed(false);
       toast.success('管理员资料已更新');
     } catch (error) {
       toast.error(error.response?.data?.detail || '保存管理员资料失败');
@@ -842,6 +847,7 @@ const AdminDashboard = () => {
         timeout: 20000,
       });
       setAdminProfile(response.data);
+      setAdminAvatarLoadFailed(false);
       toast.success('管理员头像已更新');
     } catch (error) {
       toast.error(error.response?.data?.detail || '上传管理员头像失败');
@@ -2373,6 +2379,7 @@ const AdminDashboard = () => {
                         ) : filteredUsers.map((user) => {
                           const providerConfig = providerConfigByUserId.get(user.id);
                           const role = getAdminUserRole(user, providerConfig);
+                          const userAvatarFallback = (user.nickname || user.username || 'U').slice(0, 1).toUpperCase();
                           return (
                           <tr
                             key={user.id}
@@ -2382,9 +2389,17 @@ const AdminDashboard = () => {
                               <div className="flex items-center gap-3">
                                 <span className="aurora-admin-user-avatar">
                                   {user.avatar_url ? (
-                                    <img src={user.avatar_url} alt="" />
+                                    <>
+                                      <img src={user.avatar_url} alt=""
+                                        onError={(event) => {
+                                          event.currentTarget.hidden = true;
+                                          event.currentTarget.nextElementSibling?.removeAttribute('hidden');
+                                        }}
+                                      />
+                                      <span hidden>{userAvatarFallback}</span>
+                                    </>
                                   ) : (
-                                    (user.nickname || user.username || 'U').slice(0, 1).toUpperCase()
+                                    userAvatarFallback
                                   )}
                                 </span>
                                 <div>
@@ -2976,8 +2991,8 @@ const AdminDashboard = () => {
               <div className="aurora-admin-profile-hero-main">
                 <div className="aurora-admin-profile-avatar-stack">
                   <div className="aurora-admin-profile-avatar">
-                    {adminProfile?.avatar_url ? (
-                      <img src={adminProfile.avatar_url} alt="" />
+                    {adminProfile?.avatar_url && !adminAvatarLoadFailed ? (
+                      <img src={adminProfile.avatar_url} alt="" onError={() => setAdminAvatarLoadFailed(true)} />
                     ) : (
                       (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
                     )}

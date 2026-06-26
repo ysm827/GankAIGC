@@ -7,6 +7,7 @@ import BeerIcon from './BeerIcon';
 const UserMenu = ({ credits }) => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -15,6 +16,7 @@ const UserMenu = ({ credits }) => {
       .then((response) => {
         if (isMounted) {
           setProfile(response.data);
+          setAvatarLoadFailed(false);
         }
       })
       .catch(() => {});
@@ -45,8 +47,8 @@ const UserMenu = ({ credits }) => {
         className="hidden md:flex items-center gap-1.5 gank-topbar-pill text-slate-700 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors hover:text-slate-950"
       >
         <span className="aurora-user-menu-avatar" aria-hidden="true">
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt="" />
+          {profile?.avatar_url && !avatarLoadFailed ? (
+            <img src={profile.avatar_url} alt="" onError={() => setAvatarLoadFailed(true)} />
           ) : (
             <UserCircle className="w-4 h-4" />
           )}

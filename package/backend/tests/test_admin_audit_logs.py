@@ -115,7 +115,7 @@ def test_admin_profile_can_update_display_name_and_writes_audit_log(client):
 def test_admin_profile_avatar_upload_persists_url_and_audit_log(client, tmp_path, monkeypatch):
     from app.utils import avatar_upload
 
-    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    monkeypatch.setattr(avatar_upload, "get_upload_root", lambda: tmp_path / "uploads")
     headers = _admin_auth_headers(client)
     png = b"\x89PNG\r\n\x1a\n" + (b"0" * 64)
 
@@ -129,7 +129,7 @@ def test_admin_profile_avatar_upload_persists_url_and_audit_log(client, tmp_path
     avatar_url = response.json()["avatar_url"]
     assert avatar_url.startswith("/uploads/avatars/")
     assert avatar_url.endswith(".png")
-    assert (tmp_path / "static" / avatar_url.removeprefix("/")).read_bytes() == png
+    assert (tmp_path / "uploads" / avatar_url.removeprefix("/uploads/")).read_bytes() == png
 
     db = SessionLocal()
     try:
@@ -148,7 +148,7 @@ def test_admin_profile_avatar_upload_persists_url_and_audit_log(client, tmp_path
 def test_admin_profile_avatar_upload_rejects_svg(client, tmp_path, monkeypatch):
     from app.utils import avatar_upload
 
-    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    monkeypatch.setattr(avatar_upload, "get_upload_root", lambda: tmp_path / "uploads")
     headers = _admin_auth_headers(client)
 
     response = client.post(

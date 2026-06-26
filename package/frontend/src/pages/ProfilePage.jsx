@@ -15,6 +15,7 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -32,6 +33,7 @@ const ProfilePage = () => {
       ]);
       setProfile(profileResponse.data);
       setNickname(profileResponse.data.nickname || profileResponse.data.username || '');
+      setAvatarLoadFailed(false);
       setInvite(inviteResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || '加载个人信息失败');
@@ -57,6 +59,7 @@ const ProfilePage = () => {
       const response = await authAPI.updateProfile({ nickname: nextNickname });
       setProfile(response.data);
       setNickname(response.data.nickname || response.data.username || '');
+      setAvatarLoadFailed(false);
       toast.success('昵称已更新');
     } catch (error) {
       toast.error(error.response?.data?.detail || '保存昵称失败');
@@ -76,6 +79,7 @@ const ProfilePage = () => {
     try {
       const response = await userAPI.uploadProfileAvatar(formData);
       setProfile(response.data);
+      setAvatarLoadFailed(false);
       toast.success('头像已更新');
     } catch (error) {
       toast.error(error.response?.data?.detail || '上传头像失败');
@@ -191,8 +195,8 @@ const ProfilePage = () => {
             <section className="apple-utility-card aurora-account-card aurora-profile-card">
               <div className="aurora-profile-avatar-wrap">
                 <div className="aurora-profile-avatar" aria-hidden="true">
-                  {profile?.avatar_url ? (
-                    <img src={profile.avatar_url} alt="" />
+                  {profile?.avatar_url && !avatarLoadFailed ? (
+                    <img src={profile.avatar_url} alt="" onError={() => setAvatarLoadFailed(true)} />
                   ) : (
                     <UserCircle className="h-10 w-10" />
                   )}

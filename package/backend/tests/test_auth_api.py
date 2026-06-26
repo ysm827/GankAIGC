@@ -234,7 +234,7 @@ def test_user_can_upload_profile_avatar_and_me_returns_url(client, tmp_path, mon
     from app.utils import avatar_upload
     from app.utils.auth import create_user_access_token, get_password_hash
 
-    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    monkeypatch.setattr(avatar_upload, "get_upload_root", lambda: tmp_path / "uploads")
 
     db = SessionLocal()
     try:
@@ -264,7 +264,7 @@ def test_user_can_upload_profile_avatar_and_me_returns_url(client, tmp_path, mon
     assert response.status_code == 200
     avatar_url = response.json()["avatar_url"]
     assert avatar_url.startswith("/uploads/avatars/")
-    assert (tmp_path / "static" / avatar_url.removeprefix("/")).read_bytes() == png
+    assert (tmp_path / "uploads" / avatar_url.removeprefix("/uploads/")).read_bytes() == png
 
     db = SessionLocal()
     try:
@@ -284,7 +284,7 @@ def test_user_profile_avatar_upload_rejects_fake_jpeg(client, tmp_path, monkeypa
     from app.utils import avatar_upload
     from app.utils.auth import create_user_access_token, get_password_hash
 
-    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    monkeypatch.setattr(avatar_upload, "get_upload_root", lambda: tmp_path / "uploads")
 
     db = SessionLocal()
     try:

@@ -63,6 +63,7 @@ frontend/frontend.log
 # PyInstaller
 *.spec.bak
 package/static/
+package/uploads/
 package/dist/
 package/build/
 *.manifest
