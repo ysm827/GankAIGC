@@ -1422,6 +1422,8 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "探测模型" in config_manager
     assert "handleFetchModels" in config_manager
     assert "availableModels" in config_manager
+    assert "models.includes(formData.POLISH_MODEL)" in config_manager
+    assert "当前模型不在刚探测到的真实模型列表中" in config_manager
     assert "/api/admin/operations/model-list" in config_manager
     assert "response.data.system.model_provider_name" in config_manager
     assert "MODEL_PROVIDER_NAME" in config_manager
@@ -1595,7 +1597,8 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "renderTestButton" in config_manager
     assert "测试连接" in config_manager
     assert "getStageFormConfig" in config_manager
-    assert "...getStageFormConfig(stage)" in config_manager
+    assert "const stageConfig = getStageFormConfig(stage)" in config_manager
+    assert "...stageConfig" in config_manager
     assert "测试当前页面填写的模型配置" in config_manager
     assert "正式生效请保存配置" in config_manager
     assert "renderTestButton('polish')" in config_manager
@@ -1611,8 +1614,12 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "polish: ['POLISH_MODEL', 'POLISH_BASE_URL', 'POLISH_API_KEY']" in config_manager
     assert "enhance: ['ENHANCE_MODEL', 'ENHANCE_BASE_URL', 'ENHANCE_API_KEY']" in config_manager
     assert "availableModelOptions.map" in config_manager
+    assert "availableModels.length > 0" in config_manager
+    assert "models.includes(formData.POLISH_MODEL)" in config_manager
     assert "<select" in config_manager
     assert "aurora-detected-models" not in config_manager
+    assert "'gpt-4o'" not in config_manager
+    assert "'moonshot-v1-8k'" not in config_manager
 
 
 def test_api_config_guide_keeps_previous_sections_open_when_expanding_next():

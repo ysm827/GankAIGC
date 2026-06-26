@@ -166,11 +166,16 @@ const ConfigManager = ({ adminToken }) => {
   };
 
   const handleTestModel = async (stage) => {
+    const stageConfig = getStageFormConfig(stage);
+    if (stage === 'polish' && availableModels.length > 0 && !availableModels.includes(stageConfig.model)) {
+      toast.error('当前模型不在刚探测到的真实模型列表中，请重新选择');
+      return;
+    }
     setTestingStage(stage);
     try {
       const response = await axios.post('/api/admin/operations/model-test', {
         stage,
-        ...getStageFormConfig(stage),
+        ...stageConfig,
       }, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
@@ -195,7 +200,7 @@ const ConfigManager = ({ adminToken }) => {
       });
       const models = Array.isArray(response.data?.models) ? response.data.models : [];
       setAvailableModels(models);
-      if (!formData.POLISH_MODEL && models[0]) {
+      if (models[0] && !models.includes(formData.POLISH_MODEL)) {
         applyUnifiedModel(models[0]);
       }
       toast.success(response.data?.message || `已拉取 ${models.length} 个模型`);
@@ -218,13 +223,9 @@ const ConfigManager = ({ adminToken }) => {
   const primaryModel = formData.POLISH_MODEL || formData.ENHANCE_MODEL || 'gpt-5.5';
   const primaryBaseUrl = formData.POLISH_BASE_URL || formData.ENHANCE_BASE_URL || '';
   const providerDisplayName = formData.MODEL_PROVIDER_NAME || (primaryBaseUrl.includes('sub') ? 'Sub API 中转站' : 'OpenAI Compatible 中转站');
-  const availableModelOptions = Array.from(new Set([
-    ...availableModels,
-    primaryModel,
-    'gpt-5.5',
-    'gpt-4o',
-    'moonshot-v1-8k',
-  ].filter(Boolean)));
+  const availableModelOptions = availableModels.length > 0
+    ? availableModels
+    : [primaryModel].filter(Boolean);
   const applyUnifiedModel = (modelName) => {
     setFormData((previous) => ({
       ...previous,
