@@ -48,7 +48,7 @@ import MarkdownPreview, { DEFAULT_ANNOUNCEMENT_MARKDOWN } from '../components/Ma
 import { formatChinaDateTime } from '../utils/dateTime';
 
 const DEFAULT_ADMIN_TAB = 'dashboard';
-const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'config', 'audit'];
+const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'config', 'audit', 'adminProfile'];
 const ADMIN_ACCOUNT_FORM_CLASS = 'grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_5rem_7rem] gap-3 mb-5';
 const ADMIN_ACCOUNT_INPUT_CLASS = 'aurora-admin-input w-full min-w-0 h-12 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent';
 const ADMIN_ACCOUNT_WIDE_INPUT_CLASS = `${ADMIN_ACCOUNT_INPUT_CLASS} sm:col-span-2`;
@@ -437,6 +437,15 @@ const AdminNavGlyph = ({ type, className = 'w-5 h-5' }) => {
           <path d="M6.9 5.9 5.4 4.4M17.1 5.9l1.5-1.5" opacity=".62" />
         </svg>
       );
+    case 'adminProfile':
+      return (
+        <svg {...commonProps}>
+          <rect x="4" y="4.6" width="16" height="14.8" rx="3.1" />
+          <circle cx="10" cy="10" r="2.25" />
+          <path d="M6.8 16.4c.55-2.05 1.62-3.1 3.2-3.1s2.65 1.05 3.2 3.1" />
+          <path d="M15.4 9.2h2.1M15.4 12h2.1M15.4 14.8h2.1" opacity=".68" />
+        </svg>
+      );
     default:
       return <LayoutGrid className={className} />;
   }
@@ -526,6 +535,16 @@ const AdminDashboard = () => {
   const [auditResourceFilter, setAuditResourceFilter] = useState('all');
   const [auditSeverityFilter, setAuditSeverityFilter] = useState('all');
   const [auditDateRange, setAuditDateRange] = useState('all');
+  const [adminProfile, setAdminProfile] = useState(null);
+  const [loadingAdminProfile, setLoadingAdminProfile] = useState(false);
+  const [savingAdminProfile, setSavingAdminProfile] = useState(false);
+  const [savingAdminPassword, setSavingAdminPassword] = useState(false);
+  const [adminDisplayName, setAdminDisplayName] = useState('');
+  const [adminPasswordForm, setAdminPasswordForm] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
 
   useEffect(() => {
     if (adminToken) {
@@ -571,6 +590,12 @@ const AdminDashboard = () => {
     }
   }, [isAuthenticated, activeTab]);
 
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'adminProfile') {
+      fetchAdminProfile();
+    }
+  }, [isAuthenticated, activeTab]);
+
   const verifyToken = async () => {
     try {
       await axios.post('/api/admin/verify-token', {}, {
@@ -606,13 +631,23 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = (options = {}) => {
+    const silent = Boolean(options?.silent);
     localStorage.removeItem('adminToken');
     setAdminToken(null);
     setIsAuthenticated(false);
     setUsername('');
     setPassword('');
-    toast.success('已退出登录');
+    setAdminProfile(null);
+    setAdminDisplayName('');
+    setAdminPasswordForm({
+      current_password: '',
+      new_password: '',
+      confirm_password: '',
+    });
+    if (!silent) {
+      toast.success('已退出登录');
+    }
   };
 
   const handleAdminTabChange = (tabId) => {
@@ -751,6 +786,90 @@ const AdminDashboard = () => {
       console.error('Error fetching announcements:', error);
     } finally {
       setLoadingAnnouncements(false);
+    }
+  };
+
+  const fetchAdminProfile = async () => {
+    setLoadingAdminProfile(true);
+    try {
+      const response = await axios.get('/api/admin/profile', {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      });
+      setAdminProfile(response.data);
+      setAdminDisplayName(response.data.display_name || response.data.username || '');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '获取管理员资料失败');
+    } finally {
+      setLoadingAdminProfile(false);
+    }
+  };
+
+  const handleSaveAdminProfile = async (event) => {
+    event.preventDefault();
+    const displayName = adminDisplayName.trim();
+    if (!displayName) {
+      toast.error('管理员昵称不能为空');
+      return;
+    }
+
+    setSavingAdminProfile(true);
+    try {
+      const response = await axios.patch('/api/admin/profile',
+        { display_name: displayName },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+      setAdminProfile(response.data);
+      setAdminDisplayName(response.data.display_name || '');
+      toast.success('管理员资料已更新');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '保存管理员资料失败');
+    } finally {
+      setSavingAdminProfile(false);
+    }
+  };
+
+  const handleAdminPasswordInput = (field, value) => {
+    setAdminPasswordForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveAdminPassword = async (event) => {
+    event.preventDefault();
+    if (!adminPasswordForm.current_password) {
+      toast.error('请输入当前密码');
+      return;
+    }
+    if (adminPasswordForm.new_password.length < 8) {
+      toast.error('新密码至少 8 位');
+      return;
+    }
+    if (adminPasswordForm.new_password !== adminPasswordForm.confirm_password) {
+      toast.error('两次输入的新密码不一致');
+      return;
+    }
+
+    setSavingAdminPassword(true);
+    try {
+      await axios.post('/api/admin/profile/password',
+        {
+          current_password: adminPasswordForm.current_password,
+          new_password: adminPasswordForm.new_password,
+        },
+        { headers: { Authorization: `Bearer ${adminToken}` } }
+      );
+      setAdminPasswordForm({
+        current_password: '',
+        new_password: '',
+        confirm_password: '',
+      });
+      toast.success('管理员密码已更新，请用新密码重新登录');
+      handleLogout({ silent: true });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '更新管理员密码失败');
+    } finally {
+      setSavingAdminPassword(false);
     }
   };
 
@@ -1414,6 +1533,12 @@ const AdminDashboard = () => {
       label: '操作日志',
       glyph: 'audit',
       hint: '审计',
+    },
+    {
+      id: 'adminProfile',
+      label: '个人资料',
+      glyph: 'adminProfile',
+      hint: '账户',
     },
   ];
 
@@ -2817,6 +2942,159 @@ const AdminDashboard = () => {
                 )}
               </aside>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'adminProfile' && (
+          <div className="aurora-admin-section aurora-admin-profile-page space-y-6">
+            <div className="aurora-admin-card aurora-admin-profile-hero">
+              <div className="aurora-admin-profile-avatar">
+                {(adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="aurora-admin-profile-identity">
+                <span className="aurora-admin-profile-kicker">后台账户</span>
+                <h1>{adminProfile?.display_name || adminDisplayName || '管理员'}</h1>
+                <p>{adminProfile?.username || 'admin'}</p>
+                <div className="aurora-admin-profile-badges">
+                  <span><Shield className="h-4 w-4" />{adminProfile?.role || '管理员'}</span>
+                  <span><CheckCircle className="h-4 w-4" />已启用</span>
+                </div>
+              </div>
+              <div className="aurora-admin-profile-meta-grid">
+                <div>
+                  <span>认证方式</span>
+                  <strong>{adminProfile?.auth_method === 'password' ? '密码登录' : adminProfile?.auth_method || '--'}</strong>
+                </div>
+                <div>
+                  <span>令牌有效期</span>
+                  <strong>{adminProfile?.token_expire_minutes ? `${adminProfile.token_expire_minutes} 分钟` : '--'}</strong>
+                </div>
+                <div>
+                  <span>资料更新</span>
+                  <strong>{adminProfile?.updated_at ? formatChinaDateTime(adminProfile.updated_at) : '未修改'}</strong>
+                </div>
+              </div>
+            </div>
+
+            {loadingAdminProfile && !adminProfile ? (
+              <div className="aurora-admin-card aurora-loading-card">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                正在加载管理员资料
+              </div>
+            ) : (
+              <div className="aurora-admin-profile-grid">
+                <form onSubmit={handleSaveAdminProfile} className="aurora-admin-card aurora-admin-profile-panel">
+                  <div className="aurora-admin-profile-panel-head">
+                    <div className="aurora-admin-profile-panel-icon">
+                      <UserCheck className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3>个人资料</h3>
+                      <p>修改后台显示昵称，用户名仍由系统配置管理。</p>
+                    </div>
+                  </div>
+                  <label className="aurora-admin-profile-field">
+                    <span>显示昵称</span>
+                    <input
+                      type="text"
+                      value={adminDisplayName}
+                      onChange={(event) => setAdminDisplayName(event.target.value)}
+                      className="aurora-admin-input"
+                      maxLength={32}
+                      placeholder="例如：魔尊后台"
+                    />
+                  </label>
+                  <label className="aurora-admin-profile-field">
+                    <span>登录用户名</span>
+                    <input
+                      type="text"
+                      value={adminProfile?.username || ''}
+                      className="aurora-admin-input"
+                      disabled
+                      readOnly
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={savingAdminProfile}
+                    className="aurora-admin-action aurora-admin-profile-submit"
+                  >
+                    {savingAdminProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    保存资料
+                  </button>
+                </form>
+
+                <form onSubmit={handleSaveAdminPassword} className="aurora-admin-card aurora-admin-profile-panel">
+                  <div className="aurora-admin-profile-panel-head">
+                    <div className="aurora-admin-profile-panel-icon">
+                      <Key className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3>修改密码</h3>
+                      <p>更新后会退出当前后台登录，请重新使用新密码进入。</p>
+                    </div>
+                  </div>
+                  <label className="aurora-admin-profile-field">
+                    <span>当前密码</span>
+                    <input
+                      type="password"
+                      value={adminPasswordForm.current_password}
+                      onChange={(event) => handleAdminPasswordInput('current_password', event.target.value)}
+                      className="aurora-admin-input"
+                      autoComplete="current-password"
+                      placeholder="请输入当前管理员密码"
+                    />
+                  </label>
+                  <label className="aurora-admin-profile-field">
+                    <span>新密码</span>
+                    <input
+                      type="password"
+                      value={adminPasswordForm.new_password}
+                      onChange={(event) => handleAdminPasswordInput('new_password', event.target.value)}
+                      className="aurora-admin-input"
+                      autoComplete="new-password"
+                      placeholder="至少 8 位"
+                    />
+                  </label>
+                  <label className="aurora-admin-profile-field">
+                    <span>确认新密码</span>
+                    <input
+                      type="password"
+                      value={adminPasswordForm.confirm_password}
+                      onChange={(event) => handleAdminPasswordInput('confirm_password', event.target.value)}
+                      className="aurora-admin-input"
+                      autoComplete="new-password"
+                      placeholder="再次输入新密码"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={savingAdminPassword}
+                    className="aurora-admin-action aurora-admin-profile-submit"
+                  >
+                    {savingAdminPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
+                    保存密码
+                  </button>
+                </form>
+
+                <div className="aurora-admin-card aurora-admin-profile-panel aurora-admin-profile-status">
+                  <div className="aurora-admin-profile-panel-head">
+                    <div className="aurora-admin-profile-panel-icon">
+                      <Clock className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3>登录状态</h3>
+                      <p>当前后台账号使用系统密码登录，与普通用户账号完全隔离。</p>
+                    </div>
+                  </div>
+                  <div className="aurora-admin-profile-status-list">
+                    <div><span>账户角色</span><strong>{adminProfile?.role || '管理员'}</strong></div>
+                    <div><span>配置来源</span><strong>{adminProfile?.profile_source === 'system_settings' ? '系统设置' : adminProfile?.profile_source || '--'}</strong></div>
+                    <div><span>当前状态</span><strong className="text-emerald-600">● 正常</strong></div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
         

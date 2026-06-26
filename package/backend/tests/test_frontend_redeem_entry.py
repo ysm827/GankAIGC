@@ -673,6 +673,14 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert "用户管理" in admin_dashboard
     assert "公告" in admin_dashboard
     assert "操作日志" in admin_dashboard
+    assert "个人资料" in admin_dashboard
+    assert "/api/admin/profile" in admin_dashboard
+    assert "/api/admin/profile/password" in admin_dashboard
+    assert "handleSaveAdminProfile" in admin_dashboard
+    assert "handleSaveAdminPassword" in admin_dashboard
+    assert "aurora-admin-profile-page" in admin_dashboard
+    assert ".aurora-admin-profile-hero" in index_css
+    assert ".aurora-admin-profile-grid" in index_css
     for label in ("ACCOUNT CONTROL", "BROADCAST", "AUDIT LEDGER"):
         assert label not in admin_dashboard
     assert "bg-gradient-to-r from-teal-600" not in admin_dashboard
@@ -1724,7 +1732,10 @@ def test_served_static_bundle_includes_admin_tab_url_persistence():
 
     assert "URLSearchParams" in static_bundle
     assert '"tab"' in static_bundle
-    assert '"dashboard","operations","sessions","accounts","announcements","config","audit"' in static_bundle
+    assert '"dashboard","operations","sessions","accounts","announcements","config","audit","adminProfile"' in static_bundle
+    assert "个人资料" in static_bundle
+    assert "/api/admin/profile" in static_bundle
+    assert "/api/admin/profile/password" in static_bundle
     assert "数据诊断" not in static_bundle
     assert "Word 排版文件大小限制" not in static_bundle
     assert "MAX_UPLOAD_FILE_SIZE_MB" not in static_bundle

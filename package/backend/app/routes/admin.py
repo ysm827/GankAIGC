@@ -8,11 +8,16 @@ from typing import Any, Dict, List, Optional, Type
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import inspect, func, case
 from sqlalchemy.orm import Session, defer, joinedload
 
-from app.config import reload_settings, settings
+from app.config import (
+    is_placeholder_admin_password,
+    is_weak_admin_password,
+    reload_settings,
+    settings,
+)
 from app.database import get_db
 from app.models.models import (
     AdminAuditLog,
@@ -86,6 +91,26 @@ class AdminLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     username: str
+
+
+class AdminProfileResponse(BaseModel):
+    username: str
+    display_name: str
+    role: str = "管理员"
+    role_key: str = "admin"
+    auth_method: str = "password"
+    token_expire_minutes: int
+    profile_source: str = "system_settings"
+    updated_at: Optional[datetime] = None
+
+
+class AdminProfileUpdateRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=32)
+
+
+class AdminPasswordUpdateRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class ModelConnectionTestRequest(BaseModel):
@@ -195,6 +220,40 @@ MODEL_BASE_URL_FIELDS = {
     "COMPRESSION_BASE_URL",
 }
 
+ADMIN_DISPLAY_NAME_SETTING_KEY = "ADMIN_DISPLAY_NAME"
+
+
+def _get_system_setting(db: Session, key: str) -> Optional[SystemSetting]:
+    return db.query(SystemSetting).filter(SystemSetting.key == key).first()
+
+
+def _upsert_system_setting(db: Session, key: str, value: str) -> SystemSetting:
+    setting = _get_system_setting(db, key)
+    if setting:
+        setting.value = value
+        setting.updated_at = utcnow()
+        return setting
+
+    setting = SystemSetting(key=key, value=value)
+    db.add(setting)
+    return setting
+
+
+def _get_admin_display_setting(db: Session) -> tuple[str, Optional[datetime]]:
+    setting = _get_system_setting(db, ADMIN_DISPLAY_NAME_SETTING_KEY)
+    display_name = (setting.value or "").strip() if setting else ""
+    return display_name or settings.ADMIN_USERNAME, setting.updated_at if setting else None
+
+
+def _serialize_admin_profile(db: Session, admin_username: str) -> AdminProfileResponse:
+    display_name, updated_at = _get_admin_display_setting(db)
+    return AdminProfileResponse(
+        username=admin_username,
+        display_name=display_name,
+        token_expire_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+        updated_at=updated_at,
+    )
+
 
 def verify_admin_credentials(username: str, password: str) -> bool:
     return username == settings.ADMIN_USERNAME and password == settings.ADMIN_PASSWORD
@@ -289,6 +348,63 @@ def _validate_model_base_url_updates(updates: Dict[str, str]) -> Dict[str, str]:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return sanitized
+
+
+def _persist_runtime_env_updates(updates: Dict[str, str]) -> None:
+    """Persist known runtime settings into .env and hot-reload the settings object."""
+    from app.config import get_env_file_path
+
+    normalized_updates: Dict[str, str] = {}
+    for key, value in updates.items():
+        value_text = str(value)
+        if "\n" in value_text or "\r" in value_text:
+            raise ValueError(f"{key} 不能包含换行符")
+        normalized_updates[key] = value_text
+    updates = normalized_updates
+
+    env_path = get_env_file_path()
+    env_existed = os.path.exists(env_path)
+    if env_existed:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+    else:
+        lines = []
+
+    updated_keys = set()
+    new_lines: List[str] = []
+    for line in lines:
+        stripped = line.rstrip("\n")
+        if "=" in stripped and not stripped.strip().startswith("#"):
+            key = stripped.split("=", 1)[0].strip()
+            if key in updates:
+                new_lines.append(f"{key}={updates[key]}\n")
+                updated_keys.add(key)
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    for key, value in updates.items():
+        if key not in updated_keys:
+            new_lines.append(f"{key}={value}\n")
+
+    original_content = "".join(lines)
+    new_content = "".join(new_lines)
+
+    try:
+        env_dir = os.path.dirname(env_path)
+        if env_dir:
+            os.makedirs(env_dir, exist_ok=True)
+        with open(env_path, "w", encoding="utf-8") as handle:
+            handle.write(new_content)
+        reload_settings(updates)
+    except Exception:
+        if env_existed:
+            with open(env_path, "w", encoding="utf-8") as handle:
+                handle.write(original_content)
+        elif os.path.exists(env_path):
+            os.remove(env_path)
+        raise
 
 
 def _user_display_name(user: Optional[User], fallback_id: Optional[int] = None) -> Optional[str]:
@@ -404,6 +520,65 @@ async def admin_login(credentials: AdminLogin) -> AdminLoginResponse:
 async def verify_admin_token_endpoint(authorization: Optional[str] = Header(None)) -> Dict[str, bool]:
     get_admin_from_token(authorization)
     return {"valid": True}
+
+
+@router.get("/profile", response_model=AdminProfileResponse)
+async def get_admin_profile(
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> AdminProfileResponse:
+    return _serialize_admin_profile(db, admin_username)
+
+
+@router.patch("/profile", response_model=AdminProfileResponse)
+async def update_admin_profile(
+    payload: AdminProfileUpdateRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> AdminProfileResponse:
+    display_name = payload.display_name.strip()
+    if not display_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="管理员昵称不能为空")
+
+    _upsert_system_setting(db, ADMIN_DISPLAY_NAME_SETTING_KEY, display_name)
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "update_admin_profile",
+        target_type="admin_profile",
+        detail={"updated_keys": ["display_name"]},
+    )
+    db.commit()
+    return _serialize_admin_profile(db, admin_username)
+
+
+@router.post("/profile/password")
+async def update_admin_password(
+    payload: AdminPasswordUpdateRequest,
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> Dict[str, str]:
+    if payload.current_password != settings.ADMIN_PASSWORD:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能和当前密码相同")
+    if is_placeholder_admin_password(payload.new_password) or is_weak_admin_password(payload.new_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少 8 位，且不能使用默认弱密码")
+
+    try:
+        _persist_runtime_env_updates({"ADMIN_PASSWORD": payload.new_password})
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "update_admin_password",
+        target_type="admin_profile",
+        detail={"updated_keys": ["ADMIN_PASSWORD"]},
+    )
+    db.commit()
+    return {"message": "管理员密码已更新，请用新密码重新登录"}
 
 
 @router.get("/audit-logs")
@@ -2018,53 +2193,10 @@ async def update_config(
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少更新内容")
 
-    # 使用 config.py 中的函数获取 .env 路径，支持 exe 环境
-    from app.config import get_env_file_path
-    env_path = get_env_file_path()
-
-    env_existed = os.path.exists(env_path)
-    if env_existed:
-        with open(env_path, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    else:
-        lines = []
-
-    updated_keys = set()
-    new_lines: List[str] = []
-    for line in lines:
-        stripped = line.rstrip("\n")
-        if "=" in stripped and not stripped.strip().startswith("#"):
-            key = stripped.split("=", 1)[0].strip()
-            if key in updates:
-                new_lines.append(f"{key}={updates[key]}\n")
-                updated_keys.add(key)
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-
-    for key, value in updates.items():
-        if key not in updated_keys:
-            new_lines.append(f"{key}={value}\n")
-
-    original_content = "".join(lines)
-    new_content = "".join(new_lines)
-
     try:
-        env_dir = os.path.dirname(env_path)
-        if env_dir:
-            os.makedirs(env_dir, exist_ok=True)
-        with open(env_path, "w", encoding="utf-8") as handle:
-            handle.write(new_content)
-
-        reload_settings(updates)
+        _persist_runtime_env_updates(updates)
         refresh_cors_middleware(request.app)
     except Exception as exc:
-        if env_existed:
-            with open(env_path, "w", encoding="utf-8") as handle:
-                handle.write(original_content)
-        elif os.path.exists(env_path):
-            os.remove(env_path)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if "MAX_CONCURRENT_USERS" in updates:

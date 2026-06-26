@@ -88,6 +88,67 @@ def test_credit_code_recharge_and_ban_logs_are_returned_newest_first(client):
     assert logs[3]["detail"]["credit_amount"] == 12
 
 
+def test_admin_profile_can_update_display_name_and_writes_audit_log(client):
+    headers = _admin_auth_headers(client)
+
+    profile_response = client.get("/api/admin/profile", headers=headers)
+    assert profile_response.status_code == 200
+    assert profile_response.json()["username"] == config_module.settings.ADMIN_USERNAME
+    assert profile_response.json()["display_name"] == config_module.settings.ADMIN_USERNAME
+    assert profile_response.json()["role"] == "管理员"
+
+    update_response = client.patch(
+        "/api/admin/profile",
+        json={"display_name": "魔尊后台"},
+        headers=headers,
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["display_name"] == "魔尊后台"
+    assert update_response.json()["profile_source"] == "system_settings"
+    logs = _audit_logs(client, headers)
+    assert logs[0]["action"] == "update_admin_profile"
+    assert logs[0]["target_type"] == "admin_profile"
+    assert logs[0]["detail"] == {"updated_keys": ["display_name"]}
+
+
+def test_admin_profile_password_update_persists_without_leaking_secret(client, tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SECRET_KEY=test-secret-key\nADMIN_PASSWORD=test-admin-password\n", encoding="utf-8")
+    original_password = config_module.settings.ADMIN_PASSWORD
+    monkeypatch.setattr(config_module, "get_env_file_path", lambda: str(env_file))
+    headers = _admin_auth_headers(client)
+
+    try:
+        response = client.post(
+            "/api/admin/profile/password",
+            json={"current_password": "test-admin-password", "new_password": "new-admin-password-123"},
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "管理员密码已更新，请用新密码重新登录"
+        assert "ADMIN_PASSWORD=new-admin-password-123" in env_file.read_text(encoding="utf-8")
+        assert config_module.settings.ADMIN_PASSWORD == "new-admin-password-123"
+        logs = _audit_logs(client, headers)
+        assert logs[0]["action"] == "update_admin_password"
+        assert logs[0]["detail"] == {"updated_keys": ["ADMIN_PASSWORD"]}
+        assert "new-admin-password-123" not in str(logs[0])
+
+        old_login = client.post(
+            "/api/admin/login",
+            json={"username": config_module.settings.ADMIN_USERNAME, "password": "test-admin-password"},
+        )
+        new_login = client.post(
+            "/api/admin/login",
+            json={"username": config_module.settings.ADMIN_USERNAME, "password": "new-admin-password-123"},
+        )
+        assert old_login.status_code == 401
+        assert new_login.status_code == 200
+    finally:
+        config_module.settings.ADMIN_PASSWORD = original_password
+
+
 def test_config_update_audit_log_records_only_keys(client, tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text("ADMIN_PASSWORD=test-admin-password\nPOLISH_API_KEY=old-secret\n", encoding="utf-8")
