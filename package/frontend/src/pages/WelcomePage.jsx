@@ -293,14 +293,14 @@ const WelcomePage = () => {
         </section>
 
         <section data-home-github-star="footer" className="mx-auto max-w-6xl px-5 py-20 sm:px-8">
-          <div className="flex flex-col gap-6 rounded-xl border border-[#EAEAEA] bg-[#111111] p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-8">
+          <div className="flex flex-col gap-6 rounded-xl border border-[#EAEAEA] bg-white p-6 text-[#111111] sm:flex-row sm:items-center sm:justify-between sm:p-8">
             <div className="flex items-start gap-4">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white/10 text-white">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#F7F6F3] text-[#2F3437]">
                 <Github className="h-5 w-5" aria-hidden="true" />
               </div>
               <div>
                 <p className="text-lg font-semibold">GitHub 项目</p>
-                <p className="mt-2 max-w-xl text-sm leading-7 text-white/68">
+                <p className="mt-2 max-w-xl text-sm leading-7 text-[#6B7280]">
                   项目持续迭代中，觉得有用欢迎点个 Star。反馈越具体，下一刀越准。
                 </p>
               </div>
@@ -310,7 +310,7 @@ const WelcomePage = () => {
               href={GITHUB_PROJECT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md bg-white px-5 text-sm font-semibold text-[#111111] transition hover:bg-[#F7F6F3] active:scale-[0.98]"
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-md border border-[#EAEAEA] bg-[#FBFBFA] px-5 text-sm font-semibold text-[#111111] transition hover:border-[#D8D8D8] hover:bg-[#F7F6F3] active:scale-[0.98]"
               aria-label="打开项目仓库，求 Star"
             >
               <Star className="h-4 w-4 fill-[#F4C430] text-[#F4C430]" aria-hidden="true" />
