@@ -1256,6 +1256,9 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "logoutZhuque" in api
     assert "/optimization/zhuque/browser/logout" in api
     assert "handleRefreshZhuqueFreeQuota" in workspace
+    assert "hasAutoRefreshedZhuqueQuotaRef" in workspace
+    assert "refreshZhuqueFreeQuota({ silent: true })" in workspace
+    assert "refreshZhuqueFreeQuota({ silent: false })" in workspace
     assert "refreshZhuqueFreeQuota" in api
     assert "/optimization/zhuque/free-quota/refresh" in api
     assert zhuque_panel.index("朱雀 AI 检测") < zhuque_panel.index("aurora-zhuque-login-button")

@@ -438,6 +438,8 @@ const WorkspacePage = () => {
   const [zhuqueFastPollUntil, setZhuqueFastPollUntil] = useState(0);
   const activeProjectIdRef = useRef(null);
   const isLoadingZhuqueStatusRef = useRef(false);
+  const isRefreshingZhuqueQuotaRef = useRef(false);
+  const hasAutoRefreshedZhuqueQuotaRef = useRef(false);
   const zhuqueLastKnownLoggedOutRemainingRef = useRef(undefined);
   const zhuqueLoginSessionIdRef = useRef('');
   const documentFileInputRef = useRef(null);
@@ -724,6 +726,40 @@ const WorkspacePage = () => {
     }
   }, [loadZhuqueAuthStatus, loadZhuqueReadiness]);
 
+  const refreshZhuqueFreeQuota = useCallback(async ({ silent = false } = {}) => {
+    if (isRefreshingZhuqueQuotaRef.current || isStartingZhuqueLogin) {
+      return;
+    }
+
+    isRefreshingZhuqueQuotaRef.current = true;
+    try {
+      setIsRefreshingZhuqueQuota(true);
+      const response = await optimizationAPI.refreshZhuqueFreeQuota();
+      const remaining = extractZhuqueRemainingUses(response.data);
+      if (remaining === undefined && response.data?.connected === false && response.data?.has_token === false) {
+        clearZhuqueLoggedOutRemaining();
+      }
+      mergeZhuqueReadiness(response.data);
+      if (!silent) {
+        if (remaining !== undefined) {
+          toast.success(`${response.data?.has_token ? '朱雀剩余次数' : '朱雀免费次数'}：${remaining} 次`);
+        } else if (response.data?.button_enabled || response.data?.ready) {
+          toast.success(response.data?.message || '朱雀免费检测入口可用，剩余次数将在检测后同步');
+        } else {
+          toast.error(response.data?.message || '暂未探测到朱雀免费次数，请扫码登录或稍后再刷新');
+        }
+      }
+      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+    } catch (error) {
+      if (!silent) {
+        toast.error(error.response?.data?.detail || '刷新朱雀次数失败');
+      }
+    } finally {
+      isRefreshingZhuqueQuotaRef.current = false;
+      setIsRefreshingZhuqueQuota(false);
+    }
+  }, [clearZhuqueLoggedOutRemaining, isStartingZhuqueLogin, mergeZhuqueReadiness]);
+
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
       const response = await optimizationAPI.getSessionProgress(sessionId);
@@ -808,10 +844,21 @@ const WorkspacePage = () => {
 
   useEffect(() => {
     if (processingMode !== 'ai_detect_reduce') {
+      hasAutoRefreshedZhuqueQuotaRef.current = false;
       return;
     }
 
-    loadZhuqueStatusPanel();
+    let isCancelled = false;
+    const loadInitialZhuqueStatus = async () => {
+      await loadZhuqueStatusPanel();
+      if (isCancelled || hasAutoRefreshedZhuqueQuotaRef.current) {
+        return;
+      }
+      hasAutoRefreshedZhuqueQuotaRef.current = true;
+      await refreshZhuqueFreeQuota({ silent: true });
+    };
+    loadInitialZhuqueStatus();
+
     const pollInterval = Date.now() < zhuqueFastPollUntil
       ? ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS
       : ZHUQUE_STATUS_POLL_INTERVAL_MS;
@@ -821,8 +868,11 @@ const WorkspacePage = () => {
       }
       loadZhuqueStatusPanel();
     }, pollInterval);
-    return () => clearInterval(interval);
-  }, [loadZhuqueStatusPanel, processingMode, zhuqueFastPollUntil]);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [loadZhuqueStatusPanel, processingMode, refreshZhuqueFreeQuota, zhuqueFastPollUntil]);
 
   const mergeZhuqueLoginSession = useCallback((payload) => {
     if (!payload) {
@@ -1216,32 +1266,9 @@ const WorkspacePage = () => {
     }
   }, [isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueAuthStatus, mergeZhuqueReadiness]);
 
-  const handleRefreshZhuqueFreeQuota = useCallback(async () => {
-    if (isRefreshingZhuqueQuota || isStartingZhuqueLogin) {
-      return;
-    }
-    try {
-      setIsRefreshingZhuqueQuota(true);
-      const response = await optimizationAPI.refreshZhuqueFreeQuota();
-      const remaining = extractZhuqueRemainingUses(response.data);
-      if (remaining === undefined && response.data?.connected === false && response.data?.has_token === false) {
-        clearZhuqueLoggedOutRemaining();
-      }
-      mergeZhuqueReadiness(response.data);
-      if (remaining !== undefined) {
-        toast.success(`${response.data?.has_token ? '朱雀剩余次数' : '朱雀免费次数'}：${remaining} 次`);
-      } else if (response.data?.button_enabled || response.data?.ready) {
-        toast.success(response.data?.message || '朱雀免费检测入口可用，剩余次数将在检测后同步');
-      } else {
-        toast.error(response.data?.message || '暂未探测到朱雀免费次数，请扫码登录或稍后再刷新');
-      }
-      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || '刷新朱雀次数失败');
-    } finally {
-      setIsRefreshingZhuqueQuota(false);
-    }
-  }, [clearZhuqueLoggedOutRemaining, isRefreshingZhuqueQuota, isStartingZhuqueLogin, mergeZhuqueReadiness]);
+  const handleRefreshZhuqueFreeQuota = useCallback(() => {
+    refreshZhuqueFreeQuota({ silent: false });
+  }, [refreshZhuqueFreeQuota]);
 
   const handleCloseZhuqueLoginModal = useCallback(async () => {
     const sessionId = zhuqueLoginSessionIdRef.current;
