@@ -388,6 +388,8 @@ class SessionResponse(BaseModel):
     project_title: Optional[str] = None
     task_title: Optional[str] = None
     zhuque_agent_trace: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None

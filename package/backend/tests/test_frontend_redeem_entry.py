@@ -174,6 +174,12 @@ def test_workspace_project_archive_and_history_controls_are_actionable():
     assert "aurora-history-more" not in workspace
 
     assert "归入项目" in workspace
+    assert "formatSessionDuration(session)" in workspace
+    assert "耗时 --" in workspace
+    assert "session.started_at || session.created_at" in workspace
+    assert "session.finished_at || session.completed_at || session.updated_at" in workspace
+    assert "started_at: Optional[datetime] = None" in schemas
+    assert "finished_at: Optional[datetime] = None" in schemas
     assert "handleMoveSessionToProject" in workspace
     assert "optimizationAPI.updateSessionProject(session.session_id" in workspace
     assert "project_id: projectId" in workspace

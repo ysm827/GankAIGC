@@ -243,6 +243,40 @@ const formatSessionWordCount = (count) => {
   return `字数 ${numeric.toLocaleString('zh-CN')}`;
 };
 
+const parseSessionDate = (value) => {
+  if (!value) {
+    return null;
+  }
+  const normalized = String(value).trim().replace(' ', 'T');
+  if (!normalized) {
+    return null;
+  }
+  const hasExplicitTimezone = normalized.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(normalized);
+  const date = new Date(hasExplicitTimezone ? normalized : `${normalized}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatSessionDuration = (session) => {
+  const startDate = parseSessionDate(session.started_at || session.created_at);
+  const endDate = parseSessionDate(session.finished_at || session.completed_at || session.updated_at);
+  if (!startDate || !endDate || endDate < startDate) {
+    return '耗时 --';
+  }
+
+  const totalSeconds = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `耗时 ${hours}小时${minutes}分`;
+  }
+  if (minutes > 0) {
+    return `耗时 ${minutes}分${seconds}秒`;
+  }
+  return `耗时 ${seconds}秒`;
+};
+
 // 会话列表项组件 - 使用 memo 避免不必要重渲染
 const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSessionId, onToggleProjectMenu, onView, onDelete, onRetry, onMoveToProject }) => {
   const handleDelete = useCallback((e) => {
@@ -305,6 +339,7 @@ const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSes
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] leading-5 text-slate-500">
           <span>{formatChinaDate(session.created_at)}</span>
           <span>{formatSessionWordCount(session.original_char_count)}</span>
+          <span>{formatSessionDuration(session)}</span>
           <span className={`font-semibold ${statusClass}`}>{statusLabel} ●</span>
         </div>
 
