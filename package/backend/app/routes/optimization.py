@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, File, HTTPException, BackgroundTasks, Request, UploadFile
 from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import func, and_, case
 from typing import List, Optional
 import base64
+import tempfile
 import importlib.util
 import os
 import subprocess
@@ -17,6 +18,7 @@ from app.schemas import (
     OptimizationCreate, SessionResponse, SessionDetailResponse,
     QueueStatusResponse, ProgressUpdate, ChangeLogResponse, ExportConfirmation,
     SessionRetryRequest, SessionProjectUpdateRequest, StreamTokenResponse,
+    ParsedDocumentResponse,
     ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
     ZhuquePreflightRequest, ZhuqueReadinessResponse,
 )
@@ -45,6 +47,16 @@ from docx import Document
 router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 ONLINE_USER_WINDOW_SECONDS = 60
+DOCUMENT_UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
+DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".md", ".markdown"}
+DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "text/markdown",
+    "text/x-markdown",
+    "text/plain",
+    "application/octet-stream",
+}
 
 
 def _clean_export_filename_part(value: str, fallback: str) -> str:
@@ -86,6 +98,130 @@ def _build_docx_base64(text: str) -> str:
     buffer = BytesIO()
     document.save(buffer)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+async def _read_document_upload_with_limit(file: UploadFile) -> bytes:
+    max_bytes = settings.MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(DOCUMENT_UPLOAD_READ_CHUNK_SIZE)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > max_bytes:
+            file_size_mb = total_size / (1024 * 1024)
+            raise HTTPException(
+                status_code=400,
+                detail=f"文件大小 ({file_size_mb:.1f} MB) 超过限制 ({settings.MAX_UPLOAD_FILE_SIZE_MB} MB)",
+            )
+        chunks.append(chunk)
+
+    content = b"".join(chunks)
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件不能为空")
+    return content
+
+
+def _document_upload_extension(filename: str | None) -> str:
+    return Path(filename or "").suffix.lower()
+
+
+def _validate_document_upload(file: UploadFile) -> tuple[str, str]:
+    filename = Path(file.filename or "").name
+    extension = _document_upload_extension(filename)
+    if extension not in DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx) 和 Markdown(.md/.markdown) 文件")
+
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type and content_type not in DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="文件类型不受支持，请上传 Word(.docx) 或 Markdown(.md/.markdown)")
+    return filename or f"paper{extension}", extension
+
+
+def _decode_markdown_upload(content: bytes) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return content.decode(encoding), warnings
+        except UnicodeDecodeError:
+            continue
+    warnings.append("Markdown 文件编码无法准确识别，已使用替换模式读取")
+    return content.decode("utf-8", errors="replace"), warnings
+
+
+def _parse_docx_with_markitdown(content: bytes) -> tuple[str, list[str]]:
+    try:
+        from markitdown import MarkItDown
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="服务器未安装 MarkItDown，暂时无法解析 Word 文件",
+        ) from exc
+
+    temp_path = None
+    try:
+        md = MarkItDown(enable_plugins=False)
+        convert_stream = getattr(md, "convert_stream", None)
+        if callable(convert_stream):
+            result = convert_stream(BytesIO(content), file_extension=".docx")
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_file:
+                temp_file.write(content)
+                temp_path = temp_file.name
+            convert_local = getattr(md, "convert_local", None)
+            result = convert_local(temp_path) if callable(convert_local) else md.convert(temp_path)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Word 文件解析失败: {exc}") from exc
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+    text = getattr(result, "text_content", "") or ""
+    return text, []
+
+
+def _normalize_parsed_document_text(text: str) -> str:
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+@router.post("/documents/parse", response_model=ParsedDocumentResponse)
+async def parse_optimization_document(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """解析上传论文文件为可编辑文本。"""
+    del user  # 仅用于鉴权，解析结果不落盘。
+    filename, extension = _validate_document_upload(file)
+    content = await _read_document_upload_with_limit(file)
+
+    parser = "markdown"
+    warnings: list[str]
+    if extension in {".md", ".markdown"}:
+        parsed_text, warnings = _decode_markdown_upload(content)
+    else:
+        parser = "markitdown"
+        parsed_text, warnings = _parse_docx_with_markitdown(content)
+
+    text = _normalize_parsed_document_text(parsed_text)
+    if not text:
+        raise HTTPException(status_code=400, detail="未能从文件中解析出有效文本")
+
+    return ParsedDocumentResponse(
+        filename=filename,
+        text=text,
+        char_count=count_text_length(text),
+        parser=parser,
+        warnings=warnings,
+    )
 
 
 def _parse_zhuque_result(raw_result: str | dict | None) -> dict:

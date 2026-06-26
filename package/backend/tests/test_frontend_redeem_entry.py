@@ -1369,6 +1369,22 @@ def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
     assert "检测后同步|未知|不可用" in workspace
 
 
+def test_workspace_supports_word_and_markdown_document_upload():
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
+
+    assert "parseDocument" in api
+    assert "/optimization/documents/parse" in api
+    assert "FormData" in workspace
+    assert "optimizationAPI.parseDocument(formData)" in workspace
+    assert "accept=\".docx,.md,.markdown" in workspace
+    assert "上传 Word / MD" in workspace
+    assert "仅支持上传 Word(.docx) 和 Markdown(.md/.markdown)" in workspace
+    assert "setText(parsed.text || '')" in workspace
+    assert "getDocumentTitleFromFilename" in workspace
+    assert ".pdf" not in workspace.split("accept=", 1)[1].split("\n", 1)[0]
+
+
 def test_session_detail_shows_zhuque_agent_trace():
     session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
 

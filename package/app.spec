@@ -42,6 +42,7 @@ hidden_imports = [
     # Word 格式化模块依赖
     'mistune',
     'docx',
+    'markitdown',
     'lxml',
     'lxml.etree',
     'lxml._elementpath',
@@ -65,6 +66,12 @@ hidden_imports += collect_submodules('starlette')
 # Word 格式化模块子模块
 hidden_imports += collect_submodules('mistune')
 hidden_imports += collect_submodules('docx')
+hidden_imports += collect_submodules('markitdown')
+hidden_imports += collect_submodules('magika')
+hidden_imports += collect_submodules('mammoth')
+hidden_imports += collect_submodules('markdownify')
+hidden_imports += collect_submodules('bs4')
+hidden_imports += collect_submodules('onnxruntime')
 hidden_imports += collect_submodules('lxml')
 # pkg_resources / jaraco 子模块 (Linux 必需)
 hidden_imports += collect_submodules('jaraco')
@@ -82,6 +89,8 @@ a = Analysis(
         ('VERSION', '.'),
         # 包含后端 app 目录
         ('backend/app', 'app'),
+        # MarkItDown 依赖 magika 的本地模型/配置文件
+        *collect_data_files('magika'),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -90,7 +99,6 @@ a = Analysis(
     excludes=[
         'tkinter',
         'matplotlib',
-        'numpy',
         'pandas',
         'scipy',
         'PIL',

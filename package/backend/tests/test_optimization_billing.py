@@ -1,4 +1,6 @@
 import socket
+import sys
+import types
 
 import app.config as config_module
 from app.database import SessionLocal
@@ -69,6 +71,72 @@ def test_calculate_optimization_credits_uses_billable_characters_and_stage_multi
     assert calculate_optimization_credits("汉" * 1000, "paper_enhance") == 1
     assert calculate_optimization_credits("汉" * 1001, "paper_enhance") == 2
     assert calculate_optimization_credits("汉" * 3000, "paper_polish_enhance") == 6
+
+
+def test_parse_markdown_document_upload_returns_editable_text(client):
+    _, token = _create_user(credit_balance=0)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.md", b"# Title\n\nMarkdown body", "text/markdown")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "paper.md"
+    assert payload["parser"] == "markdown"
+    assert payload["text"] == "# Title\n\nMarkdown body"
+    assert payload["char_count"] > 0
+
+
+def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
+    _, token = _create_user(credit_balance=0)
+    seen_extensions = []
+
+    class FakeMarkItDown:
+        def __init__(self, enable_plugins=False):
+            assert enable_plugins is False
+
+        def convert_stream(self, stream, *, file_extension=None):
+            seen_extensions.append(file_extension)
+            assert stream.read().startswith(b"PK\x03\x04")
+            return types.SimpleNamespace(text_content="# 论文标题\n\n解析正文")
+
+    monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={
+            "file": (
+                "paper.docx",
+                b"PK\x03\x04 fake docx content",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert seen_extensions == [".docx"]
+    assert payload["filename"] == "paper.docx"
+    assert payload["parser"] == "markitdown"
+    assert payload["text"] == "# 论文标题\n\n解析正文"
+    assert payload["char_count"] == 8
+
+
+def test_parse_document_upload_rejects_pdf_for_now(client):
+    _, token = _create_user(credit_balance=0)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.pdf", b"%PDF-1.7", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert "Word(.docx) 和 Markdown" in response.json()["detail"]
 
 
 def test_platform_mode_holds_character_based_credits_before_processing(client, monkeypatch):

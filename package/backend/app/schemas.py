@@ -263,6 +263,15 @@ class StreamTokenResponse(BaseModel):
     expires_in: int
 
 
+class ParsedDocumentResponse(BaseModel):
+    """上传论文解析结果"""
+    filename: str
+    text: str
+    char_count: int
+    parser: str
+    warnings: List[str] = []
+
+
 class ZhuqueBrowserLaunchResponse(BaseModel):
     """朱雀微信扫码登录响应（兼容旧浏览器启动接口名）"""
     status: str

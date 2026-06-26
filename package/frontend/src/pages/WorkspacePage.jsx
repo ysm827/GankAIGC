@@ -5,7 +5,8 @@ import {
   FileText, History,
   ListChecks, Clock, AlertCircle, CheckCircle, Trash2, Pencil, ExternalLink,
   Sparkles, TrendingUp, ShieldCheck, Heart, Layers, Link as LinkIcon, Folder,
-  Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput, QrCode, RefreshCw
+  Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput, QrCode, RefreshCw,
+  UploadCloud, Loader2
 } from 'lucide-react';
 import { optimizationAPI, projectAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
@@ -79,6 +80,11 @@ const WORKSPACE_QUEUE_POLL_INTERVAL_MS = 15000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 6000;
 
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
+
+const getDocumentTitleFromFilename = (filename = '') => filename
+  .replace(/\.[^.]+$/, '')
+  .replace(/[_-]+/g, ' ')
+  .trim();
 
 const calculateEstimatedCredits = (value, mode) => {
   if (mode === 'ai_detect_reduce') {
@@ -404,6 +410,7 @@ const WorkspacePage = () => {
   const [hasProviderConfig, setHasProviderConfig] = useState(false);
   const [billingMode, setBillingMode] = useState(getInitialBillingMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isParsingDocument, setIsParsingDocument] = useState(false);
   const [retryDialogSession, setRetryDialogSession] = useState(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
@@ -433,6 +440,7 @@ const WorkspacePage = () => {
   const isLoadingZhuqueStatusRef = useRef(false);
   const zhuqueLastKnownLoggedOutRemainingRef = useRef(undefined);
   const zhuqueLoginSessionIdRef = useRef('');
+  const documentFileInputRef = useRef(null);
   const navigate = useNavigate();
 
   const rememberZhuqueLoggedOutRemaining = useCallback((value) => {
@@ -1023,6 +1031,55 @@ const WorkspacePage = () => {
     }
   }, [activeProjectId, movingSessionId, projects]);
 
+  const handleChooseDocumentFile = useCallback(() => {
+    if (isParsingDocument) {
+      return;
+    }
+    documentFileInputRef.current?.click();
+  }, [isParsingDocument]);
+
+  const handleDocumentUpload = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || isParsingDocument) {
+      return;
+    }
+
+    const filename = file.name || '';
+    if (!/\.(docx|md|markdown)$/i.test(filename)) {
+      toast.error('仅支持上传 Word(.docx) 和 Markdown(.md/.markdown)');
+      return;
+    }
+
+    if (text.trim()) {
+      const shouldReplace = window.confirm('上传解析会替换当前论文内容，是否继续？');
+      if (!shouldReplace) {
+        return;
+      }
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setIsParsingDocument(true);
+      const response = await optimizationAPI.parseDocument(formData);
+      const parsed = response.data || {};
+      setText(parsed.text || '');
+      if (!taskTitle.trim()) {
+        setTaskTitle(getDocumentTitleFromFilename(parsed.filename || filename));
+      }
+      const warningText = Array.isArray(parsed.warnings) && parsed.warnings.length
+        ? `；${parsed.warnings.join('；')}`
+        : '';
+      toast.success(`文件解析完成，已导入 ${parsed.char_count ?? 0} 字符${warningText}`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '文件解析失败');
+    } finally {
+      setIsParsingDocument(false);
+    }
+  }, [isParsingDocument, taskTitle, text]);
+
   const handleStartOptimization = useCallback(async () => {
     if (!text.trim()) {
       toast.error('请输入要优化的文本');
@@ -1540,7 +1597,28 @@ const WorkspacePage = () => {
                   </div>
 
                   <div>
-                    <label htmlFor="paper-content" className="mb-3 block text-[16px] font-semibold text-slate-950">论文内容</label>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <label htmlFor="paper-content" className="text-[16px] font-semibold text-slate-950">论文内容</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={documentFileInputRef}
+                          type="file"
+                          accept=".docx,.md,.markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
+                          onChange={handleDocumentUpload}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleChooseDocumentFile}
+                          disabled={isParsingDocument || Boolean(activeSession)}
+                          className="inline-flex h-10 items-center gap-2 rounded-2xl border border-blue-100 bg-white/90 px-4 text-[13px] font-semibold text-[#2563eb] shadow-[0_10px_25px_rgba(37,99,235,0.08)] transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="上传 Word 或 Markdown 论文并自动解析到输入框"
+                        >
+                          {isParsingDocument ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+                          {isParsingDocument ? '解析中' : '上传 Word / MD'}
+                        </button>
+                      </div>
+                    </div>
                     <textarea
                       id="paper-content"
                       value={text}

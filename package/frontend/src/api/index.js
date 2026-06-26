@@ -85,6 +85,9 @@ export const projectAPI = {
 
 // Optimization API
 export const optimizationAPI = {
+  parseDocument: (formData) => api.post('/optimization/documents/parse', formData, {
+    timeout: 30000,
+  }),
   startOptimization: (data) => api.post('/optimization/start', data, {
     timeout: 60000, // 启动任务延长到60秒超时
   }),
