@@ -72,6 +72,15 @@ class ZhuqueService:
             self._last_remaining_checked_at = time.monotonic()
         return remaining_uses
 
+    def cached_remaining_uses(self) -> Optional[int]:
+        """Return the latest live Zhuque quota observed by this service.
+
+        The credential/session files may lag behind Zhuque after a detection or
+        a no-text quota refresh. Passive status/readiness polling should not
+        overwrite a fresher live value with that stale persisted count.
+        """
+        return self._last_remaining_uses
+
     async def _refresh_live_remaining_uses(
         self,
         api: ZhuqueAPI,
@@ -465,16 +474,13 @@ class ZhuqueService:
             # instant. Only a valid task text forces a live no-text WebSocket probe.
             force_live_probe = bool(text is not None and text_length_ok)
             if not force_live_probe:
-                if self._last_remaining_uses is not None and _recent_quota_cache_valid(self._last_remaining_checked_at):
+                if self._last_remaining_uses is not None:
                     remaining_uses = self._last_remaining_uses
                     button_enabled = remaining_uses > 0
                 elif credential_remaining_uses >= 0:
                     remaining_uses = credential_remaining_uses
                     button_enabled = remaining_uses > 0
                     self._remember_remaining_uses(credential_remaining_uses)
-                elif self._last_remaining_uses is not None:
-                    remaining_uses = self._last_remaining_uses
-                    button_enabled = remaining_uses > 0
                 else:
                     remaining_uses = -1
                     button_enabled = bool(status.get("button_enabled", True))
@@ -507,13 +513,13 @@ class ZhuqueService:
                 has_anonymous_fp
                 or (not has_token and self._anonymous_fp_from_api(api, status, live_quota_status))
             )
+        elif self._last_remaining_uses is not None:
+            remaining_uses = self._last_remaining_uses
+            button_enabled = remaining_uses > 0
         elif credential_remaining_uses >= 0:
             remaining_uses = credential_remaining_uses
             button_enabled = remaining_uses > 0
             self._remember_remaining_uses(credential_remaining_uses)
-        elif self._last_remaining_uses is not None:
-            remaining_uses = self._last_remaining_uses
-            button_enabled = remaining_uses > 0
 
         can_use_quota = remaining_uses > 0 or (remaining_uses < 0 and button_enabled)
         ready = text_length_ok and remaining_uses != 0 and (has_token or can_use_quota)

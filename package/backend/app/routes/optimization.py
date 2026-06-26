@@ -874,19 +874,25 @@ def _get_zhuque_headless_status(user: Optional[User] = None) -> dict:
     service = _zhuque_service_for_user(user) if user is not None else zhuque_service
     status = service._ensure_api().credential_status()
     ready = bool(status.get("ready"))
+    cached_remaining_uses = getattr(service, "cached_remaining_uses", lambda: None)()
+    remaining_uses = (
+        cached_remaining_uses
+        if cached_remaining_uses is not None
+        else status.get("remaining_uses", -1)
+    )
     return {
         "status": "connected" if ready else "missing_credentials",
         "connected": ready,
         "ready": ready,
         "has_token": bool(status.get("has_token")),
         "has_anonymous_fp": bool(status.get("has_anonymous_fp")),
-        "remaining_uses": status.get("remaining_uses", -1),
-        "button_enabled": bool(status.get("button_enabled", ready)),
+        "remaining_uses": remaining_uses,
+        "button_enabled": bool(remaining_uses > 0 if cached_remaining_uses is not None else status.get("button_enabled", ready)),
         "auth_mode": "headless_api",
         "login_mode": "wechat_qr",
         "credential_file": status.get("credential_file", ""),
         "user_name": status.get("user_name", ""),
-        "quota_text": status.get("quota_text", ""),
+        "quota_text": f"剩余 {remaining_uses} 次" if cached_remaining_uses is not None else status.get("quota_text", ""),
         "captured_at": status.get("captured_at", ""),
         "message": status.get("message") or ("朱雀无头 API 已就绪" if ready else "未找到朱雀微信扫码凭证"),
     }

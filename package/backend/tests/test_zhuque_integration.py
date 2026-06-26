@@ -1688,6 +1688,50 @@ def test_zhuque_browser_status_endpoint_reports_ready_credentials(client, monkey
     assert body["user_name"] == "tester"
 
 
+def test_zhuque_browser_status_endpoint_prefers_live_cache_over_stale_credentials(client, monkeypatch):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+
+    class FakeAPI:
+        def credential_status(self):
+            return {
+                "ready": True,
+                "connected": True,
+                "has_token": True,
+                "remaining_uses": 20,
+                "button_enabled": True,
+                "credential_file": "/tmp/creds_latest.json",
+                "user_name": "tester",
+                "quota_text": "今日剩余 20 次",
+                "captured_at": "2026-06-16T00:00:00Z",
+                "message": "朱雀微信凭证已就绪，检测将走无头 API",
+            }
+
+    class FakeZhuqueService:
+        def _ensure_api(self):
+            return FakeAPI()
+
+        def cached_remaining_uses(self):
+            return 18
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+
+    response = client.get(
+        "/api/optimization/zhuque/browser/status",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connected"] is True
+    assert body["ready"] is True
+    assert body["remaining_uses"] == 18
+    assert body["button_enabled"] is True
+    assert body["quota_text"] == "剩余 18 次"
+
+
 def test_zhuque_browser_status_endpoint_reports_missing_credentials(client, monkeypatch):
     import app.routes.optimization as optimization_route
 
@@ -2470,6 +2514,56 @@ def test_zhuque_service_readiness_without_text_reuses_known_quota_without_live_p
 
         assert fake_api.peek_calls == 0
         assert result["remaining_uses"] == 20
+        assert result["connected"] is True
+        assert result["ready"] is True
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+        service._last_remaining_uses = None
+        service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_readiness_without_text_prefers_live_cache_over_stale_credentials(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    class FakeAPI(StatusOnlyZhuqueAPI):
+        def __init__(self, status_payload):
+            super().__init__(status_payload)
+            self.peek_calls = 0
+
+        async def peek_remaining_uses(self, timeout=3.0):
+            self.peek_calls += 1
+            return 16
+
+    fake_api = FakeAPI(
+        {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
+            "remaining_uses": 20,
+            "button_enabled": True,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "朱雀微信凭证已就绪，检测将走无头 API",
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    service._last_remaining_uses = 18
+    service._last_remaining_checked_at = 0
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    try:
+        result = asyncio.run(service.readiness())
+
+        assert fake_api.peek_calls == 0
+        assert result["remaining_uses"] == 18
         assert result["connected"] is True
         assert result["ready"] is True
     finally:
