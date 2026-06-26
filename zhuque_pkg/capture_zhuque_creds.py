@@ -8,10 +8,10 @@
   4. 用户微信扫码 → OAuth 回调 → 自动检测登录态
 
 关键参数:
-  - WeChat AppID: wxeb4ab5b8ff535d2b
-  - OAuth scope: snsapi_login
-  - 回调: https://matrix.tencent.com/ai-detect/
-  - 配额: 20次/天/微信账号
+  - WeChat AppID: 由腾讯朱雀登录页动态下发，请勿在仓库中硬编码
+  - OAuth scope: 由腾讯朱雀登录页动态下发
+  - 回调: 腾讯朱雀 AI 检测页
+  - 配额: 以页面实际返回为准
 
 用法:
     python capture_zhuque_creds.py                        # 可见浏览器，扫码后自动保存
