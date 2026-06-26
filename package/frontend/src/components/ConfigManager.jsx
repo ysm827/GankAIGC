@@ -88,7 +88,7 @@ const ConfigManager = ({ adminToken }) => {
       });
 
       setFormData({
-        MODEL_PROVIDER_NAME: response.data.system.model_provider_name || '',
+        MODEL_PROVIDER_NAME: response.data.system.model_provider_name ?? '',
         POLISH_MODEL: response.data.polish.model || '',
         POLISH_API_KEY: '',
         POLISH_BASE_URL: response.data.polish.base_url || '',
@@ -129,9 +129,11 @@ const ConfigManager = ({ adminToken }) => {
       const updates = {};
       Object.keys(formData).forEach(key => {
         const value = formData[key];
-        // 布尔值需要转换为字符串
+        // 布尔值需要转换为字符串；供应商名称允许保存为空，避免前端自动兜底。
         if (typeof value === 'boolean') {
           updates[key] = value.toString();
+        } else if (key === 'MODEL_PROVIDER_NAME') {
+          updates[key] = String(value || '').trim();
         } else if (typeof value === 'string' && value.trim()) {
           updates[key] = value.trim();
         }
@@ -222,7 +224,6 @@ const ConfigManager = ({ adminToken }) => {
 
   const primaryModel = formData.POLISH_MODEL || formData.ENHANCE_MODEL || 'gpt-5.5';
   const primaryBaseUrl = formData.POLISH_BASE_URL || formData.ENHANCE_BASE_URL || '';
-  const providerDisplayName = formData.MODEL_PROVIDER_NAME || (primaryBaseUrl.includes('sub') ? 'Sub API 中转站' : 'OpenAI Compatible 中转站');
   const availableModelOptions = availableModels.length > 0
     ? availableModels
     : [primaryModel].filter(Boolean);
@@ -301,9 +302,9 @@ const ConfigManager = ({ adminToken }) => {
               <span>供应商名称</span>
               <input
                 type="text"
-                value={providerDisplayName}
+                value={formData.MODEL_PROVIDER_NAME}
                 onChange={(e) => setFormData({ ...formData, MODEL_PROVIDER_NAME: e.target.value })}
-                placeholder="Sub API 中转站"
+                placeholder="手动输入供应商名称"
                 className="aurora-admin-input"
                 aria-label="供应商名称"
               />

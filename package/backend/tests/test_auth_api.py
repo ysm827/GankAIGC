@@ -756,6 +756,16 @@ def test_admin_config_updates_model_provider_name(client, monkeypatch, tmp_path)
     assert config_response.status_code == 200
     assert config_response.json()["system"]["model_provider_name"] == "Sub API 中转站"
 
+    clear_response = client.post(
+        "/api/admin/config",
+        json={"MODEL_PROVIDER_NAME": ""},
+        headers=_admin_auth_headers(client),
+    )
+
+    assert clear_response.status_code == 200
+    assert "MODEL_PROVIDER_NAME=\n" in env_file.read_text(encoding="utf-8")
+    assert config_module.settings.MODEL_PROVIDER_NAME == ""
+
 
 def test_admin_config_creates_runtime_env_file_when_missing(client, monkeypatch, tmp_path):
     env_file = tmp_path / ".env"

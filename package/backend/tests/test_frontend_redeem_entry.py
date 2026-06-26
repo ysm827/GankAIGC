@@ -1414,9 +1414,12 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     admin_routes = (PACKAGE_ROOT / "backend" / "app" / "routes" / "admin.py").read_text(encoding="utf-8")
 
     assert "模型中转站配置" in config_manager
-    assert "Sub API 中转站" in config_manager
-    assert "OpenAI Compatible 中转站" in config_manager
+    assert "Sub API 中转站" not in config_manager
+    assert "OpenAI Compatible 中转站" not in config_manager
     assert "供应商名称" in config_manager
+    assert "手动输入供应商名称" in config_manager
+    assert "value={formData.MODEL_PROVIDER_NAME}" in config_manager
+    assert "providerDisplayName" not in config_manager
     assert "当前通道" not in config_manager
     assert "默认模型" not in config_manager
     assert "探测模型" in config_manager
@@ -1427,6 +1430,7 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "/api/admin/operations/model-list" in config_manager
     assert "response.data.system.model_provider_name" in config_manager
     assert "MODEL_PROVIDER_NAME" in config_manager
+    assert "key === 'MODEL_PROVIDER_NAME'" in config_manager
     assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" not in config_manager
     assert 'placeholder="https://your-sub-domain/v1"' in config_manager
     assert "primaryBaseUrl" in config_manager
