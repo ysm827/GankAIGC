@@ -163,6 +163,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     USER_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    STREAM_TOKEN_EXPIRE_SECONDS: int = 120
     
     # 管理员账户
     ADMIN_USERNAME: str = "admin"

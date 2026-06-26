@@ -53,6 +53,20 @@ def create_user_access_token(
     )
 
 
+def create_stream_access_token(user_id: int, session_id: str, token_version: int = 0) -> str:
+    """Create a short-lived token limited to one SSE session stream."""
+    return create_access_token(
+        {
+            "sub": str(user_id),
+            "role": "stream",
+            "scope": "session_stream",
+            "session_id": session_id,
+            "token_version": token_version,
+        },
+        expires_delta=timedelta(seconds=settings.STREAM_TOKEN_EXPIRE_SECONDS),
+    )
+
+
 def verify_token(token: str) -> Optional[dict]:
     """验证令牌"""
     try:
@@ -65,6 +79,18 @@ def verify_token(token: str) -> Optional[dict]:
 def verify_user_token(token: str) -> Optional[dict]:
     payload = verify_token(token)
     if payload and payload.get("role") == "user":
+        return payload
+    return None
+
+
+def verify_stream_token(token: str) -> Optional[dict]:
+    payload = verify_token(token)
+    if (
+        payload
+        and payload.get("role") == "stream"
+        and payload.get("scope") == "session_stream"
+        and payload.get("session_id")
+    ):
         return payload
     return None
 
@@ -95,23 +121,35 @@ def get_current_user_from_bearer(
 
 def get_current_user_with_legacy_fallback(
     authorization: Optional[str] = Header(None),
-    access_token: Optional[str] = None,
     db: Session = Depends(get_db),
 ) -> User:
-    if authorization and authorization.startswith("Bearer "):
-        return get_current_user_from_bearer(authorization, db)
+    """Return the current user from Authorization header only.
 
-    if access_token:
-        payload = verify_user_token(access_token)
-        if payload:
-            user_id = payload.get("sub")
-            if user_id and str(user_id).isdigit():
-                user = db.query(User).filter(User.id == int(user_id), User.is_active.is_(True)).first()
-                if user:
-                    if int(payload.get("token_version", 0)) != int(user.token_version or 0):
-                        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录状态已失效，请重新登录")
-                    user.last_used = utcnow()
-                    db.commit()
-                    return user
+    The historical query-string access_token fallback was intentionally removed:
+    long-lived login tokens must not travel in URLs or server/proxy logs.
+    """
+    return get_current_user_from_bearer(authorization, db)
 
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少有效用户凭据")
+
+def get_user_from_stream_token(
+    stream_token: str,
+    session_id: str,
+    db: Session,
+) -> User:
+    payload = verify_stream_token(stream_token)
+    if not payload or payload.get("session_id") != session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="实时连接凭据无效或已过期")
+
+    user_id = payload.get("sub")
+    if not user_id or not str(user_id).isdigit():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="实时连接凭据无效或已过期")
+
+    user = db.query(User).filter(User.id == int(user_id), User.is_active.is_(True)).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    if int(payload.get("token_version", 0)) != int(user.token_version or 0):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录状态已失效，请重新登录")
+
+    user.last_used = utcnow()
+    db.commit()
+    return user

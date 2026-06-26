@@ -254,6 +254,7 @@ def test_workspace_zhuque_status_polling_avoids_overlapping_requests():
 def test_frontend_routes_are_lazy_loaded_and_sse_updates_are_throttled():
     app = (FRONTEND_SRC / "App.jsx").read_text(encoding="utf-8")
     session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
+    api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
 
     assert "lazy(() => import('./pages/WorkspacePage'))" in app
     assert "lazy(() => import('./pages/SessionDetailPage'))" in app
@@ -268,6 +269,12 @@ def test_frontend_routes_are_lazy_loaded_and_sse_updates_are_throttled():
     assert "enqueueStreamUpdate({ kind: 'content', data })" in session_detail
     assert "window.setTimeout" in session_detail
     assert "window.clearTimeout(streamFlushTimerRef.current)" in session_detail
+    assert "optimizationAPI.createStreamToken(sessionId)" in session_detail
+    assert "tokenResponse.data.stream_token" in session_detail
+    assert "createStreamToken" in api
+    assert "/stream-token" in api
+    assert "stream_token=" in api
+    assert "access_token=${encodeURIComponent(userToken)}" not in api
 
 
 def test_session_detail_does_not_render_failed_zhuque_detection_as_zero_percent():

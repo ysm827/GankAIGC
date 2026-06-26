@@ -39,6 +39,14 @@ def test_legacy_card_key_no_longer_authenticates_prompt_routes(client):
     assert response.status_code == 401
 
 
+def test_query_access_token_no_longer_authenticates_prompt_routes(client):
+    _, token = _create_user()
+
+    response = client.get("/api/prompts/", params={"access_token": token})
+
+    assert response.status_code == 401
+
+
 def test_bearer_token_is_preferred_over_invalid_card_key(client):
     _, token = _create_user()
 

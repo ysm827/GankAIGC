@@ -256,6 +256,13 @@ class SessionProjectUpdateRequest(BaseModel):
     project_id: Optional[int] = None
 
 
+class StreamTokenResponse(BaseModel):
+    """短期 SSE 实时流凭据响应"""
+    stream_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
 class ZhuqueBrowserLaunchResponse(BaseModel):
     """朱雀微信扫码登录响应（兼容旧浏览器启动接口名）"""
     status: str

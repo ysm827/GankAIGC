@@ -173,10 +173,13 @@ export const optimizationAPI = {
     api.post('/optimization/zhuque/preflight', data, {
       timeout: 10000, // 10秒超时
     }),
-  getStreamUrl: (sessionId) => {
-    const userToken = localStorage.getItem('userToken');
+  createStreamToken: (sessionId) =>
+    api.post(`/optimization/sessions/${sessionId}/stream-token`, null, {
+      timeout: 5000,
+    }),
+  getStreamUrl: (sessionId, streamToken) => {
     const baseUrl = api.defaults.baseURL || '/api';
-    const query = userToken ? `?access_token=${encodeURIComponent(userToken)}` : '';
+    const query = streamToken ? `?stream_token=${encodeURIComponent(streamToken)}` : '';
     return `${baseUrl}/optimization/sessions/${sessionId}/stream${query}`;
   },
 };

@@ -16,7 +16,8 @@ from app.models.models import User, OptimizationSession, OptimizationSegment, Ch
 from app.schemas import (
     OptimizationCreate, SessionResponse, SessionDetailResponse,
     QueueStatusResponse, ProgressUpdate, ChangeLogResponse, ExportConfirmation,
-    SessionRetryRequest, SessionProjectUpdateRequest, ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
+    SessionRetryRequest, SessionProjectUpdateRequest, StreamTokenResponse,
+    ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
     ZhuquePreflightRequest, ZhuqueReadinessResponse,
 )
 from app.services.concurrency import concurrency_manager
@@ -27,7 +28,12 @@ from app.services.task_queue import process_session_by_id
 from app.services.zhuque_service import zhuque_service, zhuque_user_dir
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
-from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
+from app.utils.auth import (
+    create_stream_access_token,
+    generate_session_id,
+    get_current_user_with_legacy_fallback,
+    get_user_from_stream_token,
+)
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
 from datetime import datetime, timedelta
@@ -1303,14 +1309,35 @@ async def get_session_progress(
     )
 
 
+@router.post("/sessions/{session_id}/stream-token", response_model=StreamTokenResponse)
+async def create_session_stream_token(
+    session_id: str,
+    user: User = Depends(get_current_user_with_legacy_fallback),
+    db: Session = Depends(get_db),
+):
+    """签发只用于当前会话 SSE 的短期凭据，避免把登录 token 放进 URL。"""
+    session = db.query(OptimizationSession).filter(
+        OptimizationSession.session_id == session_id,
+        OptimizationSession.user_id == user.id,
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return StreamTokenResponse(
+        stream_token=create_stream_access_token(user.id, session_id, token_version=user.token_version or 0),
+        expires_in=settings.STREAM_TOKEN_EXPIRE_SECONDS,
+    )
+
+
 @router.get("/sessions/{session_id}/stream")
 async def stream_session_progress(
     session_id: str,
     request: Request,
-    user: User = Depends(get_current_user_with_legacy_fallback),
+    stream_token: str = "",
     db: Session = Depends(get_db)
 ):
     """流式获取会话进度和内容"""
+    user = get_user_from_stream_token(stream_token, session_id, db)
     # 验证用户权限
     session = db.query(OptimizationSession).filter(
         OptimizationSession.session_id == session_id,

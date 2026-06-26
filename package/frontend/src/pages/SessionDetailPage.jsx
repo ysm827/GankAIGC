@@ -41,7 +41,8 @@ const SessionDetailPage = () => {
       await loadChanges();
       
       // 数据加载完成后再建立 SSE 连接
-      const streamUrl = optimizationAPI.getStreamUrl(sessionId);
+      const tokenResponse = await optimizationAPI.createStreamToken(sessionId);
+      const streamUrl = optimizationAPI.getStreamUrl(sessionId, tokenResponse.data.stream_token);
       eventSource = new EventSource(streamUrl);
 
       eventSource.onmessage = (event) => {

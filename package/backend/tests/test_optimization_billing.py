@@ -1,8 +1,9 @@
 import socket
 
+import app.config as config_module
 from app.database import SessionLocal
 from app.models.models import CreditTransaction, OptimizationSession, User
-from app.utils.auth import create_user_access_token, get_password_hash
+from app.utils.auth import create_user_access_token, get_password_hash, verify_stream_token
 
 
 class NoRunBackgroundTasks:
@@ -269,6 +270,63 @@ def test_ai_detect_reduce_retry_does_not_hold_platform_credit(client, monkeypatc
         assert transactions == []
     finally:
         db.close()
+
+
+def test_session_stream_uses_short_lived_stream_token_instead_of_login_token(client):
+    user_id, token = _create_user(credit_balance=0)
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="stream-token-session",
+            original_text="测试正文",
+            current_stage="polish",
+            status="queued",
+            progress=0,
+            processing_mode="paper_polish",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.commit()
+    finally:
+        db.close()
+
+    progress_with_query_login_token = client.get(
+        "/api/optimization/sessions/stream-token-session/progress",
+        params={"access_token": token},
+    )
+    assert progress_with_query_login_token.status_code == 401
+
+    stream_with_query_login_token = client.get(
+        "/api/optimization/sessions/stream-token-session/stream",
+        params={"access_token": token},
+    )
+    assert stream_with_query_login_token.status_code == 401
+
+    token_response = client.post(
+        "/api/optimization/sessions/stream-token-session/stream-token",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert token_response.status_code == 200
+    body = token_response.json()
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] == config_module.settings.STREAM_TOKEN_EXPIRE_SECONDS
+    assert body["stream_token"]
+    assert body["stream_token"] != token
+
+    payload = verify_stream_token(body["stream_token"])
+    assert payload["sub"] == str(user_id)
+    assert payload["role"] == "stream"
+    assert payload["scope"] == "session_stream"
+    assert payload["session_id"] == "stream-token-session"
+    assert payload["token_version"] == 0
+
+    stream_with_login_token_in_stream_param = client.get(
+        "/api/optimization/sessions/stream-token-session/stream",
+        params={"stream_token": token},
+    )
+    assert stream_with_login_token_in_stream_param.status_code == 401
 
 
 def test_credit_service_public_error_messages_use_beer_unit():
