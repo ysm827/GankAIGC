@@ -2871,7 +2871,7 @@ const AdminDashboard = () => {
                 </div>
               </aside>
 
-              <div className="aurora-admin-card overflow-hidden">
+              <div className="aurora-admin-card aurora-admin-audit-list-card overflow-hidden">
                 <div className="aurora-admin-list-head">
                   <div>
                     <h3>操作日志列表</h3>
@@ -2879,7 +2879,7 @@ const AdminDashboard = () => {
                   </div>
                   <button type="button" onClick={downloadAuditLogs} className="aurora-admin-subtle-button"><Download className="h-4 w-4" /> 导出</button>
                 </div>
-                <div className="max-h-[41rem] overflow-auto">
+                <div className="aurora-admin-audit-table-scroll max-h-[41rem] overflow-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="sticky top-0 z-10 bg-gray-50">
                       <tr>
