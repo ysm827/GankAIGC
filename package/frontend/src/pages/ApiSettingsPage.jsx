@@ -182,6 +182,19 @@ const ApiSettingsPage = () => {
     );
   };
 
+  const renderFetchModelsButton = () => (
+    <button
+      type="button"
+      onClick={handleFetchModels}
+      disabled={fetchingModels}
+      className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+      title="从当前账号配置的中转站拉取真实模型列表"
+    >
+      <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
+      探测模型
+    </button>
+  );
+
   return (
     <div className="gank-app-page aurora-app-page aurora-account-page">
       <div className="gank-ambient-orb orb-one" />
@@ -244,6 +257,16 @@ const ApiSettingsPage = () => {
             <form onSubmit={handleSave} className="aurora-api-form">
               {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => {
                 if (field.endsWith('_model')) {
+                  if (field === 'emotion_model') {
+                    return (
+                      <React.Fragment key={field}>
+                        {renderModelField({ field, label, placeholder, required })}
+                        <div className="aurora-api-probe-slot">
+                          {renderFetchModelsButton()}
+                        </div>
+                      </React.Fragment>
+                    );
+                  }
                   return renderModelField({ field, label, placeholder, required });
                 }
                 if (field === 'api_format') {
@@ -282,16 +305,6 @@ const ApiSettingsPage = () => {
               })}
 
               <div className="aurora-api-actions md:col-span-2">
-                <button
-                  type="button"
-                  onClick={handleFetchModels}
-                  disabled={fetchingModels}
-                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
-                  title="从当前账号配置的中转站拉取真实模型列表"
-                >
-                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
-                  探测模型
-                </button>
                 <button
                   type="button"
                   onClick={handleTest}
