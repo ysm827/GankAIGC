@@ -2648,20 +2648,6 @@ const AdminDashboard = () => {
         {/* Audit Logs Tab */}
         {activeTab === 'audit' && (
           <div className="aurora-admin-section space-y-6">
-            <div className="aurora-admin-section-head">
-              <div>
-                <h2>操作日志</h2>
-              </div>
-              <button
-                onClick={fetchAuditLogs}
-                disabled={loadingAuditLogs}
-                className="aurora-admin-secondary-action"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingAuditLogs ? 'animate-spin' : ''}`} />
-                刷新
-              </button>
-            </div>
-
             <div className="aurora-admin-audit-filters">
               <select value={auditRoleFilter} onChange={(event) => setAuditRoleFilter(event.target.value)} className="aurora-admin-input" aria-label="筛选管理员角色">
                 <option value="all">全部角色</option>
@@ -2686,6 +2672,16 @@ const AdminDashboard = () => {
               </button>
               <button type="button" onClick={resetAuditFilters} className="aurora-admin-subtle-button">重置</button>
               <button type="button" onClick={fetchAuditLogs} className="aurora-admin-action bg-blue-600">查询</button>
+              <button
+                type="button"
+                onClick={fetchAuditLogs}
+                disabled={loadingAuditLogs}
+                className="aurora-admin-secondary-action"
+                aria-label="刷新操作日志"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingAuditLogs ? 'animate-spin' : ''}`} />
+                刷新
+              </button>
             </div>
 
             <div className="aurora-admin-audit-layout">
