@@ -23,7 +23,6 @@ from app.database import engine
 from app.models.models import OptimizationSession, RegistrationInvite
 from app.services import update_service
 from app.services.ai_service import (
-    ANTHROPIC_MODEL_IDS,
     API_FORMAT_ANTHROPIC,
     API_FORMAT_OPENAI_CHAT,
     anthropic_headers,
@@ -931,7 +930,10 @@ def get_model_probe_config(
 
 
 def _models_url_from_base_url(base_url: str) -> str:
-    return f"{base_url.rstrip('/')}/models"
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return f"{normalized}/models"
+    return f"{normalized}/v1/models"
 
 
 def _extract_model_ids(payload: Any) -> List[str]:
@@ -1003,26 +1005,31 @@ async def list_provider_models(
         }
 
     try:
-        if config["api_format"] == API_FORMAT_ANTHROPIC:
-            models = list(ANTHROPIC_MODEL_IDS)
-            return {
-                "ok": True,
-                "stage": stage,
-                "label": config["label"],
-                "base_url": config["base_url"],
-                "api_format": config["api_format"],
-                "models": models,
-                "count": len(models),
-                "message": f"已载入 {len(models)} 个 Claude 模型",
-            }
-
         async with httpx.AsyncClient(timeout=settings.MODEL_TEST_TIMEOUT_SECONDS) as client:
             response = await client.get(
                 _models_url_from_base_url(config["base_url"]),
-                headers={"Authorization": f"Bearer {config['api_key']}"},
+                headers=anthropic_headers(config["api_key"])
+                if config["api_format"] == API_FORMAT_ANTHROPIC
+                else {"Authorization": f"Bearer {config['api_key']}"},
             )
             response.raise_for_status()
             models = _extract_model_ids(response.json())
+        if config["api_format"] == API_FORMAT_ANTHROPIC:
+            models = [model for model in models if model.lower().startswith("claude-")]
+            if not models:
+                return {
+                    "ok": False,
+                    "stage": stage,
+                    "label": config["label"],
+                    "base_url": config["base_url"],
+                    "api_format": config["api_format"],
+                    "models": [],
+                    "count": 0,
+                    "message": "未探测到 Claude 模型；请确认该站点真实支持 Anthropic Messages 原生协议",
+                }
+            message = f"已探测到 {len(models)} 个 Claude 模型"
+        else:
+            message = f"已拉取 {len(models)} 个模型"
         return {
             "ok": True,
             "stage": stage,
@@ -1031,7 +1038,7 @@ async def list_provider_models(
             "api_format": config["api_format"],
             "models": models,
             "count": len(models),
-            "message": f"已拉取 {len(models)} 个模型",
+            "message": message,
         }
     except httpx.HTTPStatusError as exc:
         return {

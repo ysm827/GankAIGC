@@ -404,7 +404,7 @@ else:
   - Headers: `x-api-key`, `anthropic-version: 2023-06-01`, `content-type: application/json`.
   - Body: `model`, `max_tokens`, `messages`, optional `system`, optional `temperature`, and `stream` when streaming.
 - Anthropic response extraction reads generated text from `content[].text`; streaming reads `content_block_delta.delta.text` where `delta.type == "text_delta"`.
-- Anthropic native model discovery must not call OpenAI `/models`; return the curated Claude model IDs in `ANTHROPIC_MODEL_IDS`.
+- Anthropic native model discovery must call the configured gateway `GET /v1/models` with Anthropic headers, then show only returned IDs that start with `claude-`; never return a curated fallback list for a GPT-only gateway.
 - Audit logs and API responses must never contain plaintext API keys.
 
 ### 4. Validation & Error Matrix
@@ -412,7 +412,7 @@ else:
 - Unsupported `api_format` -> HTTP 400 for admin config or provider config save.
 - Missing/placeholder API key -> structured failure from model test/list.
 - Private/unsafe base URL -> existing Base URL validation error before network calls.
-- `api_format=anthropic` model list -> local curated list, no network probe.
+- `api_format=anthropic` model list -> real `GET /v1/models`; zero `claude-` IDs returns structured failure instead of fake choices.
 - Old rows/sessions with NULL or missing format -> normalize to `openai_chat`.
 
 ### 5. Good/Base/Bad Cases
@@ -425,7 +425,7 @@ else:
 
 - Unit: `extract_completion_content()` accepts Anthropic message dict/object payloads.
 - Operations: Anthropic model test posts to `/v1/messages` with required headers/body.
-- Operations: Anthropic model list returns curated Claude IDs and never calls `/models`.
+- Operations: Anthropic model list calls real `/v1/models`, filters `claude-` IDs, and fails when a gateway returns only GPT/non-Claude models.
 - Provider config: save/get masks keys while preserving `api_format`; saved provider test uses the selected protocol.
 - Optimization: BYOK start/retry stores per-stage `*_api_format` on `OptimizationSession`.
 - Frontend static: admin `ConfigManager.jsx` and user `ApiSettingsPage.jsx` expose selectors and include `api_format` in test/list/save payloads.

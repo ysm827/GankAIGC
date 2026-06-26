@@ -432,16 +432,42 @@ def test_list_provider_models_fetches_openai_compatible_model_ids(monkeypatch):
 
 
 
-def test_list_provider_models_returns_curated_anthropic_models(monkeypatch):
+def test_list_provider_models_fetches_real_anthropic_model_ids(monkeypatch):
     monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-ant-test", raising=False)
     monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "https://api.anthropic.com", raising=False)
     monkeypatch.setattr(config_module.settings, "POLISH_MODEL", "claude-sonnet-4-5", raising=False)
 
-    class NoNetworkAsyncClient:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError("Anthropic native model discovery must not call /models")
+    captured = {}
 
-    monkeypatch.setattr(operations_service.httpx, "AsyncClient", NoNetworkAsyncClient)
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "claude-sonnet-4-5", "type": "model"},
+                    {"id": "gpt-5.5", "type": "model"},
+                    {"id": "claude-haiku-4-5", "type": "model"},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
 
     import asyncio
 
@@ -449,9 +475,50 @@ def test_list_provider_models_returns_curated_anthropic_models(monkeypatch):
 
     assert result["ok"] is True
     assert result["api_format"] == "anthropic"
-    assert "claude-sonnet-4-5" in result["models"]
-    assert all(model.startswith("claude-") for model in result["models"])
-    assert result["count"] == len(result["models"])
+    assert result["models"] == ["claude-sonnet-4-5", "claude-haiku-4-5"]
+    assert result["count"] == 2
+    assert result["message"] == "已探测到 2 个 Claude 模型"
+    assert captured["url"] == "https://api.anthropic.com/v1/models"
+    assert captured["headers"]["x-api-key"] == "sk-ant-test"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+
+
+def test_list_provider_models_rejects_anthropic_without_real_claude_ids(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-ant-test", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "https://api.anthropic.com/v1", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_MODEL", "claude-sonnet-4-5", raising=False)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "gpt-5.5"}, {"id": "deepseek-v4-pro"}]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            return FakeResponse()
+
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
+
+    import asyncio
+
+    result = asyncio.run(operations_service.list_provider_models("polish", api_format="anthropic"))
+
+    assert result["ok"] is False
+    assert result["api_format"] == "anthropic"
+    assert result["models"] == []
+    assert result["count"] == 0
+    assert "未探测到 Claude 模型" in result["message"]
 
 
 def test_admin_anthropic_model_test_uses_messages_endpoint(monkeypatch):
