@@ -2425,16 +2425,16 @@ code {
 }
 
 .aurora-api-probe-slot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
   padding-top: 1.92rem;
 }
 
 .aurora-api-probe-slot .aurora-secondary-action {
-  min-width: 156px;
-  flex: 1 1 156px;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .aurora-api-form select.aurora-input {
