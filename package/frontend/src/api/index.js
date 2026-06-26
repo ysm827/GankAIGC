@@ -68,6 +68,8 @@ export const userAPI = {
   getProviderConfig: () => api.get('/user/provider-config'),
   saveProviderConfig: (data) => api.put('/user/provider-config', data),
   testProviderConfig: () => api.post('/user/provider-config/test'),
+  listProviderModels: (data) => api.post('/user/provider-config/model-list', data),
+  testProviderModelConfig: (data) => api.post('/user/provider-config/model-test', data),
 };
 
 // Paper project API

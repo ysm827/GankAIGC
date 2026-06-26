@@ -1637,6 +1637,7 @@ def test_config_manager_exposes_admin_model_connection_tests():
 
 def test_api_settings_page_exposes_provider_api_format_selector():
     api_settings = (FRONTEND_SRC / "pages" / "ApiSettingsPage.jsx").read_text(encoding="utf-8")
+    api_index = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
 
     assert "api_format: 'openai_chat'" in api_settings
     assert "response.data.api_format || 'openai_chat'" in api_settings
@@ -1644,6 +1645,25 @@ def test_api_settings_page_exposes_provider_api_format_selector():
     assert "Anthropic Messages（原生）" in api_settings
     assert "OpenAI Compatible" in api_settings
     assert "...form" in api_settings
+    assert "availableModels" in api_settings
+    assert "handleFetchModels" in api_settings
+    assert "listProviderModels" in api_settings
+    assert "testProviderModelConfig" in api_settings
+    assert "探测模型" in api_settings
+    assert "测试连接" in api_settings
+    assert "仅当前账号使用，不影响平台后台模型配置" in api_settings
+    assert "成功后仍需点击保存才会正式生效" in api_settings
+    assert "availableModels.length > 0" in api_settings
+    assert "models.includes(current.polish_model)" in api_settings
+    assert "setAvailableModels([])" in api_settings
+    assert "<select" in api_settings
+    assert "api_key: form.api_key" in api_settings
+    assert "/api/admin/operations/model-list" not in api_settings
+    assert "/api/admin/operations/model-test" not in api_settings
+    assert "listProviderModels: (data) => api.post('/user/provider-config/model-list', data)" in api_index
+    assert "testProviderModelConfig: (data) => api.post('/user/provider-config/model-test', data)" in api_index
+    assert "/user/provider-config/model-list" in api_index
+    assert "/user/provider-config/model-test" in api_index
 
 def test_api_config_guide_keeps_previous_sections_open_when_expanding_next():
     api_guide = (FRONTEND_SRC / "components" / "ApiConfigGuide.jsx").read_text(encoding="utf-8")

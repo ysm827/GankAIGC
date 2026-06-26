@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Save, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, PlugZap, RefreshCw, Save, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 
@@ -12,7 +12,7 @@ const API_FORMAT_OPTIONS = [
 
 const FIELD_CONFIG = [
   { field: 'base_url', label: 'Base URL', placeholder: '例如 https://api.openai.com/v1', type: 'text', required: true },
-  { field: 'api_key', label: 'API Key', placeholder: '保存时需重新输入', type: 'password', required: true },
+  { field: 'api_key', label: 'API Key', placeholder: '留空则使用已保存 Key', type: 'password', required: false },
   { field: 'polish_model', label: '润色模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
   { field: 'enhance_model', label: '增强模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
   { field: 'emotion_model', label: '感情润色模型', placeholder: '可选', type: 'text', required: false },
@@ -30,6 +30,8 @@ const ApiSettingsPage = () => {
   const [maskedKey, setMaskedKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -54,6 +56,9 @@ const ApiSettingsPage = () => {
   }, []);
 
   const updateField = (field, value) => {
+    if (['base_url', 'api_key', 'api_format'].includes(field)) {
+      setAvailableModels([]);
+    }
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -70,8 +75,8 @@ const ApiSettingsPage = () => {
 
   const handleSave = async (event) => {
     event.preventDefault();
-    if (!form.api_key.trim()) {
-      toast.error('保存时需要重新输入 API Key');
+    if (!form.api_key.trim() && !maskedKey) {
+      toast.error('首次保存需要输入 API Key');
       return;
     }
 
@@ -97,13 +102,83 @@ const ApiSettingsPage = () => {
 
     setTesting(true);
     try {
-      const response = await userAPI.testProviderConfig();
-      toast.success(response.data?.message || 'API 连接测试通过');
+      const response = await userAPI.testProviderModelConfig({
+        model: form.polish_model,
+        base_url: form.base_url,
+        api_key: form.api_key,
+        api_format: form.api_format,
+      });
+      toast.success(response.data?.message || 'API 连接测试通过；如需正式生效请点击保存');
     } catch (error) {
       toast.error(getErrorMessage(error, '请先保存完整 API 配置'));
     } finally {
       setTesting(false);
     }
+  };
+
+  const handleFetchModels = async () => {
+    if (fetchingModels) return;
+
+    setFetchingModels(true);
+    try {
+      const response = await userAPI.listProviderModels({
+        base_url: form.base_url,
+        api_key: form.api_key,
+        api_format: form.api_format,
+      });
+      const models = Array.isArray(response.data?.models) ? response.data.models : [];
+      setAvailableModels(models);
+      if (models[0]) {
+        setForm((current) => ({
+          ...current,
+          polish_model: models.includes(current.polish_model) ? current.polish_model : models[0],
+          enhance_model: models.includes(current.enhance_model) ? current.enhance_model : models[0],
+          emotion_model: current.emotion_model
+            ? (models.includes(current.emotion_model) ? current.emotion_model : models[0])
+            : current.emotion_model,
+        }));
+      }
+      toast.success(response.data?.message || `已拉取 ${models.length} 个模型`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, '模型探测失败'));
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const renderModelField = ({ field, label, placeholder, required }) => {
+    const modelOptions = availableModels.length > 0
+      ? availableModels
+      : [form[field]].filter(Boolean);
+    return (
+      <div key={field}>
+        <label className="aurora-field-label" htmlFor={`api-${field}`}>{label}</label>
+        {availableModels.length > 0 ? (
+          <select
+            id={`api-${field}`}
+            value={form[field]}
+            onChange={(event) => updateField(field, event.target.value)}
+            className="aurora-input"
+            required={required}
+          >
+            {!required && <option value="">不使用</option>}
+            {modelOptions.map((modelName) => (
+              <option key={modelName} value={modelName}>{modelName}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id={`api-${field}`}
+            type="text"
+            value={form[field]}
+            onChange={(event) => updateField(field, event.target.value)}
+            placeholder={placeholder}
+            className="aurora-input"
+            required={required}
+          />
+        )}
+      </div>
+    );
   };
 
   return (
@@ -137,15 +212,15 @@ const ApiSettingsPage = () => {
             <div className="aurora-api-checklist">
               <div>
                 <ShieldCheck className="h-4 w-4" />
-                <span>Key 仅保存密文，前端不回显完整密钥</span>
+                <span>仅当前账号使用，不影响平台后台模型配置</span>
               </div>
               <div>
                 <SlidersHorizontal className="h-4 w-4" />
-                <span>润色、增强、感情润色模型可分开指定</span>
+                <span>支持探测真实模型列表并下拉选择</span>
               </div>
               <div>
                 <CheckCircle2 className="h-4 w-4" />
-                <span>保存后可即时发起连接测试</span>
+                <span>测试当前填写内容，成功后仍需保存才会生效</span>
               </div>
             </div>
           </aside>
@@ -181,21 +256,26 @@ const ApiSettingsPage = () => {
                 </select>
               </div>
 
-              {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => (
-                <div key={field} className={field === 'base_url' || field === 'api_key' ? 'md:col-span-2' : ''}>
-                  <label className="aurora-field-label" htmlFor={`api-${field}`}>{label}</label>
-                  <input
-                    id={`api-${field}`}
-                    type={type}
-                    value={form[field]}
-                    onChange={(event) => updateField(field, event.target.value)}
-                    placeholder={placeholder}
-                    className="aurora-input"
-                    required={required}
-                    autoComplete={field === 'api_key' ? 'off' : undefined}
-                  />
-                </div>
-              ))}
+              {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => {
+                if (field.endsWith('_model')) {
+                  return renderModelField({ field, label, placeholder, required });
+                }
+                return (
+                  <div key={field} className={field === 'base_url' || field === 'api_key' ? 'md:col-span-2' : ''}>
+                    <label className="aurora-field-label" htmlFor={`api-${field}`}>{label}</label>
+                    <input
+                      id={`api-${field}`}
+                      type={type}
+                      value={form[field]}
+                      onChange={(event) => updateField(field, event.target.value)}
+                      placeholder={placeholder}
+                      className="aurora-input"
+                      required={required}
+                      autoComplete={field === 'api_key' ? 'off' : undefined}
+                    />
+                  </div>
+                );
+              })}
 
               <div className="aurora-api-actions md:col-span-2">
                 <button
@@ -211,9 +291,20 @@ const ApiSettingsPage = () => {
                   onClick={handleTest}
                   disabled={testing}
                   className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="测试当前页面填写的模型配置；成功后仍需点击保存才会正式生效"
                 >
-                  {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  测试配置
+                  {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+                  测试连接
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels}
+                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="从当前账号配置的中转站拉取真实模型列表"
+                >
+                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
+                  探测模型
                 </button>
               </div>
             </form>

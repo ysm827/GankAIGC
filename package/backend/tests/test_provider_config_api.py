@@ -96,6 +96,61 @@ def test_saved_provider_config_is_not_returned_in_plaintext(client, monkeypatch)
         db.close()
 
 
+def test_saved_provider_config_can_update_models_without_resending_api_key(client, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    _allow_public_model_url_dns(monkeypatch)
+    user_id, token = _create_user()
+
+    first_response = client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.example/v1/",
+            "api_format": "openai_chat",
+            "api_key": "sk-test-secret",
+            "polish_model": "gpt-5.4",
+            "enhance_model": "gpt-5.4",
+            "emotion_model": "gpt-5.4-mini",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first_response.status_code == 200
+
+    db = SessionLocal()
+    try:
+        config = db.query(UserProviderConfig).filter(UserProviderConfig.user_id == user_id).one()
+        encrypted_before = config.api_key_encrypted
+    finally:
+        db.close()
+
+    update_response = client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.example/v1/",
+            "api_format": "openai_chat",
+            "api_key": "",
+            "polish_model": "gpt-5.5",
+            "enhance_model": "gpt-5.5",
+            "emotion_model": None,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["api_key_last4"] == "cret"
+    assert update_response.json()["polish_model"] == "gpt-5.5"
+    assert update_response.json()["enhance_model"] == "gpt-5.5"
+    assert update_response.json()["emotion_model"] is None
+
+    db = SessionLocal()
+    try:
+        config = db.query(UserProviderConfig).filter(UserProviderConfig.user_id == user_id).one()
+        assert config.api_key_encrypted == encrypted_before
+        assert config.api_key_last4 == "cret"
+        assert config.polish_model == "gpt-5.5"
+    finally:
+        db.close()
+
+
 def test_admin_provider_config_summary_masks_user_api_key(client, monkeypatch):
     monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
     _allow_public_model_url_dns(monkeypatch)
@@ -346,6 +401,146 @@ def test_provider_config_test_uses_anthropic_messages_endpoint(client, monkeypat
     assert captured["json"]["model"] == "claude-sonnet-4-5"
     assert captured["json"]["max_tokens"] == 8
     assert captured["json"]["messages"] == [{"role": "user", "content": "ping"}]
+
+
+def test_provider_config_model_list_uses_saved_user_key_and_filters_anthropic(client, monkeypatch):
+    import app.services.operations_service as operations_service
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "claude-sonnet-4-5"},
+                    {"id": "gpt-5.4"},
+                    {"id": "claude-opus-4-1"},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
+    _allow_public_model_url_dns(monkeypatch)
+    _, token = _create_user()
+    save_response = client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.anthropic.com",
+            "api_format": "anthropic",
+            "api_key": "sk-user-saved",
+            "polish_model": "claude-sonnet-4-5",
+            "enhance_model": "claude-sonnet-4-5",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert save_response.status_code == 200
+
+    response = client.post(
+        "/api/user/provider-config/model-list",
+        json={
+            "base_url": "https://api.anthropic.com",
+            "api_format": "anthropic",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["api_format"] == "anthropic"
+    assert response.json()["stage"] == "provider"
+    assert response.json()["label"] == "自带 API"
+    assert response.json()["models"] == ["claude-sonnet-4-5", "claude-opus-4-1"]
+    assert captured["url"] == "https://api.anthropic.com/v1/models"
+    assert captured["headers"]["x-api-key"] == "sk-user-saved"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+
+
+def test_provider_config_model_test_uses_transient_form_values(client, monkeypatch):
+    import app.services.operations_service as operations_service
+
+    captured = {}
+    calls = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(id="chatcmpl-form")
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(operations_service, "AsyncOpenAI", FakeAsyncOpenAI)
+    _allow_public_model_url_dns(monkeypatch)
+    _, token = _create_user()
+    client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.saved.example/v1/",
+            "api_format": "openai_chat",
+            "api_key": "sk-saved-secret",
+            "polish_model": "gpt-saved",
+            "enhance_model": "gpt-saved",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    response = client.post(
+        "/api/user/provider-config/model-test",
+        json={
+            "base_url": "https://api.form.example/v1/",
+            "api_format": "openai_chat",
+            "api_key": "sk-form-secret",
+            "model": "gpt-form",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["model"] == "gpt-form"
+    assert response.json()["stage"] == "provider"
+    assert response.json()["label"] == "自带 API"
+    assert response.json()["base_url"] == "https://api.form.example/v1"
+    assert captured["api_key"] == "sk-form-secret"
+    assert captured["base_url"] == "https://api.form.example/v1"
+    assert calls[0]["model"] == "gpt-form"
+
+
+def test_provider_config_model_list_requires_input_or_saved_key(client):
+    _, token = _create_user()
+
+    response = client.post(
+        "/api/user/provider-config/model-list",
+        json={
+            "base_url": "https://api.example/v1",
+            "api_format": "openai_chat",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请先输入或保存自带 API Key"
 
 def test_byok_start_requires_saved_user_provider(client):
     _, token = _create_user()

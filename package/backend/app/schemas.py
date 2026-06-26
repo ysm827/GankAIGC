@@ -171,7 +171,7 @@ class AdminCreditAdjustRequest(BaseModel):
 class ProviderConfigUpdateRequest(BaseModel):
     base_url: str
     api_format: str = "openai_chat"
-    api_key: str
+    api_key: Optional[str] = None
     polish_model: str
     enhance_model: str
     emotion_model: Optional[str] = None
@@ -186,6 +186,19 @@ class ProviderConfigResponse(BaseModel):
     emotion_model: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProviderModelListRequest(BaseModel):
+    base_url: str
+    api_key: Optional[str] = None
+    api_format: str = "openai_chat"
+
+
+class ProviderModelTestRequest(BaseModel):
+    model: str
+    base_url: str
+    api_key: Optional[str] = None
+    api_format: str = "openai_chat"
 
 
 class PaperProjectCreate(BaseModel):

@@ -26,8 +26,12 @@ class ProviderConfigService:
             config.api_format = normalize_api_format(payload.api_format)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        config.api_key_encrypted = encrypt_secret(payload.api_key)
-        config.api_key_last4 = payload.api_key[-4:]
+        api_key = (payload.api_key or "").strip()
+        if api_key:
+            config.api_key_encrypted = encrypt_secret(api_key)
+            config.api_key_last4 = api_key[-4:]
+        elif not config.api_key_encrypted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="保存时需要输入 API Key")
         config.polish_model = payload.polish_model
         config.enhance_model = payload.enhance_model
         config.emotion_model = payload.emotion_model
@@ -60,6 +64,21 @@ class ProviderConfigService:
             "enhance_model": config.enhance_model,
             "emotion_model": config.emotion_model,
         }
+
+    def get_saved_api_key(self, user: User) -> str | None:
+        config = self.db.query(UserProviderConfig).filter(UserProviderConfig.user_id == user.id).first()
+        if not config:
+            return None
+        return decrypt_secret(config.api_key_encrypted)
+
+    def resolve_transient_api_key(self, user: User, api_key: str | None) -> str:
+        value = (api_key or "").strip()
+        if value:
+            return value
+        saved_api_key = self.get_saved_api_key(user)
+        if saved_api_key:
+            return saved_api_key
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先输入或保存自带 API Key")
 
     def _validated_runtime_base_url(self, base_url: str) -> str:
         try:

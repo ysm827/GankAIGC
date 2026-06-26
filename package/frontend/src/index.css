@@ -2420,6 +2420,19 @@ code {
   padding-top: 0.35rem;
 }
 
+.aurora-api-form select.aurora-input {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #64748b 50%),
+    linear-gradient(135deg, #64748b 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 13px) calc(50% - 3px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.55rem;
+}
+
 @media (min-width: 768px) {
   .aurora-api-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));

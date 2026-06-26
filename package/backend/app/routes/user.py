@@ -15,6 +15,8 @@ from app.schemas import (
     PaperProjectCreate,
     PaperProjectResponse,
     PaperProjectUpdate,
+    ProviderModelListRequest,
+    ProviderModelTestRequest,
     ProviderConfigResponse,
     ProviderConfigUpdateRequest,
     RedeemCodeRequest,
@@ -22,7 +24,9 @@ from app.schemas import (
 )
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service
+from app.services.ai_service import normalize_api_format
 from app.services.provider_config_service import ProviderConfigService
+from app.utils.url_security import validate_model_base_url
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -34,6 +38,35 @@ def _generate_unique_invite_code(db: Session) -> str:
         if not existing_invite:
             return code
     raise HTTPException(status_code=500, detail="邀请码生成失败，请重试")
+
+
+def _validate_user_provider_base_url(base_url: str) -> str:
+    try:
+        return validate_model_base_url(base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _validate_user_provider_api_format(api_format: str) -> str:
+    try:
+        return normalize_api_format(api_format)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _validate_user_provider_model(model: str) -> str:
+    value = (model or "").strip()
+    if not value:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型名称未配置")
+    return value
+
+
+def _mark_user_provider_result(result: dict) -> dict:
+    return {
+        **result,
+        "stage": "provider",
+        "label": "自带 API",
+    }
 
 
 @router.get("/announcements", response_model=List[AnnouncementResponse])
@@ -239,6 +272,52 @@ async def test_provider_config(
 ):
     provider_config = ProviderConfigService(db).get_runtime_config(current_user)
     result = await operations_service.test_provider_model_connection(provider_config)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
+@router.post("/provider-config/model-list")
+async def list_provider_config_models(
+    payload: ProviderModelListRequest,
+    current_user: User = Depends(get_current_user_from_bearer),
+    db: Session = Depends(get_db),
+):
+    service = ProviderConfigService(db)
+    api_key = service.resolve_transient_api_key(current_user, payload.api_key)
+    base_url = _validate_user_provider_base_url(payload.base_url)
+    api_format = _validate_user_provider_api_format(payload.api_format)
+    result = await operations_service.list_provider_models(
+        "polish",
+        base_url=base_url,
+        api_key=api_key,
+        api_format=api_format,
+    )
+    result = _mark_user_provider_result(result)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
+@router.post("/provider-config/model-test")
+async def test_provider_config_model(
+    payload: ProviderModelTestRequest,
+    current_user: User = Depends(get_current_user_from_bearer),
+    db: Session = Depends(get_db),
+):
+    service = ProviderConfigService(db)
+    api_key = service.resolve_transient_api_key(current_user, payload.api_key)
+    model = _validate_user_provider_model(payload.model)
+    base_url = _validate_user_provider_base_url(payload.base_url)
+    api_format = _validate_user_provider_api_format(payload.api_format)
+    result = await operations_service.test_model_connection(
+        "polish",
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        api_format=api_format,
+    )
+    result = _mark_user_provider_result(result)
     if not result.get("ok"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result)
     return result
