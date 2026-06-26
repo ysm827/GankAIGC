@@ -2973,38 +2973,40 @@ const AdminDashboard = () => {
         {activeTab === 'adminProfile' && (
           <div className="aurora-admin-section aurora-admin-profile-page space-y-6">
             <div className="aurora-admin-card aurora-admin-profile-hero">
-              <div className="aurora-admin-profile-avatar-stack">
-                <div className="aurora-admin-profile-avatar">
-                  {adminProfile?.avatar_url ? (
-                    <img src={adminProfile.avatar_url} alt="" />
-                  ) : (
-                    (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
-                  )}
+              <div className="aurora-admin-profile-hero-main">
+                <div className="aurora-admin-profile-avatar-stack">
+                  <div className="aurora-admin-profile-avatar">
+                    {adminProfile?.avatar_url ? (
+                      <img src={adminProfile.avatar_url} alt="" />
+                    ) : (
+                      (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="aurora-admin-avatar-upload"
+                    onClick={() => adminAvatarInputRef.current?.click()}
+                    disabled={uploadingAdminAvatar}
+                  >
+                    {uploadingAdminAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    上传头像
+                  </button>
+                  <input
+                    ref={adminAvatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={handleAdminAvatarUpload}
+                  />
                 </div>
-                <button
-                  type="button"
-                  className="aurora-admin-avatar-upload"
-                  onClick={() => adminAvatarInputRef.current?.click()}
-                  disabled={uploadingAdminAvatar}
-                >
-                  {uploadingAdminAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  上传头像
-                </button>
-                <input
-                  ref={adminAvatarInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="sr-only"
-                  onChange={handleAdminAvatarUpload}
-                />
-              </div>
-              <div className="aurora-admin-profile-identity">
-                <span className="aurora-admin-profile-kicker">后台账户</span>
-                <h1>{adminProfile?.display_name || adminDisplayName || '管理员'}</h1>
-                <p>{adminProfile?.username || 'admin'}</p>
-                <div className="aurora-admin-profile-badges">
-                  <span><Shield className="h-4 w-4" />{adminProfile?.role || '管理员'}</span>
-                  <span><CheckCircle className="h-4 w-4" />已启用</span>
+                <div className="aurora-admin-profile-identity">
+                  <span className="aurora-admin-profile-kicker">后台账户</span>
+                  <h1>{adminProfile?.display_name || adminDisplayName || '管理员'}</h1>
+                  <p>{adminProfile?.username || 'admin'}</p>
+                  <div className="aurora-admin-profile-badges">
+                    <span><Shield className="h-4 w-4" />{adminProfile?.role || '管理员'}</span>
+                    <span><CheckCircle className="h-4 w-4" />已启用</span>
+                  </div>
                 </div>
               </div>
               <div className="aurora-admin-profile-meta-grid">
