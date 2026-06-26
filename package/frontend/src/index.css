@@ -4740,43 +4740,68 @@ code {
 .aurora-admin-trace-steps small { color:#94a3b8; font-size:12px; }
 
 .aurora-admin-profile-page {
-  width: 100%;
-  max-width: none;
+  width: min(100%, 74rem);
+  max-width: 74rem;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.65rem;
 }
 
 .aurora-admin-page[data-admin-tab="adminProfile"] .aurora-admin-shell {
   background:
-    radial-gradient(24rem 20rem at 7% 10%, rgba(219, 234, 254, 0.58), transparent 70%),
-    radial-gradient(24rem 18rem at 92% 80%, rgba(204, 251, 241, 0.38), transparent 68%),
-    #f8fbff;
+    radial-gradient(34rem 24rem at 21% 8%, rgba(204, 251, 241, 0.68), transparent 72%),
+    radial-gradient(28rem 20rem at 88% 18%, rgba(219, 234, 254, 0.72), transparent 70%),
+    linear-gradient(180deg, #f6fffd 0%, #f8fbff 48%, #ffffff 100%);
+}
+
+.aurora-admin-profile-page-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 0.15rem;
+}
+
+.aurora-admin-profile-page-title h2 {
+  color: #0f172a;
+  font-size: clamp(1.35rem, 1.9vw, 1.75rem);
+  font-weight: 880;
+  letter-spacing: -0.045em;
+}
+
+.aurora-admin-profile-page-title p {
+  margin-top: 0.2rem;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .aurora-admin-profile-page > .aurora-admin-card {
-  border-color: rgba(203, 213, 225, 0.78);
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.055);
+  border-color: rgba(209, 250, 229, 0.76);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 36px rgba(15, 118, 110, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .aurora-admin-profile-hero {
   display: grid;
-  grid-template-columns: minmax(25rem, 0.9fr) minmax(28rem, 1.1fr);
-  gap: clamp(1rem, 2vw, 1.75rem);
-  align-items: stretch;
-  padding: clamp(1.1rem, 1.8vw, 1.45rem);
+  grid-template-columns: minmax(0, 1.05fr) minmax(31rem, 1fr);
+  gap: clamp(1.35rem, 2.4vw, 2rem);
+  align-items: center;
+  padding: clamp(1.5rem, 2.7vw, 2.25rem);
   overflow: hidden;
+  border-radius: 22px;
 }
 
 .aurora-admin-profile-hero-main {
   display: grid;
-  grid-template-columns: 7.25rem minmax(0, 1fr);
-  gap: 1.05rem;
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  gap: 1.35rem;
   align-items: center;
   min-width: 0;
 }
 
 .aurora-admin-profile-avatar-stack {
   display: inline-flex;
-  width: 7.25rem;
+  width: 6.25rem;
   flex-direction: column;
   align-items: center;
   gap: 0.62rem;
@@ -4785,25 +4810,40 @@ code {
 .aurora-admin-profile-avatar {
   display: grid;
   place-items: center;
-  width: 82px;
-  height: 82px;
-  border: 1px solid rgba(147, 197, 253, 0.9);
+  width: 5.5rem;
+  height: 5.5rem;
+  border: 1px solid rgba(153, 246, 228, 0.88);
   border-radius: 24px;
   background:
-    radial-gradient(circle at 25% 18%, rgba(255, 255, 255, 0.95), transparent 38%),
-    linear-gradient(135deg, #0b6ff6, #2f8cff);
+    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.92), transparent 36%),
+    linear-gradient(135deg, #14b8a6, #0f9f93);
   color: #fff;
-  font-size: 1.9rem;
+  font-size: 2rem;
   font-weight: 860;
   letter-spacing: -0.06em;
-  box-shadow: 0 16px 30px rgba(0, 102, 204, 0.16), inset 0 1px 0 rgba(255,255,255,.35);
+  box-shadow: 0 18px 32px rgba(20, 184, 166, 0.22), inset 0 1px 0 rgba(255,255,255,.34);
   overflow: hidden;
 }
 
+.aurora-admin-profile-avatar.is-panel {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 18px;
+  font-size: 1.75rem;
+  box-shadow: 0 16px 28px rgba(20, 184, 166, 0.2), inset 0 1px 0 rgba(255,255,255,.34);
+}
+
 .aurora-admin-avatar-upload {
-  width: 100%;
-  min-height: 34px;
-  padding: 0.42rem 0.75rem;
+  width: auto;
+  min-height: 36px;
+  padding: 0.48rem 0.9rem;
+  border-color: rgba(20, 184, 166, 0.28);
+  color: #0f766e;
+}
+
+.aurora-admin-avatar-upload:hover {
+  border-color: rgba(20, 184, 166, 0.48);
+  background: #ecfdf5;
 }
 
 .aurora-admin-profile-identity {
@@ -4811,72 +4851,71 @@ code {
   align-self: center;
 }
 
-.aurora-admin-profile-kicker {
-  display: inline-flex;
+.aurora-admin-profile-name-row {
+  display: flex;
   align-items: center;
-  width: max-content;
-  border: 1px solid #bfdbfe;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: var(--admin-blue);
-  padding: 0.18rem 0.58rem;
-  font-size: 11px;
-  font-weight: 820;
+  flex-wrap: wrap;
+  gap: 0.55rem;
 }
 
-.aurora-admin-profile-identity h1 {
-  margin-top: 0.48rem;
+.aurora-admin-profile-name-row h1 {
+  min-width: 0;
   color: #0f172a;
-  font-size: clamp(1.65rem, 2.35vw, 2.25rem);
-  font-weight: 860;
-  letter-spacing: -0.055em;
+  font-size: clamp(1.75rem, 2.85vw, 2.65rem);
+  font-weight: 880;
+  letter-spacing: -0.06em;
   line-height: 1;
 }
 
-.aurora-admin-profile-identity p {
-  margin-top: 0.36rem;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 720;
-}
-
-.aurora-admin-profile-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.72rem;
-}
-
-.aurora-admin-profile-badges span {
+.aurora-admin-profile-name-row span {
   display: inline-flex;
-  min-height: 30px;
+  min-height: 28px;
   align-items: center;
-  gap: 0.34rem;
-  border: 1px solid #dbeafe;
+  gap: 0.32rem;
+  border: 1px solid rgba(14, 165, 233, 0.18);
   border-radius: 999px;
-  background: #f8fbff;
-  color: #2563eb;
-  padding: 0.3rem 0.62rem;
+  background: #ecfeff;
+  color: #0f766e;
+  padding: 0.28rem 0.62rem;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 820;
+}
+
+.aurora-admin-profile-name-row span.is-green {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.aurora-admin-profile-identity p {
+  margin-top: 0.72rem;
+  color: #64748b;
+  font-size: 15px;
+  font-weight: 680;
+}
+
+.aurora-admin-profile-kicker,
+.aurora-admin-profile-badges {
+  display: none;
 }
 
 .aurora-admin-profile-meta-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.72rem;
+  gap: 0.8rem;
   align-items: stretch;
 }
 
 .aurora-admin-profile-meta-grid div {
   display: grid;
   min-width: 0;
-  min-height: 100%;
+  min-height: 5.9rem;
   align-content: center;
-  border: 1px solid #e2e8f0;
-  border-radius: 15px;
-  background: linear-gradient(180deg, #fbfdff, #f8fafc);
-  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(226, 232, 240, 0.64);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #fbfefd);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035);
 }
 
 .aurora-admin-profile-meta-grid span,
@@ -4884,87 +4923,121 @@ code {
 .aurora-admin-profile-field span {
   display: block;
   color: #64748b;
-  font-size: 12px;
-  font-weight: 760;
+  font-size: 13px;
+  font-weight: 740;
 }
 
 .aurora-admin-profile-meta-grid strong {
   display: block;
-  margin-top: 0.3rem;
+  margin-top: 0.38rem;
   overflow: hidden;
   color: #0f172a;
-  font-size: 13px;
-  font-weight: 840;
+  font-size: 1.06rem;
+  font-weight: 860;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.aurora-admin-profile-grid {
+.aurora-admin-profile-stack {
   display: grid;
-  grid-template-columns: minmax(19rem, 0.78fr) minmax(30rem, 1.22fr);
-  gap: 1rem;
-  align-items: start;
+  gap: 1.65rem;
 }
 
 .aurora-admin-profile-panel {
   display: flex;
-  min-height: 100%;
   flex-direction: column;
-  padding: 1.05rem;
+  padding: clamp(1.45rem, 2.4vw, 2rem);
+  border-radius: 22px;
 }
 
-.aurora-admin-profile-status,
-.aurora-admin-profile-grid > .aurora-admin-profile-status {
-  grid-column: 1 / -1;
-  min-height: 0;
+.aurora-admin-profile-card-head {
+  margin-bottom: 1.5rem;
 }
 
-.aurora-admin-profile-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 0.78rem;
-  margin-bottom: 0.9rem;
-  padding-bottom: 0.76rem;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.82);
-}
-
-.aurora-admin-profile-panel-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: 1px solid #bfdbfe;
-  border-radius: 14px;
-  background: #eff6ff;
-  color: var(--admin-blue);
-}
-
-.aurora-admin-profile-panel-head h3 {
+.aurora-admin-profile-card-head h3 {
   color: #0f172a;
-  font-size: 1rem;
-  font-weight: 840;
-  letter-spacing: -0.025em;
+  font-size: clamp(1.25rem, 1.7vw, 1.55rem);
+  font-weight: 860;
+  letter-spacing: -0.045em;
 }
 
-.aurora-admin-profile-panel-head p {
-  margin-top: 0.14rem;
+.aurora-admin-profile-card-head p {
+  margin-top: 0.35rem;
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.aurora-admin-profile-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.95fr) minmax(22rem, 1fr);
+  gap: 1.55rem;
+}
+
+.aurora-admin-profile-avatar-panel,
+.aurora-admin-profile-edit-panel {
+  min-width: 0;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  padding: 1.35rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.aurora-admin-profile-avatar-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 13.5rem;
+}
+
+.aurora-admin-profile-avatar-panel h4,
+.aurora-admin-profile-edit-panel h4 {
+  margin-top: 0.95rem;
+  color: #0f172a;
+  font-size: 1.02rem;
+  font-weight: 840;
+  letter-spacing: -0.02em;
+}
+
+.aurora-admin-profile-avatar-panel p {
+  max-width: 28rem;
+  margin-top: 0.55rem;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.55;
+}
+
+.aurora-admin-profile-avatar-panel .aurora-admin-avatar-upload {
+  margin-top: 1.05rem;
+}
+
+.aurora-admin-profile-edit-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+}
+
+.aurora-admin-profile-edit-panel h4 {
+  margin-top: 0;
 }
 
 .aurora-admin-profile-field {
   display: grid;
-  gap: 0.42rem;
-  margin-top: 0.72rem;
+  gap: 0.55rem;
 }
 
 .aurora-admin-profile-field .aurora-admin-input {
-  min-height: 46px;
-  border-radius: 13px;
-  padding: 0 0.95rem;
+  min-height: 54px;
+  border-radius: 16px;
+  border-color: rgba(203, 213, 225, 0.82);
+  background: #fff;
+  padding: 0 1.05rem;
+  font-size: 15px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.03);
 }
 
 .aurora-admin-profile-field .aurora-admin-input:disabled {
@@ -4974,47 +5047,143 @@ code {
 }
 
 .aurora-admin-profile-submit {
-  width: 100%;
-  min-height: 46px;
+  min-height: 48px;
   margin-top: auto;
   transform: none;
 }
 
-.aurora-admin-profile-field + .aurora-admin-profile-submit {
-  margin-top: 0.95rem;
+.aurora-admin-profile-submit-inline {
+  justify-self: end;
+  width: auto;
+  min-width: 7.25rem;
+  padding-inline: 1.2rem;
+  background: #14b8a6;
+  box-shadow: 0 12px 24px rgba(20, 184, 166, 0.18);
 }
 
-.aurora-admin-profile-status .aurora-admin-profile-panel-head {
-  margin-bottom: 0.72rem;
+.aurora-admin-profile-submit-inline:hover {
+  background: #0f9f93;
 }
 
-.aurora-admin-profile-status-list {
+.aurora-admin-profile-login-card {
+  gap: 0;
+}
+
+.aurora-admin-profile-password-details {
+  display: block;
+}
+
+.aurora-admin-profile-password-details summary {
+  list-style: none;
+}
+
+.aurora-admin-profile-password-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.aurora-admin-profile-login-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.72rem;
-}
-
-.aurora-admin-profile-status-list div {
-  display: flex;
-  min-height: 54px;
+  grid-template-columns: 3.4rem minmax(0, 1fr) auto auto;
+  gap: 1rem;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #f8fafc;
-  padding: 0.72rem 0.86rem;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ffffff, #fbfefd);
+  padding: 1rem 1.2rem;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
-.aurora-admin-profile-status-list strong {
+.aurora-admin-profile-login-row:hover {
+  border-color: rgba(20, 184, 166, 0.32);
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.07);
+}
+
+.aurora-admin-profile-login-row:active {
+  transform: scale(0.995);
+}
+
+.aurora-admin-profile-login-icon {
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  border-radius: 16px;
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.aurora-admin-profile-login-copy {
   min-width: 0;
-  overflow: hidden;
-  color: #334155;
-  font-size: 13px;
+  display: grid;
+  gap: 0.24rem;
+}
+
+.aurora-admin-profile-login-copy strong {
+  color: #0f172a;
+  font-size: 1rem;
   font-weight: 840;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.aurora-admin-profile-login-copy span {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.aurora-admin-profile-bound-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  padding: 0.25rem 0.7rem;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.aurora-admin-profile-password-manage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0.42rem 0.82rem;
+  font-size: 13px;
+  font-weight: 760;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.aurora-admin-profile-password-details[open] .aurora-admin-profile-password-manage {
+  border-color: rgba(20, 184, 166, 0.38);
+  background: #ecfdf5;
+  color: #0f766e;
+}
+
+.aurora-admin-profile-password-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.9rem;
+  align-items: end;
+  margin-top: 1rem;
+}
+
+.aurora-admin-profile-password-grid .aurora-admin-profile-submit-inline {
+  min-height: 54px;
+  align-self: end;
+}
+
+.aurora-admin-profile-grid,
+.aurora-admin-profile-status,
+.aurora-admin-profile-panel-head,
+.aurora-admin-profile-panel-icon,
+.aurora-admin-profile-status-list {
+  /* Legacy selectors kept for static tests and old bundle compatibility. */
 }
 
 .aurora-session-main-grid { display:grid; grid-template-columns:minmax(0,1fr) 420px; gap:1rem; }
@@ -5617,6 +5786,17 @@ code {
   .aurora-admin-profile-meta-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .aurora-admin-profile-hero,
+  .aurora-admin-profile-editor-grid,
+  .aurora-admin-profile-password-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .aurora-admin-profile-password-grid .aurora-admin-profile-submit-inline {
+    justify-self: stretch;
+    width: 100%;
+  }
 }
 
 @media (max-width: 1280px) {
@@ -5669,8 +5849,49 @@ code {
   .aurora-admin-avatar-upload {
     width: auto;
   }
+  .aurora-admin-profile-page {
+    max-width: none;
+    gap: 1rem;
+  }
+  .aurora-admin-profile-page-title {
+    padding-inline: 0;
+  }
+  .aurora-admin-profile-hero {
+    padding: 1.1rem;
+    border-radius: 18px;
+  }
+  .aurora-admin-profile-hero-main {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .aurora-admin-profile-name-row h1 {
+    font-size: 1.85rem;
+  }
+  .aurora-admin-profile-avatar-stack {
+    width: auto;
+    align-items: flex-start;
+  }
+  .aurora-admin-avatar-upload {
+    width: auto;
+  }
   .aurora-admin-profile-meta-grid {
     grid-template-columns: 1fr;
+  }
+  .aurora-admin-profile-panel {
+    padding: 1.1rem;
+    border-radius: 18px;
+  }
+  .aurora-admin-profile-login-row {
+    grid-template-columns: 3.1rem minmax(0, 1fr);
+  }
+  .aurora-admin-profile-bound-badge,
+  .aurora-admin-profile-password-manage {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .aurora-admin-profile-submit-inline {
+    width: 100%;
+    justify-self: stretch;
   }
   .aurora-admin-users-stats,
   .aurora-admin-profile-status-list,

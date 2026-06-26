@@ -2986,7 +2986,14 @@ const AdminDashboard = () => {
         )}
 
         {activeTab === 'adminProfile' && (
-          <div className="aurora-admin-section aurora-admin-profile-page space-y-6">
+          <div className="aurora-admin-section aurora-admin-profile-page">
+            <div className="aurora-admin-profile-page-title">
+              <div>
+                <h2>个人设置</h2>
+                <p>管理后台账户信息和安全设置</p>
+              </div>
+            </div>
+
             <div className="aurora-admin-card aurora-admin-profile-hero">
               <div className="aurora-admin-profile-hero-main">
                 <div className="aurora-admin-profile-avatar-stack">
@@ -2997,31 +3004,14 @@ const AdminDashboard = () => {
                       (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className="aurora-admin-avatar-upload"
-                    onClick={() => adminAvatarInputRef.current?.click()}
-                    disabled={uploadingAdminAvatar}
-                  >
-                    {uploadingAdminAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    上传头像
-                  </button>
-                  <input
-                    ref={adminAvatarInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="sr-only"
-                    onChange={handleAdminAvatarUpload}
-                  />
                 </div>
                 <div className="aurora-admin-profile-identity">
-                  <span className="aurora-admin-profile-kicker">后台账户</span>
-                  <h1>{adminProfile?.display_name || adminDisplayName || '管理员'}</h1>
-                  <p>{adminProfile?.username || 'admin'}</p>
-                  <div className="aurora-admin-profile-badges">
+                  <div className="aurora-admin-profile-name-row">
+                    <h1>{adminProfile?.display_name || adminDisplayName || '管理员'}</h1>
                     <span><Shield className="h-4 w-4" />{adminProfile?.role || '管理员'}</span>
-                    <span><CheckCircle className="h-4 w-4" />已启用</span>
+                    <span className="is-green"><CheckCircle className="h-4 w-4" />启用</span>
                   </div>
+                  <p>{adminProfile?.username || 'admin'}</p>
                 </div>
               </div>
               <div className="aurora-admin-profile-meta-grid">
@@ -3046,117 +3036,137 @@ const AdminDashboard = () => {
                 正在加载管理员资料
               </div>
             ) : (
-              <div className="aurora-admin-profile-grid">
-                <form onSubmit={handleSaveAdminProfile} className="aurora-admin-card aurora-admin-profile-panel">
-                  <div className="aurora-admin-profile-panel-head">
-                    <div className="aurora-admin-profile-panel-icon">
-                      <UserCheck className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3>个人资料</h3>
-                      <p>修改后台显示昵称，用户名仍由系统配置管理。</p>
-                    </div>
+              <div className="aurora-admin-profile-stack">
+                <section className="aurora-admin-card aurora-admin-profile-panel aurora-admin-profile-info-card">
+                  <div className="aurora-admin-profile-card-head">
+                    <h3>资料与头像</h3>
+                    <p>维护后台显示信息，并保持头像与昵称风格一致。</p>
                   </div>
-                  <label className="aurora-admin-profile-field">
-                    <span>显示昵称</span>
-                    <input
-                      type="text"
-                      value={adminDisplayName}
-                      onChange={(event) => setAdminDisplayName(event.target.value)}
-                      className="aurora-admin-input"
-                      maxLength={32}
-                      placeholder="例如：魔尊后台"
-                    />
-                  </label>
-                  <label className="aurora-admin-profile-field">
-                    <span>登录用户名</span>
-                    <input
-                      type="text"
-                      value={adminProfile?.username || ''}
-                      className="aurora-admin-input"
-                      disabled
-                      readOnly
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={savingAdminProfile}
-                    className="aurora-admin-action aurora-admin-profile-submit"
-                  >
-                    {savingAdminProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    保存资料
-                  </button>
-                </form>
+                  <div className="aurora-admin-profile-editor-grid">
+                    <div className="aurora-admin-profile-avatar-panel">
+                      <div className="aurora-admin-profile-avatar is-panel">
+                        {adminProfile?.avatar_url && !adminAvatarLoadFailed ? (
+                          <img src={adminProfile.avatar_url} alt="" onError={() => setAdminAvatarLoadFailed(true)} />
+                        ) : (
+                          (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
+                        )}
+                      </div>
+                      <h4>资料头像</h4>
+                      <p>上传 PNG、JPG 或 WebP 图片，保存后顶部头像与用户列表会同步显示。</p>
+                      <button
+                        type="button"
+                        className="aurora-admin-avatar-upload"
+                        onClick={() => adminAvatarInputRef.current?.click()}
+                        disabled={uploadingAdminAvatar}
+                      >
+                        {uploadingAdminAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        上传头像
+                      </button>
+                      <input
+                        ref={adminAvatarInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="sr-only"
+                        onChange={handleAdminAvatarUpload}
+                      />
+                    </div>
 
-                <form onSubmit={handleSaveAdminPassword} className="aurora-admin-card aurora-admin-profile-panel">
-                  <div className="aurora-admin-profile-panel-head">
-                    <div className="aurora-admin-profile-panel-icon">
-                      <Key className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3>修改密码</h3>
-                      <p>更新后会退出当前后台登录，请重新使用新密码进入。</p>
-                    </div>
+                    <form onSubmit={handleSaveAdminProfile} className="aurora-admin-profile-edit-panel">
+                      <h4>编辑个人资料</h4>
+                      <label className="aurora-admin-profile-field">
+                        <span>显示昵称</span>
+                        <input
+                          type="text"
+                          value={adminDisplayName}
+                          onChange={(event) => setAdminDisplayName(event.target.value)}
+                          className="aurora-admin-input"
+                          maxLength={32}
+                          placeholder="例如：魔尊后台"
+                        />
+                      </label>
+                      <label className="aurora-admin-profile-field">
+                        <span>登录用户名</span>
+                        <input
+                          type="text"
+                          value={adminProfile?.username || ''}
+                          className="aurora-admin-input"
+                          disabled
+                          readOnly
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={savingAdminProfile}
+                        className="aurora-admin-action aurora-admin-profile-submit aurora-admin-profile-submit-inline"
+                      >
+                        {savingAdminProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        更新资料
+                      </button>
+                    </form>
                   </div>
-                  <label className="aurora-admin-profile-field">
-                    <span>当前密码</span>
-                    <input
-                      type="password"
-                      value={adminPasswordForm.current_password}
-                      onChange={(event) => handleAdminPasswordInput('current_password', event.target.value)}
-                      className="aurora-admin-input"
-                      autoComplete="current-password"
-                      placeholder="请输入当前管理员密码"
-                    />
-                  </label>
-                  <label className="aurora-admin-profile-field">
-                    <span>新密码</span>
-                    <input
-                      type="password"
-                      value={adminPasswordForm.new_password}
-                      onChange={(event) => handleAdminPasswordInput('new_password', event.target.value)}
-                      className="aurora-admin-input"
-                      autoComplete="new-password"
-                      placeholder="至少 8 位"
-                    />
-                  </label>
-                  <label className="aurora-admin-profile-field">
-                    <span>确认新密码</span>
-                    <input
-                      type="password"
-                      value={adminPasswordForm.confirm_password}
-                      onChange={(event) => handleAdminPasswordInput('confirm_password', event.target.value)}
-                      className="aurora-admin-input"
-                      autoComplete="new-password"
-                      placeholder="再次输入新密码"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={savingAdminPassword}
-                    className="aurora-admin-action aurora-admin-profile-submit"
-                  >
-                    {savingAdminPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
-                    保存密码
-                  </button>
-                </form>
+                </section>
 
-                <div className="aurora-admin-card aurora-admin-profile-panel aurora-admin-profile-status">
-                  <div className="aurora-admin-profile-panel-head">
-                    <div className="aurora-admin-profile-panel-icon">
-                      <Clock className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3>登录状态</h3>
-                      <p>当前后台账号使用系统密码登录，与普通用户账号完全隔离。</p>
-                    </div>
+                <section className="aurora-admin-card aurora-admin-profile-panel aurora-admin-profile-login-card">
+                  <div className="aurora-admin-profile-card-head">
+                    <h3>登录方式绑定</h3>
+                    <p>查看当前登录方式，并管理后台账号密码。</p>
                   </div>
-                  <div className="aurora-admin-profile-status-list">
-                    <div><span>账户角色</span><strong>{adminProfile?.role || '管理员'}</strong></div>
-                    <div><span>配置来源</span><strong>{adminProfile?.profile_source === 'system_settings' ? '系统设置' : adminProfile?.profile_source || '--'}</strong></div>
-                    <div><span>当前状态</span><strong className="text-emerald-600">● 正常</strong></div>
-                  </div>
-                </div>
+                  <details className="aurora-admin-profile-password-details">
+                    <summary className="aurora-admin-profile-login-row">
+                      <div className="aurora-admin-profile-login-icon"><Key className="h-5 w-5" /></div>
+                      <div className="aurora-admin-profile-login-copy">
+                        <strong>后台密码</strong>
+                        <span>{adminProfile?.auth_method === 'password' ? '当前后台账号使用系统密码登录' : adminProfile?.auth_method || '密码登录'}</span>
+                      </div>
+                      <span className="aurora-admin-profile-bound-badge">已绑定</span>
+                      <span className="aurora-admin-profile-password-manage">修改密码</span>
+                    </summary>
+
+                    <form onSubmit={handleSaveAdminPassword} className="aurora-admin-profile-password-grid">
+                      <label className="aurora-admin-profile-field">
+                        <span>当前密码</span>
+                        <input
+                          type="password"
+                          value={adminPasswordForm.current_password}
+                          onChange={(event) => handleAdminPasswordInput('current_password', event.target.value)}
+                          className="aurora-admin-input"
+                          autoComplete="current-password"
+                          placeholder="请输入当前管理员密码"
+                        />
+                      </label>
+                      <label className="aurora-admin-profile-field">
+                        <span>新密码</span>
+                        <input
+                          type="password"
+                          value={adminPasswordForm.new_password}
+                          onChange={(event) => handleAdminPasswordInput('new_password', event.target.value)}
+                          className="aurora-admin-input"
+                          autoComplete="new-password"
+                          placeholder="至少 8 位"
+                        />
+                      </label>
+                      <label className="aurora-admin-profile-field">
+                        <span>确认新密码</span>
+                        <input
+                          type="password"
+                          value={adminPasswordForm.confirm_password}
+                          onChange={(event) => handleAdminPasswordInput('confirm_password', event.target.value)}
+                          className="aurora-admin-input"
+                          autoComplete="new-password"
+                          placeholder="再次输入新密码"
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={savingAdminPassword}
+                        className="aurora-admin-action aurora-admin-profile-submit aurora-admin-profile-submit-inline"
+                      >
+                        {savingAdminPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
+                        保存密码
+                      </button>
+                    </form>
+                  </details>
+                </section>
               </div>
             )}
           </div>
