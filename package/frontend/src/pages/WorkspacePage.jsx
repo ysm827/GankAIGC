@@ -1046,8 +1046,8 @@ const WorkspacePage = () => {
     }
 
     const filename = file.name || '';
-    if (!/\.(docx|md|markdown)$/i.test(filename)) {
-      toast.error('仅支持上传 Word(.docx) 和 Markdown(.md/.markdown)');
+    if (!/\.(docx|pdf|md|markdown)$/i.test(filename)) {
+      toast.error('仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown)');
       return;
     }
 
@@ -1603,7 +1603,7 @@ const WorkspacePage = () => {
                         <input
                           ref={documentFileInputRef}
                           type="file"
-                          accept=".docx,.md,.markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
+                          accept=".docx,.pdf,.md,.markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,text/markdown,text/plain"
                           onChange={handleDocumentUpload}
                           className="hidden"
                         />
@@ -1612,10 +1612,10 @@ const WorkspacePage = () => {
                           onClick={handleChooseDocumentFile}
                           disabled={isParsingDocument || Boolean(activeSession)}
                           className="inline-flex h-10 items-center gap-2 rounded-2xl border border-blue-100 bg-white/90 px-4 text-[13px] font-semibold text-[#2563eb] shadow-[0_10px_25px_rgba(37,99,235,0.08)] transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          title="上传 Word 或 Markdown 论文并自动解析到输入框"
+                          title="上传 Word、PDF 或 Markdown 论文并自动解析到输入框"
                         >
                           {isParsingDocument ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                          {isParsingDocument ? '解析中' : '上传 Word / MD'}
+                          {isParsingDocument ? '解析中' : '上传文件'}
                         </button>
                       </div>
                     </div>

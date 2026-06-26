@@ -48,10 +48,11 @@ router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 ONLINE_USER_WINDOW_SECONDS = 60
 DOCUMENT_UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
-DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".md", ".markdown"}
+DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".pdf", ".md", ".markdown"}
 DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
+    "application/pdf",
     "text/markdown",
     "text/x-markdown",
     "text/plain",
@@ -132,11 +133,11 @@ def _validate_document_upload(file: UploadFile) -> tuple[str, str]:
     filename = Path(file.filename or "").name
     extension = _document_upload_extension(filename)
     if extension not in DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx) 和 Markdown(.md/.markdown) 文件")
+        raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown) 文件")
 
     content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
     if content_type and content_type not in DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail="文件类型不受支持，请上传 Word(.docx) 或 Markdown(.md/.markdown)")
+        raise HTTPException(status_code=400, detail="文件类型不受支持，请上传 Word(.docx)、PDF(.pdf) 或 Markdown(.md/.markdown)")
     return filename or f"paper{extension}", extension
 
 
@@ -151,23 +152,24 @@ def _decode_markdown_upload(content: bytes) -> tuple[str, list[str]]:
     return content.decode("utf-8", errors="replace"), warnings
 
 
-def _parse_docx_with_markitdown(content: bytes) -> tuple[str, list[str]]:
+def _parse_document_with_markitdown(content: bytes, extension: str) -> tuple[str, list[str]]:
     try:
         from markitdown import MarkItDown
     except ImportError as exc:
         raise HTTPException(
             status_code=500,
-            detail="服务器未安装 MarkItDown，暂时无法解析 Word 文件",
+            detail="服务器未安装 MarkItDown，暂时无法解析 Word/PDF 文件",
         ) from exc
 
     temp_path = None
+    extension = extension if extension in {".docx", ".pdf"} else ".docx"
     try:
         md = MarkItDown(enable_plugins=False)
         convert_stream = getattr(md, "convert_stream", None)
         if callable(convert_stream):
-            result = convert_stream(BytesIO(content), file_extension=".docx")
+            result = convert_stream(BytesIO(content), file_extension=extension)
         else:
-            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
                 temp_file.write(content)
                 temp_path = temp_file.name
             convert_local = getattr(md, "convert_local", None)
@@ -175,7 +177,8 @@ def _parse_docx_with_markitdown(content: bytes) -> tuple[str, list[str]]:
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Word 文件解析失败: {exc}") from exc
+        file_label = "PDF" if extension == ".pdf" else "Word"
+        raise HTTPException(status_code=400, detail=f"{file_label} 文件解析失败: {exc}") from exc
     finally:
         if temp_path:
             try:
@@ -209,7 +212,7 @@ async def parse_optimization_document(
         parsed_text, warnings = _decode_markdown_upload(content)
     else:
         parser = "markitdown"
-        parsed_text, warnings = _parse_docx_with_markitdown(content)
+        parsed_text, warnings = _parse_document_with_markitdown(content, extension)
 
     text = _normalize_parsed_document_text(parsed_text)
     if not text:

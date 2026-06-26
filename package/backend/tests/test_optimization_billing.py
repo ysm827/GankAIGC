@@ -126,17 +126,82 @@ def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
     assert payload["char_count"] == 8
 
 
-def test_parse_document_upload_rejects_pdf_for_now(client):
+def test_parse_pdf_document_upload_uses_markitdown(client, monkeypatch):
+    _, token = _create_user(credit_balance=0)
+    seen_extensions = []
+
+    class FakeMarkItDown:
+        def __init__(self, enable_plugins=False):
+            assert enable_plugins is False
+
+        def convert_stream(self, stream, *, file_extension=None):
+            seen_extensions.append(file_extension)
+            assert stream.read().startswith(b"%PDF")
+            return types.SimpleNamespace(text_content="PDF parsed body")
+
+    monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.pdf", b"%PDF-1.7 fake pdf", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert seen_extensions == [".pdf"]
+    assert payload["filename"] == "paper.pdf"
+    assert payload["parser"] == "markitdown"
+    assert payload["text"] == "PDF parsed body"
+
+
+def test_parse_pdf_document_upload_extracts_text_with_real_markitdown(client):
+    _, token = _create_user(credit_balance=0)
+    pdf = b"""%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj
+4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+5 0 obj << /Length 44 >> stream
+BT /F1 24 Tf 72 720 Td (PDF parsed body) Tj ET
+endstream endobj
+xref
+0 6
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000274 00000 n
+0000000344 00000 n
+trailer << /Root 1 0 R /Size 6 >>
+startxref
+438
+%%EOF
+"""
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.pdf", pdf, "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["parser"] == "markitdown"
+    assert payload["text"] == "PDF parsed body"
+
+
+def test_parse_document_upload_rejects_unsupported_file_type(client):
     _, token = _create_user(credit_balance=0)
 
     response = client.post(
         "/api/optimization/documents/parse",
-        files={"file": ("paper.pdf", b"%PDF-1.7", "application/pdf")},
+        files={"file": ("paper.txt", b"text", "text/plain")},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 400
-    assert "Word(.docx) 和 Markdown" in response.json()["detail"]
+    assert "Word(.docx)、PDF(.pdf) 和 Markdown" in response.json()["detail"]
 
 
 def test_platform_mode_holds_character_based_credits_before_processing(client, monkeypatch):

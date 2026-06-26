@@ -72,6 +72,10 @@ hidden_imports += collect_submodules('mammoth')
 hidden_imports += collect_submodules('markdownify')
 hidden_imports += collect_submodules('bs4')
 hidden_imports += collect_submodules('onnxruntime')
+hidden_imports += collect_submodules('pdfplumber')
+hidden_imports += collect_submodules('pdfminer')
+hidden_imports += collect_submodules('pypdfium2')
+hidden_imports += collect_submodules('PIL')
 hidden_imports += collect_submodules('lxml')
 # pkg_resources / jaraco 子模块 (Linux 必需)
 hidden_imports += collect_submodules('jaraco')
@@ -91,6 +95,8 @@ a = Analysis(
         ('backend/app', 'app'),
         # MarkItDown 依赖 magika 的本地模型/配置文件
         *collect_data_files('magika'),
+        # MarkItDown PDF 解析依赖 pypdfium2 的运行时资源
+        *collect_data_files('pypdfium2'),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -101,7 +107,6 @@ a = Analysis(
         'matplotlib',
         'pandas',
         'scipy',
-        'PIL',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
