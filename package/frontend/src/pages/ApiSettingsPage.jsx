@@ -13,6 +13,7 @@ const API_FORMAT_OPTIONS = [
 const FIELD_CONFIG = [
   { field: 'base_url', label: 'Base URL', placeholder: '例如 https://api.openai.com/v1', type: 'text', required: true },
   { field: 'api_key', label: 'API Key', placeholder: '留空则使用已保存 Key', type: 'password', required: false },
+  { field: 'api_format', label: 'API 格式', type: 'select', required: true },
   { field: 'polish_model', label: '润色模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
   { field: 'enhance_model', label: '增强模型', placeholder: '例如 gpt-5.4', type: 'text', required: true },
   { field: 'emotion_model', label: '感情润色模型', placeholder: '可选', type: 'text', required: false },
@@ -241,24 +242,27 @@ const ApiSettingsPage = () => {
             )}
 
             <form onSubmit={handleSave} className="aurora-api-form">
-              <div className="md:col-span-2">
-                <label className="aurora-field-label" htmlFor="api-format">API 格式</label>
-                <select
-                  id="api-format"
-                  value={form.api_format}
-                  onChange={(event) => updateField('api_format', event.target.value)}
-                  className="aurora-input"
-                  required
-                >
-                  {API_FORMAT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-
               {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => {
                 if (field.endsWith('_model')) {
                   return renderModelField({ field, label, placeholder, required });
+                }
+                if (field === 'api_format') {
+                  return (
+                    <div key={field} className="md:col-span-2">
+                      <label className="aurora-field-label" htmlFor="api-format">{label}</label>
+                      <select
+                        id="api-format"
+                        value={form.api_format}
+                        onChange={(event) => updateField('api_format', event.target.value)}
+                        className="aurora-input"
+                        required={required}
+                      >
+                        {API_FORMAT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
                 }
                 return (
                   <div key={field} className={field === 'base_url' || field === 'api_key' ? 'md:col-span-2' : ''}>
