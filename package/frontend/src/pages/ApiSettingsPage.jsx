@@ -257,7 +257,6 @@ const ApiSettingsPage = () => {
               <div>
                 <h2>供应商配置</h2>
               </div>
-              {maskedKey && <span className="aurora-subtle-badge aurora-badge-success">已保存 ****{maskedKey}</span>}
             </div>
 
             {maskedKey && (
