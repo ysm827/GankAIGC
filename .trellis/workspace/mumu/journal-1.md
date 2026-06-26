@@ -181,3 +181,36 @@ Fixed admin user-management layout polish: removed duplicate quick filters and i
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Add Anthropic Messages adapter
+
+**Date**: 2026-06-26
+**Task**: Add Anthropic Messages adapter
+**Branch**: `main`
+
+### Summary
+
+Added native Anthropic Messages API format across admin config, BYOK provider config, model test/list, optimization routing, frontend selectors, tests, static bundle, and backend code-spec contract.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `542e6b1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
