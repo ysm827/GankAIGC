@@ -5706,6 +5706,19 @@ code {
   font-weight: 760;
 }
 
+.aurora-config-provider-stack .aurora-admin-input,
+.aurora-config-model-picker .aurora-admin-input,
+.aurora-config-quota-grid .aurora-admin-input {
+  width: 100%;
+  min-height: 44px !important;
+  height: 44px;
+  border: 1px solid rgba(203, 213, 225, 0.86) !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  padding: 0 0.95rem !important;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
 .aurora-config-model-picker {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;

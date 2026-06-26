@@ -181,7 +181,7 @@ const ConfigManager = ({ adminToken }) => {
       }, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
-      toast.success(response.data?.message || 'API 连接测试通过；如需正式生效请保存配置');
+      toast.success(response.data?.message || 'API 连接测试通过；如需正式生效请点击保存');
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(detail?.message || detail || 'API 连接测试失败');
@@ -261,7 +261,7 @@ const ConfigManager = ({ adminToken }) => {
       onClick={() => handleTestModel(stage)}
       disabled={testingStage === stage}
       className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-      title="测试当前页面填写的模型配置；成功后仍需保存才会正式生效"
+      title="测试当前页面填写的模型配置；成功后仍需点击保存才会正式生效"
     >
       {testingStage === stage ? (
         <RefreshCw className="h-4 w-4 animate-spin" />

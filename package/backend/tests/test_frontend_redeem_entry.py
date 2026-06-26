@@ -1513,6 +1513,8 @@ def test_config_manager_system_config_layout_matches_aurora_actions():
     assert ".aurora-config-model-picker" in index_css
     assert "aurora-config-model-probe-button" in config_manager
     assert ".aurora-config-model-probe-button" in index_css
+    assert ".aurora-config-provider-stack .aurora-admin-input" in index_css
+    assert ".aurora-config-model-picker .aurora-admin-input" in index_css
     assert "aurora-config-embedded-quota" in config_manager
     assert ".aurora-config-embedded-quota" in index_css
 
@@ -1604,7 +1606,7 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "const stageConfig = getStageFormConfig(stage)" in config_manager
     assert "...stageConfig" in config_manager
     assert "测试当前页面填写的模型配置" in config_manager
-    assert "正式生效请保存配置" in config_manager
+    assert "正式生效请点击保存" in config_manager
     assert "renderTestButton('polish')" in config_manager
     assert "renderTestButton('enhance')" in config_manager
     assert "renderTestButton('emotion')" in config_manager
