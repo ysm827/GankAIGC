@@ -913,6 +913,9 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "近7天" not in users_section
     assert "['vip', 'VIP']" not in users_section
     assert "['blocked', '异常']" not in users_section
+    assert "userApiFilter === 'admin'" not in users_section
+    assert "setUserApiFilter('admin')" not in users_section
+    assert ">管理员</button>" not in users_section
 
     assert "aurora-admin-user-detail-panel" not in users_section
     assert "aurora-admin-user-detail-panel" not in index_css
@@ -974,6 +977,9 @@ def test_admin_user_management_polishes_layout_and_actions():
     assert "min-width: 3.9rem" in index_css
     assert "width: 3.9rem" in index_css
     assert "grid-template-columns: minmax(0, 1fr)" in index_css
+    assert ".aurora-admin-profile-page" in index_css
+    assert "max-width: 1180px" not in index_css
+    assert "max-width: none" in index_css
     assert ".aurora-admin-user-scope-tabs" not in index_css
 
 

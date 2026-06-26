@@ -145,9 +145,6 @@ const getAuditIp = (log, index = 0) => (
 );
 
 const getAdminUserRole = (user, providerConfig) => {
-  if (user?.is_superuser || user?.is_admin) {
-    return { label: '管理员', className: 'bg-slate-100 text-slate-700 border-slate-200' };
-  }
   if (user?.is_unlimited || providerConfig) {
     return { label: 'VIP用户', className: 'bg-amber-50 text-amber-700 border-amber-200' };
   }
@@ -966,7 +963,6 @@ const AdminDashboard = () => {
   const normalizedUserSearchTerm = userSearchTerm.trim().toLowerCase();
   const filteredUsers = users.filter((user) => {
     const providerConfig = providerConfigByUserId.get(user.id);
-    const isAdminUser = Boolean(user?.is_superuser || user?.is_admin);
     const matchesSearch = !normalizedUserSearchTerm || [
       user.id,
       user.username,
@@ -976,9 +972,8 @@ const AdminDashboard = () => {
       || (userStatusFilter === 'active' && user.is_active)
       || (userStatusFilter === 'blocked' && !user.is_active);
     const matchesApi = userApiFilter === 'all'
-      || (userApiFilter === 'admin' && isAdminUser)
-      || (userApiFilter === 'configured' && providerConfig && !isAdminUser)
-      || (userApiFilter === 'empty' && !providerConfig && !isAdminUser);
+      || (userApiFilter === 'configured' && providerConfig)
+      || (userApiFilter === 'empty' && !providerConfig);
 
     return matchesSearch && matchesStatus && matchesApi;
   });
@@ -2310,7 +2305,6 @@ const AdminDashboard = () => {
                       <button type="button" className={userApiFilter === 'all' ? 'is-active' : ''} onClick={() => setUserApiFilter('all')}>全部</button>
                       <button type="button" className={userApiFilter === 'empty' ? 'is-active' : ''} onClick={() => setUserApiFilter('empty')}>普通用户</button>
                       <button type="button" className={userApiFilter === 'configured' ? 'is-active' : ''} onClick={() => setUserApiFilter('configured')}>VIP用户</button>
-                      <button type="button" className={userApiFilter === 'admin' ? 'is-active' : ''} onClick={() => setUserApiFilter('admin')}>管理员</button>
                       <i />
                       <span>状态：</span>
                       <button type="button" className={userStatusFilter === 'all' ? 'is-active' : ''} onClick={() => setUserStatusFilter('all')}>全部</button>
