@@ -121,7 +121,7 @@ const WelcomePage = () => {
 
       <main id="home" className="relative pt-[72px]">
         <section className="mx-auto max-w-5xl px-5 pb-20 pt-20 text-center sm:px-8 sm:pb-24 sm:pt-24">
-          <div className="mx-auto mb-7 inline-flex items-center gap-2 rounded-full bg-[#E6F1FB] px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#185FA5]">
+          <div className="mx-auto mb-7 inline-flex items-center gap-2 rounded-full bg-[#E6F1FB] px-4 py-2 text-sm font-bold uppercase tracking-[0.12em] text-[#185FA5]">
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
             论文降 AI 与语义润色工具
           </div>
@@ -170,7 +170,7 @@ const WelcomePage = () => {
         <section className="mx-auto max-w-6xl px-5 pb-20 sm:px-8">
           <div className="grid overflow-hidden rounded-xl border border-[#EAEAEA] bg-white md:grid-cols-[0.9fr_1.1fr]">
             <div className="border-b border-[#EAEAEA] p-6 text-left md:border-b-0 md:border-r md:p-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">检测报告缩影</p>
+              <p className="text-base font-bold uppercase tracking-[0.14em] text-[#185FA5]">检测报告缩影</p>
               <h2 className="mt-4 max-w-md text-3xl font-semibold tracking-[-0.035em] text-[#111111]">
                 不追求花哨，只把风险句和改写结果摆清楚。
               </h2>
@@ -219,7 +219,7 @@ const WelcomePage = () => {
 
         <section className="mx-auto max-w-6xl px-5 py-20 sm:px-8" aria-labelledby="problem-title">
           <div className="max-w-2xl text-left">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">问题先看清</p>
+            <p className="text-base font-bold uppercase tracking-[0.14em] text-[#185FA5]">问题先看清</p>
             <h2 id="problem-title" className="mt-3 text-3xl font-semibold tracking-[-0.035em] text-[#111111] sm:text-4xl">
               论文降 AI，不是把句子随便换一种说法。
             </h2>
@@ -241,7 +241,7 @@ const WelcomePage = () => {
         <section id="features" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8" aria-labelledby="feature-title">
           <div className="grid gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:items-start">
             <div className="text-left">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">核心能力</p>
+              <p className="text-base font-bold uppercase tracking-[0.14em] text-[#185FA5]">核心能力</p>
               <h2 id="feature-title" className="mt-3 text-3xl font-semibold tracking-[-0.035em] text-[#111111] sm:text-4xl">
                 少一点包装，多一点可用。
               </h2>
@@ -269,7 +269,7 @@ const WelcomePage = () => {
         <section id="scenarios" data-home-scenarios="workflow" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-20 sm:px-8" aria-labelledby="workflow-title">
           <div className="rounded-xl border border-[#EAEAEA] bg-white p-6 sm:p-8">
             <div className="mb-8 max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#185FA5]">论文处理链路</p>
+              <p className="text-base font-bold uppercase tracking-[0.14em] text-[#185FA5]">论文处理链路</p>
               <h2 id="workflow-title" className="mt-3 text-3xl font-semibold tracking-[-0.035em] text-[#111111] sm:text-4xl">
                 从初稿到投稿前的三步优化
               </h2>
@@ -281,7 +281,7 @@ const WelcomePage = () => {
             <div className="divide-y divide-[#EAEAEA]">
               {workflowSteps.map(({ step, title, desc }) => (
                 <article key={step} className="grid gap-4 py-6 first:pt-0 last:pb-0 sm:grid-cols-[9rem_1fr] sm:items-start">
-                  <div className="font-mono text-xs font-semibold uppercase tracking-[0.12em] text-[#185FA5]">{step}</div>
+                  <div className="font-mono text-base font-bold uppercase tracking-[0.12em] text-[#185FA5]">{step}</div>
                   <div>
                     <h3 className="text-lg font-semibold tracking-[-0.02em] text-[#111111]">{title}</h3>
                     <p className="mt-2 max-w-2xl text-sm leading-7 text-[#6B7280]">{desc}</p>
