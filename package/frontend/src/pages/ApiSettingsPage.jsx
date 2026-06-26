@@ -195,6 +195,19 @@ const ApiSettingsPage = () => {
     </button>
   );
 
+  const renderTestConnectionButton = () => (
+    <button
+      type="button"
+      onClick={handleTest}
+      disabled={testing}
+      className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+      title="测试当前页面填写的模型配置；成功后仍需点击保存才会正式生效"
+    >
+      {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
+      测试连接
+    </button>
+  );
+
   return (
     <div className="gank-app-page aurora-app-page aurora-account-page">
       <div className="gank-ambient-orb orb-one" />
@@ -263,6 +276,7 @@ const ApiSettingsPage = () => {
                         {renderModelField({ field, label, placeholder, required })}
                         <div className="aurora-api-probe-slot">
                           {renderFetchModelsButton()}
+                          {renderTestConnectionButton()}
                         </div>
                       </React.Fragment>
                     );
@@ -304,17 +318,7 @@ const ApiSettingsPage = () => {
                 );
               })}
 
-              <div className="aurora-api-actions md:col-span-2">
-                <button
-                  type="button"
-                  onClick={handleTest}
-                  disabled={testing}
-                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
-                  title="测试当前页面填写的模型配置；成功后仍需点击保存才会正式生效"
-                >
-                  {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}
-                  测试连接
-                </button>
+              <div className="aurora-api-actions aurora-api-save-actions md:col-span-2">
                 <button
                   type="submit"
                   disabled={loading}
