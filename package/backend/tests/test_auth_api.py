@@ -228,6 +228,90 @@ def test_user_me_returns_profile_for_bearer_token(client):
     assert response.json()["created_at"]
 
 
+def test_user_can_upload_profile_avatar_and_me_returns_url(client, tmp_path, monkeypatch):
+    from app.database import SessionLocal
+    from app.models.models import User
+    from app.utils import avatar_upload
+    from app.utils.auth import create_user_access_token, get_password_hash
+
+    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+
+    db = SessionLocal()
+    try:
+        user = User(
+            username="avatar_alice",
+            nickname="Avatar Alice",
+            password_hash=get_password_hash("Password123!"),
+            access_link="http://testserver/access/avatar-alice",
+            is_active=True,
+            credit_balance=3,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        user_id = user.id
+        token = create_user_access_token(user.id, user.username)
+    finally:
+        db.close()
+
+    png = b"\x89PNG\r\n\x1a\n" + (b"1" * 64)
+    response = client.post(
+        "/api/user/profile/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"avatar": ("profile.png", png, "image/png")},
+    )
+
+    assert response.status_code == 200
+    avatar_url = response.json()["avatar_url"]
+    assert avatar_url.startswith("/uploads/avatars/")
+    assert (tmp_path / "static" / avatar_url.removeprefix("/")).read_bytes() == png
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).one()
+        assert user.avatar_url == avatar_url
+    finally:
+        db.close()
+
+    me_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_response.status_code == 200
+    assert me_response.json()["avatar_url"] == avatar_url
+
+
+def test_user_profile_avatar_upload_rejects_fake_jpeg(client, tmp_path, monkeypatch):
+    from app.database import SessionLocal
+    from app.models.models import User
+    from app.utils import avatar_upload
+    from app.utils.auth import create_user_access_token, get_password_hash
+
+    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+
+    db = SessionLocal()
+    try:
+        user = User(
+            username="fake_jpeg_alice",
+            password_hash=get_password_hash("Password123!"),
+            access_link="http://testserver/access/fake-jpeg-alice",
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        token = create_user_access_token(user.id, user.username)
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/user/profile/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"avatar": ("profile.jpg", b"not-a-real-jpeg", "image/jpeg")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "头像文件格式不正确"
+
+
+
 def test_user_me_rejects_token_after_user_is_banned(client):
     from app.database import SessionLocal
     from app.models.models import User

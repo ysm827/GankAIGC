@@ -1,7 +1,7 @@
 import secrets
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, status, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
@@ -21,12 +21,14 @@ from app.schemas import (
     ProviderConfigUpdateRequest,
     RedeemCodeRequest,
     UserInviteResponse,
+    UserProfileResponse,
 )
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service
 from app.services.ai_service import normalize_api_format
 from app.services.provider_config_service import ProviderConfigService
 from app.utils.url_security import validate_model_base_url
+from app.utils.avatar_upload import save_avatar_upload
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -243,6 +245,18 @@ async def list_credit_transactions(
         .all()
     )
     return [serialize_credit_transaction(transaction) for transaction in transactions]
+
+
+@router.post("/profile/avatar", response_model=UserProfileResponse)
+async def upload_my_profile_avatar(
+    avatar: UploadFile = File(...),
+    current_user: User = Depends(get_current_user_from_bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    current_user.avatar_url = await save_avatar_upload(avatar)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
 
 
 @router.get("/provider-config", response_model=ProviderConfigResponse | None)

@@ -676,11 +676,18 @@ def test_admin_dashboard_uses_aurora_admin_theme():
     assert "个人资料" in admin_dashboard
     assert "/api/admin/profile" in admin_dashboard
     assert "/api/admin/profile/password" in admin_dashboard
+    assert "/api/admin/profile/avatar" in admin_dashboard
     assert "handleSaveAdminProfile" in admin_dashboard
     assert "handleSaveAdminPassword" in admin_dashboard
+    assert "handleAdminAvatarUpload" in admin_dashboard
+    assert "adminProfile?.avatar_url" in admin_dashboard
+    assert 'accept="image/png,image/jpeg,image/webp"' in admin_dashboard
+    assert "aurora-admin-avatar-upload" in admin_dashboard
     assert "aurora-admin-profile-page" in admin_dashboard
     assert ".aurora-admin-profile-hero" in index_css
     assert ".aurora-admin-profile-grid" in index_css
+    assert ".aurora-admin-avatar-upload" in index_css
+    assert ".aurora-profile-avatar-upload" in index_css
     for label in ("ACCOUNT CONTROL", "BROADCAST", "AUDIT LEDGER"):
         assert label not in admin_dashboard
     assert "bg-gradient-to-r from-teal-600" not in admin_dashboard
@@ -937,6 +944,8 @@ def test_admin_user_management_polishes_layout_and_actions():
 
     assert "w-full min-w-[1260px] divide-y divide-gray-200 aurora-admin-user-table" in users_section
     assert "aurora-admin-user-role-badge" in users_section
+    assert "user.avatar_url" in users_section
+    assert "<img src={user.avatar_url}" in users_section
     assert "aurora-admin-user-vip-badge" not in users_section
     assert "aurora-admin-unlimited-toggle" in users_section
     assert "设无限" not in users_section
@@ -1140,6 +1149,12 @@ def test_frontend_exposes_profile_page_and_nickname_update():
     assert "nickname" in profile_page
     assert "保存昵称" in profile_page
     assert "updateProfile" in api
+    assert "uploadProfileAvatar" in api
+    assert "/user/profile/avatar" in api
+    assert "handleAvatarUpload" in profile_page
+    assert "profile?.avatar_url" in profile_page
+    assert "上传头像" in profile_page
+    assert 'accept="image/png,image/jpeg,image/webp"' in profile_page
 
 
 def test_frontend_exposes_user_invite_generation_on_profile_page():
@@ -1742,6 +1757,8 @@ def test_served_static_bundle_includes_admin_tab_url_persistence():
     assert "个人资料" in static_bundle
     assert "/api/admin/profile" in static_bundle
     assert "/api/admin/profile/password" in static_bundle
+    assert "/api/admin/profile/avatar" in static_bundle
+    assert "/user/profile/avatar" in static_bundle
     assert "数据诊断" not in static_bundle
     assert "Word 排版文件大小限制" not in static_bundle
     assert "MAX_UPLOAD_FILE_SIZE_MB" not in static_bundle

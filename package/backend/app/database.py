@@ -304,6 +304,10 @@ def _migrate_database_schema():
                     if _add_column_safely(conn, "users", "nickname", "VARCHAR(100)"):
                         print("  ✓ 添加字段: users.nickname")
 
+                if "avatar_url" not in user_columns:
+                    if _add_column_safely(conn, "users", "avatar_url", "VARCHAR(512)"):
+                        print("  ✓ 添加字段: users.avatar_url")
+
                 if "password_hash" not in user_columns:
                     if _add_column_safely(conn, "users", "password_hash", "VARCHAR(255)"):
                         print("  ✓ 添加字段: users.password_hash")

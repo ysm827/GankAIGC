@@ -44,7 +44,13 @@ const UserMenu = ({ credits }) => {
         to="/profile"
         className="hidden md:flex items-center gap-1.5 gank-topbar-pill text-slate-700 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors hover:text-slate-950"
       >
-        <UserCircle className="w-4 h-4" />
+        <span className="aurora-user-menu-avatar" aria-hidden="true">
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt="" />
+          ) : (
+            <UserCircle className="w-4 h-4" />
+          )}
+        </span>
         {profile?.nickname || profile?.username || '个人信息'}
       </Link>
       <Link

@@ -6,7 +6,7 @@ from io import StringIO
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Type
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, status, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import inspect, func, case
@@ -60,6 +60,7 @@ from app.utils.auth import (
 )
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
+from app.utils.avatar_upload import save_avatar_upload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -96,6 +97,7 @@ class AdminLoginResponse(BaseModel):
 class AdminProfileResponse(BaseModel):
     username: str
     display_name: str
+    avatar_url: Optional[str] = None
     role: str = "管理员"
     role_key: str = "admin"
     auth_method: str = "password"
@@ -221,6 +223,7 @@ MODEL_BASE_URL_FIELDS = {
 }
 
 ADMIN_DISPLAY_NAME_SETTING_KEY = "ADMIN_DISPLAY_NAME"
+ADMIN_AVATAR_URL_SETTING_KEY = "ADMIN_AVATAR_URL"
 
 
 def _get_system_setting(db: Session, key: str) -> Optional[SystemSetting]:
@@ -245,13 +248,26 @@ def _get_admin_display_setting(db: Session) -> tuple[str, Optional[datetime]]:
     return display_name or settings.ADMIN_USERNAME, setting.updated_at if setting else None
 
 
+def _get_admin_avatar_setting(db: Session) -> tuple[Optional[str], Optional[datetime]]:
+    setting = _get_system_setting(db, ADMIN_AVATAR_URL_SETTING_KEY)
+    avatar_url = (setting.value or "").strip() if setting else ""
+    return avatar_url or None, setting.updated_at if setting else None
+
+
+def _latest_profile_update_time(*values: Optional[datetime]) -> Optional[datetime]:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None
+
+
 def _serialize_admin_profile(db: Session, admin_username: str) -> AdminProfileResponse:
-    display_name, updated_at = _get_admin_display_setting(db)
+    display_name, display_updated_at = _get_admin_display_setting(db)
+    avatar_url, avatar_updated_at = _get_admin_avatar_setting(db)
     return AdminProfileResponse(
         username=admin_username,
         display_name=display_name,
+        avatar_url=avatar_url,
         token_expire_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
-        updated_at=updated_at,
+        updated_at=_latest_profile_update_time(display_updated_at, avatar_updated_at),
     )
 
 
@@ -547,6 +563,25 @@ async def update_admin_profile(
         "update_admin_profile",
         target_type="admin_profile",
         detail={"updated_keys": ["display_name"]},
+    )
+    db.commit()
+    return _serialize_admin_profile(db, admin_username)
+
+
+@router.post("/profile/avatar", response_model=AdminProfileResponse)
+async def upload_admin_profile_avatar(
+    avatar: UploadFile = File(...),
+    admin_username: str = Depends(get_admin_from_token),
+    db: Session = Depends(get_db),
+) -> AdminProfileResponse:
+    avatar_url = await save_avatar_upload(avatar)
+    _upsert_system_setting(db, ADMIN_AVATAR_URL_SETTING_KEY, avatar_url)
+    write_admin_audit_log(
+        db,
+        admin_username,
+        "update_admin_avatar",
+        target_type="admin_profile",
+        detail={"updated_keys": ["avatar_url"], "avatar_url": avatar_url},
     )
     db.commit()
     return _serialize_admin_profile(db, admin_username)
@@ -1203,6 +1238,7 @@ async def get_all_users(_: str = Depends(get_admin_from_token), db: Session = De
             "id": user.id,
             "username": user.username,
             "nickname": user.nickname,
+            "avatar_url": user.avatar_url,
             "access_link": user.access_link,
             "is_active": user.is_active,
             "is_unlimited": user.is_unlimited,

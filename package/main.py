@@ -64,6 +64,7 @@ from app.routes import admin, auth, prompts, optimization, user
 from app.runtime import refresh_cors_middleware
 from app.services.rate_limit import SlidingWindowLimiter
 from app.services.update_service import get_current_app_version
+from app.utils.avatar_upload import get_uploads_mount_dir
 from app.utils.security_headers import (
     add_docs_security_headers,
     add_security_headers,
@@ -400,6 +401,7 @@ async def check_models_health():
 assets_dir = os.path.join(STATIC_DIR, 'assets')
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+app.mount("/uploads", StaticFiles(directory=str(get_uploads_mount_dir()), check_dir=False), name="uploads")
 
 
 def _runtime_bootstrap_script_content() -> str:

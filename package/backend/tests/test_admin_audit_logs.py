@@ -1,6 +1,6 @@
 import app.config as config_module
 from app.database import SessionLocal
-from app.models.models import User
+from app.models.models import SystemSetting, User
 
 
 def _admin_auth_headers(client):
@@ -110,6 +110,56 @@ def test_admin_profile_can_update_display_name_and_writes_audit_log(client):
     assert logs[0]["action"] == "update_admin_profile"
     assert logs[0]["target_type"] == "admin_profile"
     assert logs[0]["detail"] == {"updated_keys": ["display_name"]}
+
+
+def test_admin_profile_avatar_upload_persists_url_and_audit_log(client, tmp_path, monkeypatch):
+    from app.utils import avatar_upload
+
+    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    headers = _admin_auth_headers(client)
+    png = b"\x89PNG\r\n\x1a\n" + (b"0" * 64)
+
+    response = client.post(
+        "/api/admin/profile/avatar",
+        headers=headers,
+        files={"avatar": ("avatar.png", png, "image/png")},
+    )
+
+    assert response.status_code == 200
+    avatar_url = response.json()["avatar_url"]
+    assert avatar_url.startswith("/uploads/avatars/")
+    assert avatar_url.endswith(".png")
+    assert (tmp_path / "static" / avatar_url.removeprefix("/")).read_bytes() == png
+
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "ADMIN_AVATAR_URL").one()
+        assert setting.value == avatar_url
+    finally:
+        db.close()
+
+    logs = _audit_logs(client, headers)
+    assert logs[0]["action"] == "update_admin_avatar"
+    assert logs[0]["target_type"] == "admin_profile"
+    assert logs[0]["detail"] == {"updated_keys": ["avatar_url"], "avatar_url": avatar_url}
+    assert str(tmp_path) not in str(logs[0])
+
+
+def test_admin_profile_avatar_upload_rejects_svg(client, tmp_path, monkeypatch):
+    from app.utils import avatar_upload
+
+    monkeypatch.setattr(avatar_upload, "get_static_root", lambda: tmp_path / "static")
+    headers = _admin_auth_headers(client)
+
+    response = client.post(
+        "/api/admin/profile/avatar",
+        headers=headers,
+        files={"avatar": ("avatar.svg", b"<svg></svg>", "image/svg+xml")},
+    )
+
+    assert response.status_code == 400
+    assert "PNG、JPG、WebP" in response.json()["detail"]
+
 
 
 def test_admin_profile_password_update_persists_without_leaking_secret(client, tmp_path, monkeypatch):

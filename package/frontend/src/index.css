@@ -2089,6 +2089,14 @@ code {
   min-height: 100%;
 }
 
+.aurora-profile-avatar-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.72rem;
+  margin-bottom: 1.1rem;
+}
+
 .aurora-profile-avatar,
 .aurora-credit-hero-icon {
   display: inline-flex;
@@ -2102,6 +2110,67 @@ code {
   color: #2563eb;
   box-shadow: 0 16px 28px rgba(37, 99, 235, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.92);
   margin-bottom: 1.1rem;
+  overflow: hidden;
+}
+
+.aurora-profile-avatar-wrap .aurora-profile-avatar {
+  margin-bottom: 0;
+}
+
+.aurora-user-menu-avatar {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  overflow: hidden;
+  color: #2563eb;
+}
+
+.aurora-profile-avatar img,
+.aurora-admin-profile-avatar img,
+.aurora-admin-user-avatar img,
+.aurora-user-menu-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.aurora-profile-avatar-upload,
+.aurora-admin-avatar-upload {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(191, 219, 254, 0.95);
+  border-radius: 999px;
+  background: #fff;
+  color: #0b6ff6;
+  padding: 0.45rem 0.82rem;
+  font-size: 12px;
+  font-weight: 780;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.aurora-profile-avatar-upload:hover,
+.aurora-admin-avatar-upload:hover {
+  border-color: rgba(96, 165, 250, 0.95);
+  background: #eff6ff;
+}
+
+.aurora-profile-avatar-upload:active,
+.aurora-admin-avatar-upload:active {
+  transform: scale(0.97);
+}
+
+.aurora-profile-avatar-upload:disabled,
+.aurora-admin-avatar-upload:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .aurora-profile-meta {
@@ -4159,11 +4228,13 @@ code {
   justify-content: center;
   width: 34px;
   height: 34px;
+  flex: 0 0 34px;
   border-radius: 999px;
   background: linear-gradient(135deg, #0b6ff6, #2f8cff);
   color: #fff;
   font-weight: 800;
   box-shadow: 0 8px 18px rgba(11, 111, 246, 0.22);
+  overflow: hidden;
 }
 
 .aurora-admin-user-avatar.is-large {
@@ -4688,6 +4759,13 @@ code {
   overflow: hidden;
 }
 
+.aurora-admin-profile-avatar-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.72rem;
+}
+
 .aurora-admin-profile-avatar {
   display: grid;
   place-items: center;
@@ -4703,6 +4781,7 @@ code {
   font-weight: 860;
   letter-spacing: -0.06em;
   box-shadow: 0 18px 34px rgba(0, 102, 204, 0.2), inset 0 1px 0 rgba(255,255,255,.35);
+  overflow: hidden;
 }
 
 .aurora-admin-profile-identity {

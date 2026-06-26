@@ -16,6 +16,7 @@ class UserResponse(BaseModel):
     id: int
     username: Optional[str] = None
     nickname: Optional[str] = None
+    avatar_url: Optional[str] = None
     access_link: str
     is_active: bool
     is_unlimited: bool = False
@@ -46,6 +47,7 @@ class UserProfileResponse(BaseModel):
     id: int
     username: str
     nickname: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_active: bool
     is_unlimited: bool
     credit_balance: int

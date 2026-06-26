@@ -37,6 +37,7 @@ import {
   Trash2,
   X,
   DownloadCloud,
+  Upload,
   UserCheck
 } from 'lucide-react';
 import ConfigManager from '../components/ConfigManager';
@@ -532,9 +533,11 @@ const AdminDashboard = () => {
   const [auditResourceFilter, setAuditResourceFilter] = useState('all');
   const [auditSeverityFilter, setAuditSeverityFilter] = useState('all');
   const [auditDateRange, setAuditDateRange] = useState('all');
+  const adminAvatarInputRef = useRef(null);
   const [adminProfile, setAdminProfile] = useState(null);
   const [loadingAdminProfile, setLoadingAdminProfile] = useState(false);
   const [savingAdminProfile, setSavingAdminProfile] = useState(false);
+  const [uploadingAdminAvatar, setUploadingAdminAvatar] = useState(false);
   const [savingAdminPassword, setSavingAdminPassword] = useState(false);
   const [adminDisplayName, setAdminDisplayName] = useState('');
   const [adminPasswordForm, setAdminPasswordForm] = useState({
@@ -822,6 +825,28 @@ const AdminDashboard = () => {
       toast.error(error.response?.data?.detail || '保存管理员资料失败');
     } finally {
       setSavingAdminProfile(false);
+    }
+  };
+
+  const handleAdminAvatarUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+    setUploadingAdminAvatar(true);
+    try {
+      const response = await axios.post('/api/admin/profile/avatar', formData, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+        timeout: 20000,
+      });
+      setAdminProfile(response.data);
+      toast.success('管理员头像已更新');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '上传管理员头像失败');
+    } finally {
+      setUploadingAdminAvatar(false);
     }
   };
 
@@ -2355,7 +2380,13 @@ const AdminDashboard = () => {
                           >
                             <td className="px-4 py-3 whitespace-nowrap">
                               <div className="flex items-center gap-3">
-                                <span className="aurora-admin-user-avatar">{(user.nickname || user.username || 'U').slice(0, 1).toUpperCase()}</span>
+                                <span className="aurora-admin-user-avatar">
+                                  {user.avatar_url ? (
+                                    <img src={user.avatar_url} alt="" />
+                                  ) : (
+                                    (user.nickname || user.username || 'U').slice(0, 1).toUpperCase()
+                                  )}
+                                </span>
                                 <div>
                                   <div className="text-sm font-medium text-gray-900">{user.username || '未绑定账号'}</div>
                                   <div className="text-xs text-gray-500">UID: {user.id}</div>
@@ -2942,8 +2973,30 @@ const AdminDashboard = () => {
         {activeTab === 'adminProfile' && (
           <div className="aurora-admin-section aurora-admin-profile-page space-y-6">
             <div className="aurora-admin-card aurora-admin-profile-hero">
-              <div className="aurora-admin-profile-avatar">
-                {(adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()}
+              <div className="aurora-admin-profile-avatar-stack">
+                <div className="aurora-admin-profile-avatar">
+                  {adminProfile?.avatar_url ? (
+                    <img src={adminProfile.avatar_url} alt="" />
+                  ) : (
+                    (adminProfile?.display_name || adminProfile?.username || username || 'A').slice(0, 1).toUpperCase()
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="aurora-admin-avatar-upload"
+                  onClick={() => adminAvatarInputRef.current?.click()}
+                  disabled={uploadingAdminAvatar}
+                >
+                  {uploadingAdminAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  上传头像
+                </button>
+                <input
+                  ref={adminAvatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={handleAdminAvatarUpload}
+                />
               </div>
               <div className="aurora-admin-profile-identity">
                 <span className="aurora-admin-profile-kicker">后台账户</span>

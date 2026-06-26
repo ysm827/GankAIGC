@@ -1,18 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Copy, KeyRound, Loader2, Save, ShieldCheck, UserCircle, UserPlus } from 'lucide-react';
+import { ArrowLeft, Copy, KeyRound, Loader2, Save, ShieldCheck, Upload, UserCircle, UserPlus } from 'lucide-react';
 import { authAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import BeerIcon from '../components/BeerIcon';
 import { formatChinaDateTime } from '../utils/dateTime';
 
 const ProfilePage = () => {
+  const avatarInputRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [nickname, setNickname] = useState('');
   const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -60,6 +62,25 @@ const ProfilePage = () => {
       toast.error(error.response?.data?.detail || '保存昵称失败');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+    setUploadingAvatar(true);
+    try {
+      const response = await userAPI.uploadProfileAvatar(formData);
+      setProfile(response.data);
+      toast.success('头像已更新');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '上传头像失败');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -168,8 +189,30 @@ const ProfilePage = () => {
         ) : (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[0.92fr_1.45fr]">
             <section className="apple-utility-card aurora-account-card aurora-profile-card">
-              <div className="aurora-profile-avatar" aria-hidden="true">
-                <UserCircle className="h-10 w-10" />
+              <div className="aurora-profile-avatar-wrap">
+                <div className="aurora-profile-avatar" aria-hidden="true">
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" />
+                  ) : (
+                    <UserCircle className="h-10 w-10" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="aurora-profile-avatar-upload"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                >
+                  {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  上传头像
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={handleAvatarUpload}
+                />
               </div>
               <p className="text-sm font-semibold text-blue-600">当前账号</p>
               <h2 className="mt-2 break-words text-[30px] font-semibold leading-tight tracking-[-0.04em] text-slate-950">

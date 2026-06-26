@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
@@ -21,6 +22,7 @@ from app.routes import admin, auth, prompts, optimization, user
 from app.runtime import refresh_cors_middleware
 from app.services.rate_limit import SlidingWindowLimiter
 from app.services.update_service import get_current_app_version
+from app.utils.avatar_upload import get_uploads_mount_dir
 from app.utils.security_headers import (
     add_docs_security_headers,
     add_security_headers,
@@ -131,6 +133,9 @@ if settings.WORD_FORMATTER_ENABLED:
     from app.word_formatter import router as word_formatter_router
 
     app.include_router(word_formatter_router, prefix="/api")
+
+
+app.mount("/uploads", StaticFiles(directory=str(get_uploads_mount_dir()), check_dir=False), name="uploads")
 
 
 def _get_rate_limit_key(request: Request, scope: str) -> str:

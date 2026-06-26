@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           // 不需要重写路径，后端路由已经以 /api 为前缀
         },
+        '/uploads': {
+          target: apiTarget,
+          changeOrigin: true,
+        },
       },
     },
   }

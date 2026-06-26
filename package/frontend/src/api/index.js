@@ -70,6 +70,9 @@ export const userAPI = {
   testProviderConfig: () => api.post('/user/provider-config/test'),
   listProviderModels: (data) => api.post('/user/provider-config/model-list', data),
   testProviderModelConfig: (data) => api.post('/user/provider-config/model-test', data),
+  uploadProfileAvatar: (formData) => api.post('/user/profile/avatar', formData, {
+    timeout: 20000,
+  }),
 };
 
 // Paper project API

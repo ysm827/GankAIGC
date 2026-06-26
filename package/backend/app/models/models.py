@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.config import settings
@@ -12,6 +12,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(100), unique=True, index=True, nullable=True)
     nickname = Column(String(100), nullable=True)
+    avatar_url = Column(String(512), nullable=True)
     password_hash = Column(String(255), nullable=True)
     access_link = Column(String(255), unique=True, index=True, nullable=False)
     is_active = Column(Boolean, default=True)
