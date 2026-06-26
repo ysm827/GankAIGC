@@ -283,12 +283,14 @@ const ApiSettingsPage = () => {
 
               <div className="aurora-api-actions md:col-span-2">
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels}
+                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="从当前账号配置的中转站拉取真实模型列表"
                 >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {loading ? '保存中...' : '保存配置'}
+                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
+                  探测模型
                 </button>
                 <button
                   type="button"
@@ -301,14 +303,12 @@ const ApiSettingsPage = () => {
                   测试连接
                 </button>
                 <button
-                  type="button"
-                  onClick={handleFetchModels}
-                  disabled={fetchingModels}
-                  className="aurora-secondary-action min-h-[48px] px-6 disabled:cursor-not-allowed disabled:opacity-60"
-                  title="从当前账号配置的中转站拉取真实模型列表"
+                  type="submit"
+                  disabled={loading}
+                  className="aurora-account-primary apple-action-pill disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <RefreshCw className={`h-4 w-4 ${fetchingModels ? 'animate-spin' : ''}`} />
-                  探测模型
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {loading ? '保存中...' : '保存配置'}
                 </button>
               </div>
             </form>
