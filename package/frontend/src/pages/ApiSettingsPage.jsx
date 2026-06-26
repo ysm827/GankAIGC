@@ -5,6 +5,11 @@ import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Save, ShieldCheck, SlidersH
 import { userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 
+const API_FORMAT_OPTIONS = [
+  { value: 'openai_chat', label: 'OpenAI Compatible' },
+  { value: 'anthropic', label: 'Anthropic Messages（原生）' },
+];
+
 const FIELD_CONFIG = [
   { field: 'base_url', label: 'Base URL', placeholder: '例如 https://api.openai.com/v1', type: 'text', required: true },
   { field: 'api_key', label: 'API Key', placeholder: '保存时需重新输入', type: 'password', required: true },
@@ -16,6 +21,7 @@ const FIELD_CONFIG = [
 const ApiSettingsPage = () => {
   const [form, setForm] = useState({
     base_url: '',
+    api_format: 'openai_chat',
     api_key: '',
     polish_model: 'gpt-5.4',
     enhance_model: 'gpt-5.4',
@@ -32,6 +38,7 @@ const ApiSettingsPage = () => {
         if (response.data) {
           setForm({
             base_url: response.data.base_url,
+            api_format: response.data.api_format || 'openai_chat',
             api_key: '',
             polish_model: response.data.polish_model,
             enhance_model: response.data.enhance_model,
@@ -159,6 +166,21 @@ const ApiSettingsPage = () => {
             )}
 
             <form onSubmit={handleSave} className="aurora-api-form">
+              <div className="md:col-span-2">
+                <label className="aurora-field-label" htmlFor="api-format">API 格式</label>
+                <select
+                  id="api-format"
+                  value={form.api_format}
+                  onChange={(event) => updateField('api_format', event.target.value)}
+                  className="aurora-input"
+                  required
+                >
+                  {API_FORMAT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+
               {FIELD_CONFIG.map(({ field, label, placeholder, type, required }) => (
                 <div key={field} className={field === 'base_url' || field === 'api_key' ? 'md:col-span-2' : ''}>
                   <label className="aurora-field-label" htmlFor={`api-${field}`}>{label}</label>

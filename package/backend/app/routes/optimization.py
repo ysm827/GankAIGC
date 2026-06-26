@@ -26,7 +26,7 @@ from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
 from app.services.zhuque_service import zhuque_service, zhuque_user_dir
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
-from app.services.ai_service import count_text_length, split_text_into_segments
+from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
 from app.utils.auth import generate_session_id, get_current_user_with_legacy_fallback
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
@@ -425,12 +425,15 @@ def _clear_session_provider_fields(session: OptimizationSession) -> None:
     session.polish_model = None
     session.polish_api_key = None
     session.polish_base_url = None
+    session.polish_api_format = None
     session.enhance_model = None
     session.enhance_api_key = None
     session.enhance_base_url = None
+    session.enhance_api_format = None
     session.emotion_model = None
     session.emotion_api_key = None
     session.emotion_base_url = None
+    session.emotion_api_format = None
 
 
 def _apply_retry_billing_mode(
@@ -454,12 +457,15 @@ def _apply_retry_billing_mode(
         session.polish_model = provider_config["polish_model"]
         session.polish_api_key = None
         session.polish_base_url = provider_config["base_url"]
+        session.polish_api_format = provider_config["api_format"]
         session.enhance_model = provider_config["enhance_model"]
         session.enhance_api_key = None
         session.enhance_base_url = provider_config["base_url"]
+        session.enhance_api_format = provider_config["api_format"]
         session.emotion_model = provider_config["emotion_model"]
         session.emotion_api_key = None
         session.emotion_base_url = provider_config["base_url"] if provider_config["emotion_model"] else None
+        session.emotion_api_format = provider_config["api_format"] if provider_config["emotion_model"] else None
         return
 
     if target_billing_mode == "platform":
@@ -807,6 +813,9 @@ async def start_optimization(
     request_polish_base_url = None
     request_enhance_base_url = None
     request_emotion_base_url = None
+    request_polish_api_format = None
+    request_enhance_api_format = None
+    request_emotion_api_format = None
     if data.billing_mode == "byok":
         if data.polish_config:
             request_polish_base_url = _validate_request_model_base_url(data.polish_config, "润色模型")
@@ -820,9 +829,22 @@ async def start_optimization(
                 if data.emotion_config
                 else None
             )
+            try:
+                request_polish_api_format = normalize_api_format(data.polish_config.api_format)
+                request_enhance_api_format = normalize_api_format(
+                    (data.enhance_config.api_format if data.enhance_config else None) or request_polish_api_format
+                )
+                request_emotion_api_format = (
+                    normalize_api_format(data.emotion_config.api_format or request_polish_api_format)
+                    if data.emotion_config
+                    else None
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             provider_config = {
                 "base_url": request_polish_base_url,
                 "api_key": data.polish_config.api_key,
+                "api_format": request_polish_api_format,
                 "polish_model": data.polish_config.model,
                 "enhance_model": data.enhance_config.model if data.enhance_config else data.polish_config.model,
                 "emotion_model": data.emotion_config.model if data.emotion_config else None,
@@ -842,6 +864,9 @@ async def start_optimization(
     emotion_model = data.emotion_config.model if data.emotion_config else None
     emotion_api_key = data.emotion_config.api_key if data.emotion_config else None
     emotion_base_url = request_emotion_base_url
+    polish_api_format = request_polish_api_format or normalize_api_format(settings.MODEL_API_FORMAT)
+    enhance_api_format = request_enhance_api_format or normalize_api_format(settings.MODEL_API_FORMAT)
+    emotion_api_format = request_emotion_api_format or normalize_api_format(settings.MODEL_API_FORMAT)
 
     if provider_config:
         polish_model = provider_config["polish_model"]
@@ -850,6 +875,9 @@ async def start_optimization(
         enhance_base_url = provider_config["base_url"]
         emotion_model = provider_config["emotion_model"]
         emotion_base_url = provider_config["base_url"] if provider_config["emotion_model"] else None
+        polish_api_format = provider_config["api_format"]
+        enhance_api_format = provider_config["api_format"]
+        emotion_api_format = provider_config["api_format"] if provider_config["emotion_model"] else None
         if not data.polish_config:
             polish_api_key = None
             enhance_api_key = None
@@ -877,12 +905,15 @@ async def start_optimization(
         polish_model=polish_model,
         polish_api_key=polish_api_key,
         polish_base_url=polish_base_url,
+        polish_api_format=polish_api_format,
         enhance_model=enhance_model,
         enhance_api_key=enhance_api_key,
         enhance_base_url=enhance_base_url,
+        enhance_api_format=enhance_api_format,
         emotion_model=emotion_model,
         emotion_api_key=emotion_api_key,
         emotion_base_url=emotion_base_url,
+        emotion_api_format=emotion_api_format,
         project_id=project.id if project else None,
         task_title=data.task_title.strip() if data.task_title else None,
     )

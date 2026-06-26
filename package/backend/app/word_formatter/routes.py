@@ -274,12 +274,14 @@ def get_word_formatter_ai_service(provider_config: Optional[dict] = None) -> AIS
             model=provider_config.get("polish_model") or settings.POLISH_MODEL,
             api_key=provider_config.get("api_key"),
             base_url=base_url,
+            api_format=provider_config.get("api_format"),
         )
 
     return AIService(
         model=settings.POLISH_MODEL,
         api_key=settings.POLISH_API_KEY,
         base_url=settings.POLISH_BASE_URL,
+        api_format=settings.MODEL_API_FORMAT,
     )
 
 

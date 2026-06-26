@@ -46,6 +46,7 @@ from app.schemas import (
 from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, serialize_credit_transaction
 from app.services import operations_service, update_service
+from app.services.ai_service import normalize_api_format
 from app.services.zhuque_api import ZhuqueAPI
 from app.services.zhuque_service import zhuque_user_credentials_file
 from app.utils.auth import (
@@ -92,12 +93,14 @@ class ModelConnectionTestRequest(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    api_format: Optional[str] = None
 
 
 class ModelListRequest(BaseModel):
     stage: str = "polish"
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    api_format: Optional[str] = None
 
 
 def _session_user_identity(user: Optional[User]) -> Dict[str, Optional[str]]:
@@ -472,6 +475,7 @@ async def test_admin_model_connection(
         model=payload.model,
         base_url=payload.base_url,
         api_key=payload.api_key,
+        api_format=payload.api_format,
     )
     write_admin_audit_log(
         db,
@@ -483,6 +487,7 @@ async def test_admin_model_connection(
             "ok": result.get("ok"),
             "model": result.get("model"),
             "base_url": result.get("base_url"),
+            "api_format": result.get("api_format"),
             "message": result.get("message"),
         },
     )
@@ -502,6 +507,7 @@ async def list_admin_provider_models(
         payload.stage,
         base_url=payload.base_url,
         api_key=payload.api_key,
+        api_format=payload.api_format,
     )
     write_admin_audit_log(
         db,
@@ -512,6 +518,7 @@ async def list_admin_provider_models(
             "stage": payload.stage,
             "ok": result.get("ok"),
             "base_url": result.get("base_url"),
+            "api_format": result.get("api_format"),
             "model_count": result.get("count"),
             "message": result.get("message"),
         },
@@ -1002,6 +1009,7 @@ async def list_provider_config_summaries(
             "user_id": user.id,
             "username": user.username,
             "base_url": config.base_url,
+            "api_format": normalize_api_format(config.api_format),
             "api_key_last4": config.api_key_last4,
             "polish_model": config.polish_model,
             "enhance_model": config.enhance_model,
@@ -1974,6 +1982,7 @@ async def get_config(_: str = Depends(get_admin_from_token)) -> Dict[str, Any]:
         },
         "system": {
             "model_provider_name": settings.MODEL_PROVIDER_NAME,
+            "model_api_format": normalize_api_format(getattr(settings, "MODEL_API_FORMAT", "openai_chat")),
             "max_concurrent_users": settings.MAX_CONCURRENT_USERS,
             "history_compression_threshold": settings.HISTORY_COMPRESSION_THRESHOLD,
             "default_usage_limit": settings.DEFAULT_USAGE_LIMIT,
@@ -2001,6 +2010,11 @@ async def update_config(
         if not (key in MODEL_API_KEY_FIELDS and not str(value or "").strip())
     }
     updates = _validate_model_base_url_updates(updates)
+    if "MODEL_API_FORMAT" in updates:
+        try:
+            updates["MODEL_API_FORMAT"] = normalize_api_format(updates["MODEL_API_FORMAT"])
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少更新内容")
 

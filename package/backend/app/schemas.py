@@ -170,6 +170,7 @@ class AdminCreditAdjustRequest(BaseModel):
 
 class ProviderConfigUpdateRequest(BaseModel):
     base_url: str
+    api_format: str = "openai_chat"
     api_key: str
     polish_model: str
     enhance_model: str
@@ -178,6 +179,7 @@ class ProviderConfigUpdateRequest(BaseModel):
 
 class ProviderConfigResponse(BaseModel):
     base_url: str
+    api_format: str = "openai_chat"
     api_key_last4: str
     polish_model: str
     enhance_model: str
@@ -213,6 +215,7 @@ class ModelConfig(BaseModel):
     model: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    api_format: Optional[str] = None
 
 
 class OptimizationCreate(BaseModel):

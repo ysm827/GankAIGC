@@ -252,6 +252,20 @@ def _migrate_database_schema():
                     if added:
                         print("  ✓ 添加字段: optimization_sessions.emotion_* 字段")
 
+                for column_name in (
+                    "polish_api_format",
+                    "enhance_api_format",
+                    "emotion_api_format",
+                ):
+                    if column_name not in columns:
+                        if _add_column_safely(
+                            conn,
+                            "optimization_sessions",
+                            column_name,
+                            "VARCHAR(40) DEFAULT 'openai_chat'",
+                        ):
+                            print(f"  ✓ 添加字段: optimization_sessions.{column_name}")
+
                 if "queued_at" not in columns:
                     if _add_column_safely(conn, "optimization_sessions", "queued_at", "TIMESTAMP"):
                         print("  ✓ 添加字段: optimization_sessions.queued_at")
@@ -267,6 +281,17 @@ def _migrate_database_schema():
                 if "worker_id" not in columns:
                     if _add_column_safely(conn, "optimization_sessions", "worker_id", "VARCHAR(100)"):
                         print("  ✓ 添加字段: optimization_sessions.worker_id")
+
+            if "user_provider_configs" in tables:
+                columns = {column["name"] for column in inspector.get_columns("user_provider_configs")}
+                if "api_format" not in columns:
+                    if _add_column_safely(
+                        conn,
+                        "user_provider_configs",
+                        "api_format",
+                        "VARCHAR(40) DEFAULT 'openai_chat'",
+                    ):
+                        print("  ✓ 添加字段: user_provider_configs.api_format")
 
             if "users" in tables:
                 user_columns = {column["name"]: column for column in inspector.get_columns("users")}

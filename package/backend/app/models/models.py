@@ -102,12 +102,15 @@ class OptimizationSession(Base):
     polish_model = Column(String(100), nullable=True)
     polish_api_key = Column(String(255), nullable=True)
     polish_base_url = Column(String(255), nullable=True)
+    polish_api_format = Column(String(40), nullable=True, default="openai_chat")
     enhance_model = Column(String(100), nullable=True)
     enhance_api_key = Column(String(255), nullable=True)
     enhance_base_url = Column(String(255), nullable=True)
+    enhance_api_format = Column(String(40), nullable=True, default="openai_chat")
     emotion_model = Column(String(100), nullable=True)
     emotion_api_key = Column(String(255), nullable=True)
     emotion_base_url = Column(String(255), nullable=True)
+    emotion_api_format = Column(String(40), nullable=True, default="openai_chat")
     
     # 处理模式: 'paper_polish', 'paper_enhance', 'paper_polish_enhance', 'emotion_polish'
     processing_mode = Column(String(50), default='paper_polish_enhance')
@@ -305,6 +308,7 @@ class UserProviderConfig(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
     base_url = Column(String(255), nullable=False)
+    api_format = Column(String(40), nullable=False, default="openai_chat")
     api_key_encrypted = Column(Text, nullable=False)
     api_key_last4 = Column(String(8), nullable=False)
     polish_model = Column(String(100), nullable=False)

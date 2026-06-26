@@ -22,6 +22,15 @@ from app.config import (
 from app.database import engine
 from app.models.models import OptimizationSession, RegistrationInvite
 from app.services import update_service
+from app.services.ai_service import (
+    ANTHROPIC_MODEL_IDS,
+    API_FORMAT_ANTHROPIC,
+    API_FORMAT_OPENAI_CHAT,
+    anthropic_headers,
+    anthropic_messages_url,
+    build_anthropic_messages_payload,
+    normalize_api_format,
+)
 from app.utils.url_security import validate_model_base_url
 
 
@@ -33,12 +42,14 @@ MODEL_STAGE_DEFINITIONS = {
         "model_attr": "POLISH_MODEL",
         "api_key_attrs": ("POLISH_API_KEY", "OPENAI_API_KEY"),
         "base_url_attrs": ("POLISH_BASE_URL", "OPENAI_BASE_URL"),
+        "api_format_attrs": ("MODEL_API_FORMAT",),
     },
     "enhance": {
         "label": "增强模型",
         "model_attr": "ENHANCE_MODEL",
         "api_key_attrs": ("ENHANCE_API_KEY", "OPENAI_API_KEY"),
         "base_url_attrs": ("ENHANCE_BASE_URL", "OPENAI_BASE_URL"),
+        "api_format_attrs": ("MODEL_API_FORMAT",),
     },
     "emotion": {
         "label": "感情润色模型",
@@ -46,12 +57,14 @@ MODEL_STAGE_DEFINITIONS = {
         "fallback_model_attrs": ("POLISH_MODEL",),
         "api_key_attrs": ("EMOTION_API_KEY", "POLISH_API_KEY", "OPENAI_API_KEY"),
         "base_url_attrs": ("EMOTION_BASE_URL", "POLISH_BASE_URL", "OPENAI_BASE_URL"),
+        "api_format_attrs": ("MODEL_API_FORMAT",),
     },
     "compression": {
         "label": "压缩模型",
         "model_attr": "COMPRESSION_MODEL",
         "api_key_attrs": ("COMPRESSION_API_KEY", "OPENAI_API_KEY"),
         "base_url_attrs": ("COMPRESSION_BASE_URL", "OPENAI_BASE_URL"),
+        "api_format_attrs": ("MODEL_API_FORMAT",),
     },
 }
 PLACEHOLDER_API_KEYS = {"pwd", "replace-me", "please-change-this-api-key"}
@@ -567,12 +580,14 @@ def _raw_model_stage_config(stage: str) -> Dict[str, Optional[str]]:
         model = _first_setting_value(definition.get("fallback_model_attrs", ()))
     api_key = _first_setting_value(definition["api_key_attrs"])
     base_url = _first_setting_value(definition["base_url_attrs"])
+    api_format = _first_setting_value(definition.get("api_format_attrs", ())) or API_FORMAT_OPENAI_CHAT
     return {
         "stage": stage,
         "label": definition["label"],
         "model": model,
         "api_key": api_key,
         "base_url": base_url,
+        "api_format": normalize_api_format(api_format),
     }
 
 
@@ -611,17 +626,20 @@ def get_model_readiness_status() -> Dict[str, Any]:
             config = get_model_config(stage)
             model = config["model"]
             base_url = config["base_url"]
+            api_format = config["api_format"]
         except ValueError as exc:
             ok = False
             message = str(exc)
             model = raw.get("model")
             base_url = raw.get("base_url")
+            api_format = normalize_api_format(raw.get("api_format"))
         items.append(
             {
                 "stage": stage,
                 "label": raw["label"],
                 "model": model,
                 "base_url": _redact_base_url(base_url),
+                "api_format": api_format,
                 "ok": ok,
                 "message": message,
             }
@@ -867,11 +885,13 @@ def get_model_config(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_format: Optional[str] = None,
 ) -> Dict[str, str]:
     config = _raw_model_stage_config(stage)
     merged_model = model if (model or "").strip() else config.get("model")
     merged_api_key = api_key if (api_key or "").strip() else config.get("api_key")
     merged_base_url = base_url if (base_url or "").strip() else config.get("base_url")
+    merged_api_format = api_format if (api_format or "").strip() else config.get("api_format")
     if _is_placeholder_api_key(merged_api_key):
         raise ValueError("API Key 仍是占位值")
     if _is_placeholder_base_url(merged_base_url):
@@ -882,6 +902,7 @@ def get_model_config(
         "model": _normalize_model(merged_model),
         "api_key": _normalize_api_key(merged_api_key),
         "base_url": _normalize_base_url(merged_base_url),
+        "api_format": normalize_api_format(merged_api_format),
     }
 
 
@@ -890,10 +911,12 @@ def get_model_probe_config(
     *,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_format: Optional[str] = None,
 ) -> Dict[str, str]:
     config = _raw_model_stage_config(stage)
     merged_api_key = api_key if (api_key or "").strip() else config.get("api_key")
     merged_base_url = base_url if (base_url or "").strip() else config.get("base_url")
+    merged_api_format = api_format if (api_format or "").strip() else config.get("api_format")
     if _is_placeholder_api_key(merged_api_key):
         raise ValueError("API Key 仍是占位值")
     if _is_placeholder_base_url(merged_base_url):
@@ -903,6 +926,7 @@ def get_model_probe_config(
         "label": config["label"],
         "api_key": _normalize_api_key(merged_api_key),
         "base_url": _normalize_base_url(merged_base_url),
+        "api_format": normalize_api_format(merged_api_format),
     }
 
 
@@ -950,6 +974,8 @@ def _classify_model_test_error(exc: Exception) -> str:
         return "无法连接 API 服务，请检查 Base URL 或服务器网络"
     if isinstance(exc, APIStatusError):
         return f"API 服务返回错误 HTTP {exc.status_code}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"API 服务返回错误 HTTP {exc.response.status_code}"
     if isinstance(exc, httpx.TimeoutException):
         return "请求超时，请检查 Base URL 或网络"
     return str(exc)
@@ -960,21 +986,36 @@ async def list_provider_models(
     *,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_format: Optional[str] = None,
 ) -> Dict[str, Any]:
     try:
-        config = get_model_probe_config(stage, base_url=base_url, api_key=api_key)
+        config = get_model_probe_config(stage, base_url=base_url, api_key=api_key, api_format=api_format)
     except ValueError as exc:
         return {
             "ok": False,
             "stage": stage,
             "label": "",
             "base_url": None,
+            "api_format": API_FORMAT_OPENAI_CHAT,
             "models": [],
             "count": 0,
             "message": str(exc),
         }
 
     try:
+        if config["api_format"] == API_FORMAT_ANTHROPIC:
+            models = list(ANTHROPIC_MODEL_IDS)
+            return {
+                "ok": True,
+                "stage": stage,
+                "label": config["label"],
+                "base_url": config["base_url"],
+                "api_format": config["api_format"],
+                "models": models,
+                "count": len(models),
+                "message": f"已载入 {len(models)} 个 Claude 模型",
+            }
+
         async with httpx.AsyncClient(timeout=settings.MODEL_TEST_TIMEOUT_SECONDS) as client:
             response = await client.get(
                 _models_url_from_base_url(config["base_url"]),
@@ -987,6 +1028,7 @@ async def list_provider_models(
             "stage": stage,
             "label": config["label"],
             "base_url": config["base_url"],
+            "api_format": config["api_format"],
             "models": models,
             "count": len(models),
             "message": f"已拉取 {len(models)} 个模型",
@@ -997,6 +1039,7 @@ async def list_provider_models(
             "stage": stage,
             "label": config["label"],
             "base_url": config["base_url"],
+            "api_format": config["api_format"],
             "models": [],
             "count": 0,
             "message": f"模型列表接口返回 HTTP {exc.response.status_code}",
@@ -1007,6 +1050,7 @@ async def list_provider_models(
             "stage": stage,
             "label": config["label"],
             "base_url": config["base_url"],
+            "api_format": config["api_format"],
             "models": [],
             "count": 0,
             "message": _classify_model_test_error(exc),
@@ -1019,9 +1063,10 @@ async def test_model_connection(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    api_format: Optional[str] = None,
 ) -> Dict[str, Any]:
     try:
-        config = get_model_config(stage, model=model, base_url=base_url, api_key=api_key)
+        config = get_model_config(stage, model=model, base_url=base_url, api_key=api_key, api_format=api_format)
     except ValueError as exc:
         return {
             "ok": False,
@@ -1029,29 +1074,46 @@ async def test_model_connection(
             "label": "",
             "model": None,
             "base_url": None,
+            "api_format": API_FORMAT_OPENAI_CHAT,
             "message": str(exc),
         }
 
     try:
-        client = AsyncOpenAI(
-            api_key=config["api_key"],
-            base_url=config["base_url"],
-            timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
-            max_retries=0,
-        )
-        response = await client.chat.completions.create(
-            model=config["model"],
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=8,
-            temperature=0,
-        )
-        response_id = getattr(response, "id", None)
+        if config["api_format"] == API_FORMAT_ANTHROPIC:
+            async with httpx.AsyncClient(timeout=settings.MODEL_TEST_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    anthropic_messages_url(config["base_url"]),
+                    headers=anthropic_headers(config["api_key"]),
+                    json=build_anthropic_messages_payload(
+                        model=config["model"],
+                        messages=[{"role": "user", "content": "ping"}],
+                        max_tokens=8,
+                        temperature=0,
+                    ),
+                )
+                response.raise_for_status()
+                response_id = response.json().get("id")
+        else:
+            client = AsyncOpenAI(
+                api_key=config["api_key"],
+                base_url=config["base_url"],
+                timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
+                max_retries=0,
+            )
+            response = await client.chat.completions.create(
+                model=config["model"],
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=8,
+                temperature=0,
+            )
+            response_id = getattr(response, "id", None)
         return {
             "ok": True,
             "stage": stage,
             "label": config["label"],
             "model": config["model"],
             "base_url": config["base_url"],
+            "api_format": config["api_format"],
             "message": "API 连接测试通过",
             "response_id": response_id,
         }
@@ -1062,6 +1124,7 @@ async def test_model_connection(
             "label": config["label"],
             "model": config["model"],
             "base_url": config["base_url"],
+            "api_format": config["api_format"],
             "message": _classify_model_test_error(exc),
         }
 
@@ -1073,6 +1136,7 @@ async def test_provider_model_connection(provider_config: Dict[str, Optional[str
         model = _normalize_model(provider_config.get("polish_model") or provider_config.get("enhance_model"))
         api_key = _normalize_api_key(provider_config.get("api_key"))
         base_url = _normalize_base_url(provider_config.get("base_url"))
+        api_format = normalize_api_format(provider_config.get("api_format"))
     except ValueError as exc:
         return {
             "ok": False,
@@ -1080,29 +1144,46 @@ async def test_provider_model_connection(provider_config: Dict[str, Optional[str
             "label": label,
             "model": None,
             "base_url": None,
+            "api_format": API_FORMAT_OPENAI_CHAT,
             "message": str(exc),
         }
 
     try:
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
-            max_retries=0,
-        )
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=8,
-            temperature=0,
-        )
-        response_id = getattr(response, "id", None)
+        if api_format == API_FORMAT_ANTHROPIC:
+            async with httpx.AsyncClient(timeout=settings.MODEL_TEST_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    anthropic_messages_url(base_url),
+                    headers=anthropic_headers(api_key),
+                    json=build_anthropic_messages_payload(
+                        model=model,
+                        messages=[{"role": "user", "content": "ping"}],
+                        max_tokens=8,
+                        temperature=0,
+                    ),
+                )
+                response.raise_for_status()
+                response_id = response.json().get("id")
+        else:
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
+                max_retries=0,
+            )
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=8,
+                temperature=0,
+            )
+            response_id = getattr(response, "id", None)
         return {
             "ok": True,
             "stage": stage,
             "label": label,
             "model": model,
             "base_url": base_url,
+            "api_format": api_format,
             "message": "API 连接测试通过",
             "response_id": response_id,
         }
@@ -1113,5 +1194,6 @@ async def test_provider_model_connection(provider_config: Dict[str, Optional[str
             "label": label,
             "model": model,
             "base_url": base_url,
+            "api_format": api_format,
             "message": _classify_model_test_error(exc),
         }

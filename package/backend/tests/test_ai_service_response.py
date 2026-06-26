@@ -9,3 +9,8 @@ def test_extract_completion_content_accepts_openai_compatible_dict():
     response = {"choices": [{"message": {"content": "rewritten text"}}]}
 
     assert extract_completion_content(response) == "rewritten text"
+
+def test_extract_completion_content_accepts_anthropic_message_dict():
+    response = {"content": [{"type": "text", "text": "rewritten text"}]}
+
+    assert extract_completion_content(response) == "rewritten text"

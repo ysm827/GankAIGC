@@ -272,32 +272,37 @@ class OptimizationService:
         try:
             runtime_base_url = self.runtime_provider_config.get("base_url")
             runtime_api_key = self.runtime_provider_config.get("api_key")
+            runtime_api_format = self.runtime_provider_config.get("api_format")
             # 润色服务
             self.polish_service = AIService(
                 model=self.session_obj.polish_model or settings.POLISH_MODEL,
                 api_key=runtime_api_key or self.session_obj.polish_api_key or settings.POLISH_API_KEY,
-                base_url=runtime_base_url or self.session_obj.polish_base_url or settings.POLISH_BASE_URL
+                base_url=runtime_base_url or self.session_obj.polish_base_url or settings.POLISH_BASE_URL,
+                api_format=runtime_api_format or self.session_obj.polish_api_format or settings.MODEL_API_FORMAT,
             )
             
             # 增强服务
             self.enhance_service = AIService(
                 model=self.session_obj.enhance_model or settings.ENHANCE_MODEL,
                 api_key=runtime_api_key or self.session_obj.enhance_api_key or settings.ENHANCE_API_KEY,
-                base_url=runtime_base_url or self.session_obj.enhance_base_url or settings.ENHANCE_BASE_URL
+                base_url=runtime_base_url or self.session_obj.enhance_base_url or settings.ENHANCE_BASE_URL,
+                api_format=runtime_api_format or self.session_obj.enhance_api_format or settings.MODEL_API_FORMAT,
             )
             
             # 感情文章润色服务
             self.emotion_service = AIService(
                 model=self.session_obj.emotion_model or settings.POLISH_MODEL,
                 api_key=runtime_api_key or self.session_obj.emotion_api_key or settings.POLISH_API_KEY,
-                base_url=runtime_base_url or self.session_obj.emotion_base_url or settings.POLISH_BASE_URL
+                base_url=runtime_base_url or self.session_obj.emotion_base_url or settings.POLISH_BASE_URL,
+                api_format=runtime_api_format or self.session_obj.emotion_api_format or settings.MODEL_API_FORMAT,
             )
             
             # 压缩服务
             self.compression_service = AIService(
                 model=settings.COMPRESSION_MODEL,
                 api_key=settings.COMPRESSION_API_KEY or settings.OPENAI_API_KEY,
-                base_url=settings.COMPRESSION_BASE_URL or settings.OPENAI_BASE_URL
+                base_url=settings.COMPRESSION_BASE_URL or settings.OPENAI_BASE_URL,
+                api_format=settings.MODEL_API_FORMAT,
             )
             
             print(f"[INFO] 所有 AI 服务初始化成功，会话: {self.session_obj.session_id}")

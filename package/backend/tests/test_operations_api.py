@@ -230,17 +230,19 @@ def test_admin_backup_download_rejects_path_traversal(client):
 
 
 def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypatch):
-    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None):
+    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None, api_format=None):
         assert stage == "polish"
         assert model == "gpt-new"
         assert base_url == "https://api.example/v1"
         assert api_key == "sk-transient-secret"
+        assert api_format == "anthropic"
         return {
             "ok": True,
             "stage": stage,
             "label": "润色模型",
             "model": model,
             "base_url": base_url,
+            "api_format": api_format,
             "message": "API 连接测试通过",
         }
 
@@ -253,6 +255,7 @@ def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypat
             "model": "gpt-new",
             "base_url": "https://api.example/v1",
             "api_key": "sk-transient-secret",
+            "api_format": "anthropic",
         },
         headers=_admin_auth_headers(client),
     )
@@ -271,13 +274,14 @@ def test_admin_model_test_returns_success_and_writes_audit_log(client, monkeypat
 
 
 def test_admin_model_test_returns_structured_failure(client, monkeypatch):
-    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None):
+    async def fake_test_model_connection(stage, *, model=None, base_url=None, api_key=None, api_format=None):
         return {
             "ok": False,
             "stage": stage,
             "label": "润色模型",
             "model": "bad-model",
             "base_url": "https://api.example/v1",
+            "api_format": api_format,
             "message": "模型不存在或当前 Key 无权访问该模型",
         }
 
@@ -427,16 +431,94 @@ def test_list_provider_models_fetches_openai_compatible_model_ids(monkeypatch):
     assert captured["headers"] == {"Authorization": "Bearer sk-test"}
 
 
+
+def test_list_provider_models_returns_curated_anthropic_models(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-ant-test", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "https://api.anthropic.com", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_MODEL", "claude-sonnet-4-5", raising=False)
+
+    class NoNetworkAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Anthropic native model discovery must not call /models")
+
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", NoNetworkAsyncClient)
+
+    import asyncio
+
+    result = asyncio.run(operations_service.list_provider_models("polish", api_format="anthropic"))
+
+    assert result["ok"] is True
+    assert result["api_format"] == "anthropic"
+    assert "claude-sonnet-4-5" in result["models"]
+    assert all(model.startswith("claude-") for model in result["models"])
+    assert result["count"] == len(result["models"])
+
+
+def test_admin_anthropic_model_test_uses_messages_endpoint(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "POLISH_API_KEY", "sk-ant-test", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_BASE_URL", "https://api.anthropic.com", raising=False)
+    monkeypatch.setattr(config_module.settings, "POLISH_MODEL", "claude-sonnet-4-5", raising=False)
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "msg-admin-test", "content": [{"type": "text", "text": "pong"}]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
+
+    import asyncio
+
+    result = asyncio.run(
+        operations_service.test_model_connection(
+            "polish",
+            model="claude-sonnet-4-5",
+            base_url="https://api.anthropic.com",
+            api_key="sk-ant-test",
+            api_format="anthropic",
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["api_format"] == "anthropic"
+    assert captured["url"] == "https://api.anthropic.com/v1/messages"
+    assert captured["headers"]["x-api-key"] == "sk-ant-test"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+    assert captured["json"]["model"] == "claude-sonnet-4-5"
+    assert captured["json"]["max_tokens"] == 8
+    assert captured["json"]["messages"] == [{"role": "user", "content": "ping"}]
+
 def test_admin_model_list_returns_success_and_does_not_audit_api_key(client, monkeypatch):
-    async def fake_list_provider_models(stage, *, base_url=None, api_key=None):
+    async def fake_list_provider_models(stage, *, base_url=None, api_key=None, api_format=None):
         assert stage == "polish"
         assert base_url == "https://api.example/v1"
         assert api_key == "sk-transient-secret"
+        assert api_format == "openai_chat"
         return {
             "ok": True,
             "stage": stage,
             "label": "润色模型",
             "base_url": base_url,
+            "api_format": api_format,
             "models": ["gpt-5.5", "gpt-4o"],
             "count": 2,
             "message": "已拉取 2 个模型",
@@ -450,6 +532,7 @@ def test_admin_model_list_returns_success_and_does_not_audit_api_key(client, mon
             "stage": "polish",
             "base_url": "https://api.example/v1",
             "api_key": "sk-transient-secret",
+            "api_format": "openai_chat",
         },
         headers=_admin_auth_headers(client),
     )
@@ -468,12 +551,13 @@ def test_admin_model_list_returns_success_and_does_not_audit_api_key(client, mon
 
 
 def test_admin_model_list_returns_structured_failure(client, monkeypatch):
-    async def fake_list_provider_models(stage, *, base_url=None, api_key=None):
+    async def fake_list_provider_models(stage, *, base_url=None, api_key=None, api_format=None):
         return {
             "ok": False,
             "stage": stage,
             "label": "润色模型",
             "base_url": base_url,
+            "api_format": api_format,
             "models": [],
             "count": 0,
             "message": "API Key 未配置",

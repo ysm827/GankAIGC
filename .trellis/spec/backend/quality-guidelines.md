@@ -368,3 +368,87 @@ else:
         timeout=2.5,
     )
 ```
+
+---
+
+## Scenario: Model Gateway API Format Contract
+
+### 1. Scope / Trigger
+
+- Trigger: any change to model provider routing, `AIService`, admin model test/list APIs, BYOK provider config, model gateway UI payloads, or optimization session model fields.
+- This is a cross-layer contract: env config, DB columns, schemas, services, routes, frontend selectors, tests, and static bundle must stay aligned.
+
+### 2. Signatures
+
+- Env/system config:
+  - `MODEL_API_FORMAT=openai_chat|anthropic` with default `openai_chat`.
+- API:
+  - `GET /api/admin/config` returns `system.model_api_format`.
+  - `POST /api/admin/config` accepts `MODEL_API_FORMAT` and rejects unsupported formats.
+  - `POST /api/admin/operations/model-test` accepts optional `api_format`.
+  - `POST /api/admin/operations/model-list` accepts optional `api_format`.
+  - `PUT /api/user/provider-config` accepts `api_format` and returns it masked with the rest of the config.
+  - `POST /api/user/provider-config/test` tests using the saved `api_format`.
+- DB:
+  - `user_provider_configs.api_format VARCHAR(40) DEFAULT 'openai_chat'`.
+  - `optimization_sessions.polish_api_format`, `enhance_api_format`, `emotion_api_format` preserve per-session routing.
+- Internal values:
+  - `openai_chat` = OpenAI-compatible `/v1/chat/completions`.
+  - `anthropic` = Anthropic Messages native `/v1/messages`.
+
+### 3. Contracts
+
+- OpenAI-compatible behavior remains the default for old env files, old DB rows, and omitted UI payload fields.
+- Anthropic native requests must use:
+  - URL: `{base}/v1/messages`, or `{base}/messages` when `base` already ends with `/v1`.
+  - Headers: `x-api-key`, `anthropic-version: 2023-06-01`, `content-type: application/json`.
+  - Body: `model`, `max_tokens`, `messages`, optional `system`, optional `temperature`, and `stream` when streaming.
+- Anthropic response extraction reads generated text from `content[].text`; streaming reads `content_block_delta.delta.text` where `delta.type == "text_delta"`.
+- Anthropic native model discovery must not call OpenAI `/models`; return the curated Claude model IDs in `ANTHROPIC_MODEL_IDS`.
+- Audit logs and API responses must never contain plaintext API keys.
+
+### 4. Validation & Error Matrix
+
+- Unsupported `api_format` -> HTTP 400 for admin config or provider config save.
+- Missing/placeholder API key -> structured failure from model test/list.
+- Private/unsafe base URL -> existing Base URL validation error before network calls.
+- `api_format=anthropic` model list -> local curated list, no network probe.
+- Old rows/sessions with NULL or missing format -> normalize to `openai_chat`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: user selects `Anthropic Messages（原生）`, saves `https://api.anthropic.com`, tests connection, and optimization calls `/v1/messages`.
+- Base: existing OpenAI-compatible config omits `api_format`; all tests and optimization calls keep current `/chat/completions` behavior.
+- Bad: frontend shows fake Claude models from OpenAI fallback, sends no `api_format`, or tests a model successfully through the wrong protocol.
+
+### 6. Tests Required
+
+- Unit: `extract_completion_content()` accepts Anthropic message dict/object payloads.
+- Operations: Anthropic model test posts to `/v1/messages` with required headers/body.
+- Operations: Anthropic model list returns curated Claude IDs and never calls `/models`.
+- Provider config: save/get masks keys while preserving `api_format`; saved provider test uses the selected protocol.
+- Optimization: BYOK start/retry stores per-stage `*_api_format` on `OptimizationSession`.
+- Frontend static: admin `ConfigManager.jsx` and user `ApiSettingsPage.jsx` expose selectors and include `api_format` in test/list/save payloads.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+client = AsyncOpenAI(api_key=api_key, base_url="https://api.anthropic.com")
+await client.chat.completions.create(model="claude-sonnet-4-5", messages=messages)
+```
+
+#### Correct
+
+```python
+response = await client.post(
+    anthropic_messages_url("https://api.anthropic.com"),
+    headers=anthropic_headers(api_key),
+    json=build_anthropic_messages_payload(
+        model="claude-sonnet-4-5",
+        messages=messages,
+        max_tokens=4096,
+    ),
+)
+```

@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = "pwd"
     OPENAI_BASE_URL: str = "http://IP:PORT/v1"
     MODEL_PROVIDER_NAME: str = ""
+    MODEL_API_FORMAT: str = "openai_chat"
     ENABLE_VERBOSE_AI_LOGS: bool = False
     
     # 第一阶段模型配置 (论文润色)

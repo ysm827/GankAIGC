@@ -15,6 +15,11 @@ import {
 } from 'lucide-react';
 import ApiConfigGuide from './ApiConfigGuide';
 
+const API_FORMAT_OPTIONS = [
+  { value: 'openai_chat', label: 'OpenAI Compatible' },
+  { value: 'anthropic', label: 'Anthropic Messages（原生）' },
+];
+
 const ConfigManager = ({ adminToken }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,6 +35,7 @@ const ConfigManager = ({ adminToken }) => {
 
   const [formData, setFormData] = useState({
     MODEL_PROVIDER_NAME: '',
+    MODEL_API_FORMAT: 'openai_chat',
     POLISH_MODEL: '',
     POLISH_API_KEY: '',
     POLISH_BASE_URL: '',
@@ -89,6 +95,7 @@ const ConfigManager = ({ adminToken }) => {
 
       setFormData({
         MODEL_PROVIDER_NAME: response.data.system.model_provider_name ?? '',
+        MODEL_API_FORMAT: response.data.system.model_api_format || 'openai_chat',
         POLISH_MODEL: response.data.polish.model || '',
         POLISH_API_KEY: '',
         POLISH_BASE_URL: response.data.polish.base_url || '',
@@ -164,6 +171,7 @@ const ConfigManager = ({ adminToken }) => {
       model: formData[modelKey],
       base_url: formData[baseUrlKey],
       api_key: formData[apiKeyKey],
+      api_format: formData.MODEL_API_FORMAT,
     };
   };
 
@@ -197,6 +205,7 @@ const ConfigManager = ({ adminToken }) => {
         stage: 'polish',
         base_url: formData.POLISH_BASE_URL,
         api_key: formData.POLISH_API_KEY,
+        api_format: formData.MODEL_API_FORMAT,
       }, {
         headers: { Authorization: `Bearer ${adminToken}` }
       });
@@ -237,6 +246,7 @@ const ConfigManager = ({ adminToken }) => {
     }));
   };
   const applyUnifiedBaseUrl = (baseUrl) => {
+    setAvailableModels([]);
     setFormData((previous) => ({
       ...previous,
       POLISH_BASE_URL: baseUrl,
@@ -246,12 +256,20 @@ const ConfigManager = ({ adminToken }) => {
     }));
   };
   const applyUnifiedApiKey = (apiKey) => {
+    setAvailableModels([]);
     setFormData((previous) => ({
       ...previous,
       POLISH_API_KEY: apiKey,
       ENHANCE_API_KEY: apiKey,
       EMOTION_API_KEY: apiKey,
       COMPRESSION_API_KEY: apiKey,
+    }));
+  };
+  const applyApiFormat = (apiFormat) => {
+    setAvailableModels([]);
+    setFormData((previous) => ({
+      ...previous,
+      MODEL_API_FORMAT: apiFormat,
     }));
   };
 
@@ -328,6 +346,19 @@ const ConfigManager = ({ adminToken }) => {
                 placeholder={getApiKeyPlaceholder('polish')}
                 className="aurora-admin-input font-mono"
               />
+            </label>
+            <label>
+              <span>API 格式</span>
+              <select
+                value={formData.MODEL_API_FORMAT}
+                onChange={(e) => applyApiFormat(e.target.value)}
+                className="aurora-admin-input"
+                aria-label="API 格式"
+              >
+                {API_FORMAT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </label>
             <label>
               <span>模型</span>

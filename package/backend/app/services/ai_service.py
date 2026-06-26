@@ -1,9 +1,146 @@
-﻿from typing import List, Dict, Optional
+﻿from typing import Any, AsyncIterator, List, Dict, Optional
 import json
 import re
+
+import httpx
 from openai import AsyncOpenAI, PermissionDeniedError, AuthenticationError, RateLimitError
 from app.config import settings
 from app.utils.url_security import validate_model_base_url
+
+
+API_FORMAT_OPENAI_CHAT = "openai_chat"
+API_FORMAT_ANTHROPIC = "anthropic"
+SUPPORTED_API_FORMATS = {API_FORMAT_OPENAI_CHAT, API_FORMAT_ANTHROPIC}
+ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
+ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
+ANTHROPIC_MODEL_IDS = [
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-mythos-preview",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-5",
+    "claude-opus-4-5-20251101",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
+    "claude-opus-4-1",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-0",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-20250514",
+    "claude-3-haiku-20240307",
+]
+
+
+def normalize_api_format(value: Optional[str]) -> str:
+    normalized = (value or API_FORMAT_OPENAI_CHAT).strip().lower()
+    if normalized in {"openai", "openai-compatible", "openai_compatible", "chat_completions"}:
+        return API_FORMAT_OPENAI_CHAT
+    if normalized in {"anthropic_messages", "anthropic_messages_native", "claude", "messages"}:
+        return API_FORMAT_ANTHROPIC
+    if normalized not in SUPPORTED_API_FORMATS:
+        raise ValueError("API 格式不支持")
+    return normalized
+
+
+def is_anthropic_api_format(value: Optional[str]) -> bool:
+    return normalize_api_format(value) == API_FORMAT_ANTHROPIC
+
+
+def anthropic_messages_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return f"{normalized}/messages"
+    return f"{normalized}/v1/messages"
+
+
+def _extract_anthropic_content_blocks(payload: Any) -> List[Any]:
+    if isinstance(payload, dict):
+        content = payload.get("content")
+    else:
+        content = getattr(payload, "content", None)
+    return content if isinstance(content, list) else []
+
+
+def extract_anthropic_message_text(payload: Any) -> str:
+    parts: List[str] = []
+    for block in _extract_anthropic_content_blocks(payload):
+        if isinstance(block, dict):
+            text = block.get("text")
+        else:
+            text = getattr(block, "text", None)
+        if text:
+            parts.append(str(text))
+    return "".join(parts)
+
+
+def _coerce_anthropic_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    return str(content or "")
+
+
+def build_anthropic_messages_payload(
+    *,
+    model: str,
+    messages: List[Dict[str, str]],
+    temperature: float = 0.7,
+    max_tokens: Optional[int] = None,
+    stream: bool = False,
+    include_temperature: bool = True,
+) -> Dict[str, Any]:
+    system_parts: List[str] = []
+    anthropic_messages: List[Dict[str, str]] = []
+
+    for message in messages:
+        role = (message.get("role") or "user").strip().lower()
+        content = _coerce_anthropic_content(message.get("content"))
+        if not content:
+            continue
+        if role == "system":
+            system_parts.append(content)
+            continue
+        anthropic_role = "assistant" if role == "assistant" else "user"
+        anthropic_messages.append({"role": anthropic_role, "content": content})
+
+    if not anthropic_messages:
+        anthropic_messages.append({"role": "user", "content": "ping"})
+    elif anthropic_messages[0]["role"] != "user":
+        anthropic_messages.insert(0, {"role": "user", "content": "Continue."})
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens or ANTHROPIC_DEFAULT_MAX_TOKENS,
+        "messages": anthropic_messages,
+        "stream": stream,
+    }
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+    if include_temperature:
+        payload["temperature"] = temperature
+    return payload
+
+
+def anthropic_headers(api_key: str) -> Dict[str, str]:
+    return {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+    }
 
 
 # 不可重试的错误类型 - 这些错误不应该通过降级重试来解决
@@ -110,6 +247,9 @@ def extract_completion_content(response) -> str:
         return response
 
     if isinstance(response, dict):
+        anthropic_text = extract_anthropic_message_text(response)
+        if anthropic_text:
+            return anthropic_text
         choices = response.get("choices") or []
         if choices:
             first_choice = choices[0]
@@ -119,6 +259,10 @@ def extract_completion_content(response) -> str:
             if isinstance(first_choice, dict):
                 return first_choice.get("text") or ""
         return response.get("content") or response.get("text") or json.dumps(response, ensure_ascii=False)
+
+    anthropic_text = extract_anthropic_message_text(response)
+    if anthropic_text:
+        return anthropic_text
 
     choices = getattr(response, "choices", None)
     if choices:
@@ -138,12 +282,18 @@ class AIService:
         self,
         model: str,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        api_format: Optional[str] = None,
     ):
         self.model = model
+        self.api_format = normalize_api_format(api_format or getattr(settings, "MODEL_API_FORMAT", API_FORMAT_OPENAI_CHAT))
         self.api_key = api_key or settings.OPENAI_API_KEY
         
-        raw_base_url = base_url or settings.OPENAI_BASE_URL
+        raw_base_url = base_url or (
+            ANTHROPIC_DEFAULT_BASE_URL
+            if self.api_format == API_FORMAT_ANTHROPIC
+            else settings.OPENAI_BASE_URL
+        )
         self.base_url = validate_model_base_url(raw_base_url) if raw_base_url else None
         
         # 验证必需的配置
@@ -153,19 +303,21 @@ class AIService:
             raise Exception("Base URL 未配置，无法初始化 AI 服务")
         
         try:
-            # 初始化 OpenAI 客户端
-            self.client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                timeout=60.0,
-                max_retries=2,
-                default_headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-            )
+            self.client = None
+            if self.api_format == API_FORMAT_OPENAI_CHAT:
+                # 初始化 OpenAI 客户端
+                self.client = AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    timeout=60.0,
+                    max_retries=2,
+                    default_headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                )
             
             self._enable_logging = settings.ENABLE_VERBOSE_AI_LOGS
-            print(f"[INFO] AI Service 初始化成功: model={model}, base_url={self.base_url}")
+            print(f"[INFO] AI Service 初始化成功: model={model}, base_url={self.base_url}, api_format={self.api_format}")
         except Exception as e:
             error_msg = f"AI Service 初始化失败: {str(e)}"
             print(f"[ERROR] {error_msg}")
@@ -183,6 +335,7 @@ class AIService:
         print("\n" + "=" * 80, flush=True)
         print(f"[{prefix}] Base URL: {self.base_url}", flush=True)
         print(f"[{prefix}] Model: {self.model}", flush=True)
+        print(f"[{prefix}] API Format: {self.api_format}", flush=True)
         if use_reasoning:
             print(f"[{prefix}] Reasoning Effort: {reasoning_effort}", flush=True)
         else:
@@ -251,6 +404,87 @@ class AIService:
             import traceback
 
             print(f"[{prefix}] Traceback:\n{traceback.format_exc()}", flush=True)
+
+    def _anthropic_payload(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: Optional[int],
+        stream: bool,
+        reasoning_effort: Optional[str],
+    ) -> Dict[str, Any]:
+        return build_anthropic_messages_payload(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            include_temperature=not (reasoning_effort and reasoning_effort != "none"),
+        )
+
+    async def _anthropic_complete(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: Optional[int],
+        reasoning_effort: Optional[str],
+    ) -> Dict[str, Any]:
+        payload = self._anthropic_payload(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=False,
+            reasoning_effort=reasoning_effort,
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                anthropic_messages_url(self.base_url),
+                headers=anthropic_headers(self.api_key),
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def _anthropic_stream(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: Optional[int],
+        reasoning_effort: Optional[str],
+    ) -> AsyncIterator[str]:
+        payload = self._anthropic_payload(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            reasoning_effort=reasoning_effort,
+        )
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                anthropic_messages_url(self.base_url),
+                headers=anthropic_headers(self.api_key),
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line.removeprefix("data:").strip()
+                    if not data or data == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") != "content_block_delta":
+                        continue
+                    delta = event.get("delta") or {}
+                    if delta.get("type") == "text_delta" and delta.get("text"):
+                        yield str(delta["text"])
     
     async def stream_complete(
         self,
@@ -295,39 +529,53 @@ class AIService:
                 use_reasoning,
             )
 
-            # 尝试调用 API，如果失败则根据错误类型决定是否降级重试
-            try:
-                stream = await self.client.chat.completions.create(**api_params)
-            except Exception as api_error:
-                can_retry = is_retryable_error(api_error)
-
-                self._log_api_error("STREAM REQUEST", api_error, can_retry)
-
-                # 只有在使用了 reasoning_effort 且错误可重试时才降级
-                if use_reasoning and can_retry:
-                    self._log_retry("STREAM REQUEST")
-                    # 移除 extra_body（包含 reasoning_effort），添加 temperature
-                    api_params.pop("extra_body", None)
-                    api_params["temperature"] = temperature
-                    stream = await self.client.chat.completions.create(**api_params)
-                else:
-                    # 不可重试的错误，直接抛出带有更详细信息的异常
-                    if isinstance(api_error, PermissionDeniedError):
-                        raise Exception(
-                            f"AI 请求被拒绝: {str(api_error)}。"
-                            f"这可能是因为: 1) 内容触发了 AI 服务商的安全过滤; "
-                            f"2) API Key 权限不足; 3) 代理服务配置问题。"
-                            f"建议检查输入内容或联系 API 服务商。"
-                        )
-                    raise
-
             full_response = ""  # 收集完整响应
             in_thinking_tag = False  # 跟踪是否在思考标签内
             thinking_buffer = ""  # 暂存可能的思考内容
-            
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
+
+            if self.api_format == API_FORMAT_ANTHROPIC:
+                content_stream = self._anthropic_stream(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    reasoning_effort=reasoning_effort,
+                )
+            else:
+                # 尝试调用 API，如果失败则根据错误类型决定是否降级重试
+                try:
+                    stream = await self.client.chat.completions.create(**api_params)
+                except Exception as api_error:
+                    can_retry = is_retryable_error(api_error)
+
+                    self._log_api_error("STREAM REQUEST", api_error, can_retry)
+
+                    # 只有在使用了 reasoning_effort 且错误可重试时才降级
+                    if use_reasoning and can_retry:
+                        self._log_retry("STREAM REQUEST")
+                        # 移除 extra_body（包含 reasoning_effort），添加 temperature
+                        api_params.pop("extra_body", None)
+                        api_params["temperature"] = temperature
+                        stream = await self.client.chat.completions.create(**api_params)
+                    else:
+                        # 不可重试的错误，直接抛出带有更详细信息的异常
+                        if isinstance(api_error, PermissionDeniedError):
+                            raise Exception(
+                                f"AI 请求被拒绝: {str(api_error)}。"
+                                f"这可能是因为: 1) 内容触发了 AI 服务商的安全过滤; "
+                                f"2) API Key 权限不足; 3) 代理服务配置问题。"
+                                f"建议检查输入内容或联系 API 服务商。"
+                            )
+                        raise
+
+                async def openai_content_stream():
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            yield chunk.choices[0].delta.content
+
+                content_stream = openai_content_stream()
+
+            async for content in content_stream:
+                if content:
                     full_response += content
                     
                     # 检测和过滤思考标签
@@ -421,31 +669,39 @@ class AIService:
                 use_reasoning,
             )
 
-            # 尝试调用 API，如果失败则根据错误类型决定是否降级重试
-            try:
-                response = await self.client.chat.completions.create(**api_params)
-            except Exception as api_error:
-                can_retry = is_retryable_error(api_error)
-
-                self._log_api_error("AI REQUEST", api_error, can_retry)
-
-                # 只有在使用了 reasoning_effort 且错误可重试时才降级
-                if use_reasoning and can_retry:
-                    self._log_retry("AI REQUEST")
-                    # 移除 extra_body（包含 reasoning_effort），添加 temperature
-                    api_params.pop("extra_body", None)
-                    api_params["temperature"] = temperature
+            if self.api_format == API_FORMAT_ANTHROPIC:
+                response = await self._anthropic_complete(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    reasoning_effort=reasoning_effort,
+                )
+            else:
+                # 尝试调用 API，如果失败则根据错误类型决定是否降级重试
+                try:
                     response = await self.client.chat.completions.create(**api_params)
-                else:
-                    # 不可重试的错误，直接抛出带有更详细信息的异常
-                    if isinstance(api_error, PermissionDeniedError):
-                        raise Exception(
-                            f"AI 请求被拒绝: {str(api_error)}。"
-                            f"这可能是因为: 1) 内容触发了 AI 服务商的安全过滤; "
-                            f"2) API Key 权限不足; 3) 代理服务配置问题。"
-                            f"建议检查输入内容或联系 API 服务商。"
-                        )
-                    raise
+                except Exception as api_error:
+                    can_retry = is_retryable_error(api_error)
+
+                    self._log_api_error("AI REQUEST", api_error, can_retry)
+
+                    # 只有在使用了 reasoning_effort 且错误可重试时才降级
+                    if use_reasoning and can_retry:
+                        self._log_retry("AI REQUEST")
+                        # 移除 extra_body（包含 reasoning_effort），添加 temperature
+                        api_params.pop("extra_body", None)
+                        api_params["temperature"] = temperature
+                        response = await self.client.chat.completions.create(**api_params)
+                    else:
+                        # 不可重试的错误，直接抛出带有更详细信息的异常
+                        if isinstance(api_error, PermissionDeniedError):
+                            raise Exception(
+                                f"AI 请求被拒绝: {str(api_error)}。"
+                                f"这可能是因为: 1) 内容触发了 AI 服务商的安全过滤; "
+                                f"2) API Key 权限不足; 3) 代理服务配置问题。"
+                                f"建议检查输入内容或联系 API 服务商。"
+                            )
+                        raise
 
             # 获取原始响应内容
             raw_content = extract_completion_content(response)
@@ -1013,9 +1269,5 @@ def get_compression_prompt() -> str:
 - 这个压缩内容仅作为历史上下文,不会出现在最终论文中
 - 压缩比例应该至少达到50%
 - 只返回压缩后的内容,不要添加说明，不要附加任何解释、注释或标签"""
-
-
-
-
 
 

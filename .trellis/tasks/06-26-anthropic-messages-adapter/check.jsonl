@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend behavior and Zhuque/LLM billing contracts must remain stable while adding protocol support."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Admin and account UI changes must keep Aurora theme and static bundle sync contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"API format flows across frontend, routes, storage, services, and runtime calls."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Provider protocol branching should be centralized instead of duplicated."}

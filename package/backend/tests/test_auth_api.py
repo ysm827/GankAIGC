@@ -1082,6 +1082,39 @@ def test_root_head_probe_is_supported(client):
     assert response.status_code == 200
 
 
+
+def test_admin_config_updates_model_api_format(client, monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    original_env = "\n".join(
+        [
+            "APP_ENV=development",
+            "SECRET_KEY=test-secret-key",
+            "ADMIN_PASSWORD=test-admin-password",
+            "MODEL_API_FORMAT=openai_chat",
+        ]
+    )
+    env_file.write_text(original_env, encoding="utf-8")
+
+    monkeypatch.setattr(config_module, "get_env_file_path", lambda: str(env_file))
+    monkeypatch.setattr(config_module.settings, "APP_ENV", "development")
+    monkeypatch.setattr(config_module.settings, "SECRET_KEY", "test-secret-key")
+    monkeypatch.setattr(config_module.settings, "ADMIN_PASSWORD", "test-admin-password")
+    monkeypatch.setattr(config_module.settings, "MODEL_API_FORMAT", "openai_chat", raising=False)
+
+    response = client.post(
+        "/api/admin/config",
+        json={"MODEL_API_FORMAT": "anthropic"},
+        headers=_admin_auth_headers(client),
+    )
+
+    assert response.status_code == 200
+    assert "MODEL_API_FORMAT=anthropic" in env_file.read_text(encoding="utf-8")
+    assert config_module.settings.MODEL_API_FORMAT == "anthropic"
+
+    get_response = client.get("/api/admin/config", headers=_admin_auth_headers(client))
+    assert get_response.status_code == 200
+    assert get_response.json()["system"]["model_api_format"] == "anthropic"
+
 def test_admin_config_exposes_registration_enabled(client, monkeypatch):
     monkeypatch.setattr(config_module.settings, "REGISTRATION_ENABLED", False, raising=False)
 

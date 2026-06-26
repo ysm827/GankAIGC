@@ -57,6 +57,7 @@ def test_saved_provider_config_is_not_returned_in_plaintext(client, monkeypatch)
 
     payload = {
         "base_url": "https://api.example/v1/",
+        "api_format": "openai_chat",
         "api_key": "sk-test-secret",
         "polish_model": "gpt-5.4",
         "enhance_model": "gpt-5.4",
@@ -72,6 +73,7 @@ def test_saved_provider_config_is_not_returned_in_plaintext(client, monkeypatch)
     assert put_response.status_code == 200
     assert put_response.json() == {
         "base_url": "https://api.example/v1",
+        "api_format": "openai_chat",
         "api_key_last4": "cret",
         "polish_model": "gpt-5.4",
         "enhance_model": "gpt-5.4",
@@ -87,6 +89,7 @@ def test_saved_provider_config_is_not_returned_in_plaintext(client, monkeypatch)
     db = SessionLocal()
     try:
         config = db.query(UserProviderConfig).filter(UserProviderConfig.user_id == user_id).one()
+        assert config.api_format == "openai_chat"
         assert config.api_key_encrypted != "sk-test-secret"
         assert config.api_key_last4 == "cret"
     finally:
@@ -118,6 +121,7 @@ def test_admin_provider_config_summary_masks_user_api_key(client, monkeypatch):
             "user_id": 1,
             "username": "alice",
             "base_url": "https://api.example/v1",
+            "api_format": "openai_chat",
             "api_key_last4": "cret",
             "polish_model": "gpt-5.4",
             "enhance_model": "gpt-5.4",
@@ -284,6 +288,65 @@ def test_provider_config_test_rejects_failed_model_request(client, monkeypatch):
     assert response.json()["detail"]["message"] == "invalid api key"
 
 
+
+def test_provider_config_test_uses_anthropic_messages_endpoint(client, monkeypatch):
+    import app.services.operations_service as operations_service
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "msg-test", "content": [{"type": "text", "text": "pong"}]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(config_module.settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(operations_service.httpx, "AsyncClient", FakeAsyncClient)
+    _allow_public_model_url_dns(monkeypatch)
+    _, token = _create_user()
+    save_response = client.put(
+        "/api/user/provider-config",
+        json={
+            "base_url": "https://api.anthropic.com",
+            "api_format": "anthropic",
+            "api_key": "sk-ant-secret",
+            "polish_model": "claude-sonnet-4-5",
+            "enhance_model": "claude-sonnet-4-5",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["api_format"] == "anthropic"
+
+    response = client.post("/api/user/provider-config/test", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["api_format"] == "anthropic"
+    assert captured["url"] == "https://api.anthropic.com/v1/messages"
+    assert captured["headers"]["x-api-key"] == "sk-ant-secret"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+    assert captured["json"]["model"] == "claude-sonnet-4-5"
+    assert captured["json"]["max_tokens"] == 8
+    assert captured["json"]["messages"] == [{"role": "user", "content": "ping"}]
+
 def test_byok_start_requires_saved_user_provider(client):
     _, token = _create_user()
 
@@ -341,6 +404,9 @@ def test_byok_start_optimization_uses_saved_user_provider(client, monkeypatch):
         assert user.credit_balance == 0
         assert session.polish_model == "gpt-5.4"
         assert session.polish_base_url == "https://api.example/v1"
+        assert session.polish_api_format == "openai_chat"
+        assert session.enhance_api_format == "openai_chat"
+        assert session.emotion_api_format == "openai_chat"
         assert session.polish_api_key is None
         assert session.credential_source == "user_saved"
     finally:
@@ -414,6 +480,9 @@ def test_retry_failed_session_can_switch_to_saved_user_provider(client, monkeypa
         assert session.polish_base_url == "https://api.example/v1"
         assert session.enhance_base_url == "https://api.example/v1"
         assert session.emotion_base_url == "https://api.example/v1"
+        assert session.polish_api_format == "openai_chat"
+        assert session.enhance_api_format == "openai_chat"
+        assert session.emotion_api_format == "openai_chat"
         assert session.polish_api_key is None
         assert session.enhance_api_key is None
         assert session.emotion_api_key is None

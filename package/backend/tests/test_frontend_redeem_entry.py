@@ -1430,7 +1430,11 @@ def test_config_manager_separates_sub_model_gateway_from_zhuque_detector():
     assert "/api/admin/operations/model-list" in config_manager
     assert "response.data.system.model_provider_name" in config_manager
     assert "MODEL_PROVIDER_NAME" in config_manager
+    assert "MODEL_API_FORMAT" in config_manager
+    assert "response.data.system.model_api_format" in config_manager
     assert "key === 'MODEL_PROVIDER_NAME'" in config_manager
+    assert "Anthropic Messages（原生）" in config_manager
+    assert "OpenAI Compatible" in config_manager
     assert "朱雀只负责腾讯 AI 率检测，不作为模型提供商" not in config_manager
     assert 'placeholder="https://your-sub-domain/v1"' in config_manager
     assert "primaryBaseUrl" in config_manager
@@ -1617,16 +1621,29 @@ def test_config_manager_exposes_admin_model_connection_tests():
     assert "stage: 'polish'" in config_manager
     assert "base_url: formData.POLISH_BASE_URL" in config_manager
     assert "api_key: formData.POLISH_API_KEY" in config_manager
+    assert "api_format: formData.MODEL_API_FORMAT" in config_manager
     assert "polish: ['POLISH_MODEL', 'POLISH_BASE_URL', 'POLISH_API_KEY']" in config_manager
     assert "enhance: ['ENHANCE_MODEL', 'ENHANCE_BASE_URL', 'ENHANCE_API_KEY']" in config_manager
     assert "availableModelOptions.map" in config_manager
     assert "availableModels.length > 0" in config_manager
     assert "models.includes(formData.POLISH_MODEL)" in config_manager
+    assert "setAvailableModels([])" in config_manager
     assert "<select" in config_manager
     assert "aurora-detected-models" not in config_manager
     assert "'gpt-4o'" not in config_manager
     assert "'moonshot-v1-8k'" not in config_manager
 
+
+
+def test_api_settings_page_exposes_provider_api_format_selector():
+    api_settings = (FRONTEND_SRC / "pages" / "ApiSettingsPage.jsx").read_text(encoding="utf-8")
+
+    assert "api_format: 'openai_chat'" in api_settings
+    assert "response.data.api_format || 'openai_chat'" in api_settings
+    assert "updateField('api_format', event.target.value)" in api_settings
+    assert "Anthropic Messages（原生）" in api_settings
+    assert "OpenAI Compatible" in api_settings
+    assert "...form" in api_settings
 
 def test_api_config_guide_keeps_previous_sections_open_when_expanding_next():
     api_guide = (FRONTEND_SRC / "components" / "ApiConfigGuide.jsx").read_text(encoding="utf-8")
