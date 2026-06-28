@@ -214,3 +214,36 @@ Added native Anthropic Messages API format across admin config, BYOK provider co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Zhuque batch reduce trace
+
+**Date**: 2026-06-28
+**Task**: Zhuque batch reduce trace
+**Branch**: `main`
+
+### Summary
+
+Implemented Zhuque fallback segment classification, guarded batch polish/enhance reduce, compact agent trace events, frontend trace visualization, tests, and static bundle sync.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ad41a63` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
