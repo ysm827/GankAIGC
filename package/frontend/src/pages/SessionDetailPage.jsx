@@ -380,6 +380,8 @@ const SessionDetailPage = () => {
     event?.new_rate ?? '',
     event?.strategy || '',
     event?.rewrite_mode || '',
+    event?.stage || '',
+    event?.batch_id || '',
   ].join('|'));
 
   const getZhuqueEventKey = (event, index) => (
@@ -462,6 +464,21 @@ const SessionDetailPage = () => {
     if (event?.type === 'detect') {
       return '全文检测';
     }
+    if (event?.type === 'segment_classification') {
+      return 'fallback 段落识别';
+    }
+    if (event?.type === 'batch_plan') {
+      return `第 ${event.round ?? '--'} 轮批量规划`;
+    }
+    if (event?.type === 'batch_validation') {
+      return `批次校验：${event.batch_id || '--'}`;
+    }
+    if (event?.type === 'batch_stage') {
+      return `批次完成：${event.batch_id || '--'}`;
+    }
+    if (event?.type === 'batch_fallback') {
+      return `批次降级：${event.batch_id || '--'}`;
+    }
     if (event?.type === 'reflection') {
       return `第 ${event.round} 轮收敛反思`;
     }
@@ -489,10 +506,26 @@ const SessionDetailPage = () => {
       success: '已完成',
       accepted: '已采纳',
       failed: '未采纳',
+      partial: '部分成功',
+      invalid_json: 'JSON异常',
+      invalid_structure: '结构异常',
       warning: '需关注',
       error: '失败',
     };
     return labels[status] || status;
+  };
+
+  const formatAgentList = (value) => Array.isArray(value) && value.length > 0
+    ? value.join('、')
+    : '无';
+
+  const formatAgentCounts = (value) => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    return Object.entries(value)
+      .map(([key, count]) => `${key}: ${count}`)
+      .join(' / ');
   };
 
   const getZhuqueRiskRate = (result, fallbackRate = null) => {
@@ -875,6 +908,12 @@ const SessionDetailPage = () => {
                         || showStandaloneRootCause
                         || event.prompt_patch
                         || hasLengthAdjustments
+                        || event.type === 'segment_classification'
+                        || event.type === 'batch_validation'
+                        || event.type === 'batch_fallback'
+                        || Array.isArray(event.skipped_summary)
+                        || event.type_counts
+                        || event.action_counts
                         || event.summary
                         || event.message
                       );
@@ -928,11 +967,24 @@ const SessionDetailPage = () => {
                                   <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
                                 )}
                                 {event.selected_segment_indices && (
-                                  <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
+                                  <p>命中段落：{formatAgentList(event.selected_segment_indices)}</p>
+                                )}
+                                {event.segment_indices && (
+                                  <p>批次段落：{formatAgentList(event.segment_indices)}</p>
+                                )}
+                                {event.fallback_segment_indices && (
+                                  <p>降级段落：{formatAgentList(event.fallback_segment_indices)}</p>
                                 )}
                                 {event.stubborn_segment_indices && (
-                                  <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
+                                  <p>顽固段落：{formatAgentList(event.stubborn_segment_indices)}</p>
                                 )}
+                                {event.selected_count !== undefined && <p>选中段数：{event.selected_count}</p>}
+                                {event.skipped_count !== undefined && <p>跳过段数：{event.skipped_count}</p>}
+                                {event.batch_count !== undefined && <p>批次数：{event.batch_count}</p>}
+                                {event.saved_llm_calls !== undefined && <p>节省调用：{event.saved_llm_calls} 次</p>}
+                                {event.duration_ms !== undefined && <p>耗时：{event.duration_ms} ms</p>}
+                                {event.fallback_count !== undefined && <p>降级数量：{event.fallback_count}</p>}
+                                {event.stage && <p>阶段：{event.stage}</p>}
                                 {event.stagnation_count !== undefined && (
                                   <p>连续停滞：{event.stagnation_count} 轮</p>
                                 )}
@@ -946,6 +998,7 @@ const SessionDetailPage = () => {
                                 {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
                                 {Array.isArray(event.candidate_rates) && <p>候选复检：{event.candidate_rates.length} 次</p>}
                                 {event.recommended_threshold !== undefined && <p>建议阈值：{formatRate(event.recommended_threshold)}</p>}
+                                {formatAgentCounts(event.type_counts) && <p>类型统计：{formatAgentCounts(event.type_counts)}</p>}
                               </div>
 
                               {hasExpandableDetails ? (
@@ -972,11 +1025,24 @@ const SessionDetailPage = () => {
                                 <p>风险率变化：{formatRate(event.old_rate)} → {formatRate(event.new_rate)}</p>
                               )}
                               {event.selected_segment_indices && (
-                                <p>命中段落：{event.selected_segment_indices.join('、') || '无'}</p>
+                                <p>命中段落：{formatAgentList(event.selected_segment_indices)}</p>
+                              )}
+                              {event.segment_indices && (
+                                <p>批次段落：{formatAgentList(event.segment_indices)}</p>
+                              )}
+                              {event.fallback_segment_indices && (
+                                <p>降级段落：{formatAgentList(event.fallback_segment_indices)}</p>
                               )}
                               {event.stubborn_segment_indices && (
-                                <p>顽固段落：{event.stubborn_segment_indices.join('、') || '无'}</p>
+                                <p>顽固段落：{formatAgentList(event.stubborn_segment_indices)}</p>
                               )}
+                              {event.selected_count !== undefined && <p>选中段数：{event.selected_count}</p>}
+                              {event.skipped_count !== undefined && <p>跳过段数：{event.skipped_count}</p>}
+                              {event.batch_count !== undefined && <p>批次数：{event.batch_count}</p>}
+                              {event.saved_llm_calls !== undefined && <p>节省调用：{event.saved_llm_calls} 次</p>}
+                              {event.duration_ms !== undefined && <p>耗时：{event.duration_ms} ms</p>}
+                              {event.fallback_count !== undefined && <p>降级数量：{event.fallback_count}</p>}
+                              {event.stage && <p>阶段：{event.stage}</p>}
                               {event.stagnation_count !== undefined && (
                                 <p>连续停滞：{event.stagnation_count} 轮</p>
                               )}
@@ -990,7 +1056,34 @@ const SessionDetailPage = () => {
                               {event.fact_card_count !== undefined && <p>事实卡片：{event.fact_card_count} 项</p>}
                               {Array.isArray(event.candidate_rates) && <p>候选复检：{event.candidate_rates.length} 次</p>}
                               {event.recommended_threshold !== undefined && <p>建议阈值：{formatRate(event.recommended_threshold)}</p>}
+                              {formatAgentCounts(event.type_counts) && <p>类型统计：{formatAgentCounts(event.type_counts)}</p>}
                             </div>
+
+                            {(formatAgentCounts(event.action_counts) || Array.isArray(event.skipped_summary)) && (
+                              <div className="aurora-agent-note aurora-agent-note-blue">
+                                <p className="font-semibold">fallback 识别日志</p>
+                                {formatAgentCounts(event.action_counts) && (
+                                  <p>动作统计：{formatAgentCounts(event.action_counts)}</p>
+                                )}
+                                {Array.isArray(event.skipped_summary) && event.skipped_summary.length > 0 && (
+                                  <p>
+                                    跳过样例：{event.skipped_summary.slice(0, 6).map((item) => (
+                                      `#${item.segment_index} ${item.type_code || '--'}(${item.reason || '--'})`
+                                    )).join('；')}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {(event.missing_ids || event.duplicate_ids || event.unknown_ids || event.empty_ids) && (
+                              <div className="aurora-agent-note aurora-agent-note-muted">
+                                <p className="font-semibold">批量输出校验</p>
+                                {event.missing_ids && <p>缺失 ID：{formatAgentList(event.missing_ids)}</p>}
+                                {event.duplicate_ids && <p>重复 ID：{formatAgentList(event.duplicate_ids)}</p>}
+                                {event.unknown_ids && <p>未知 ID：{formatAgentList(event.unknown_ids)}</p>}
+                                {event.empty_ids && <p>空文本 ID：{formatAgentList(event.empty_ids)}</p>}
+                              </div>
+                            )}
 
                             {isReflectionDrawer && (
                               <div className="aurora-agent-drawer">
@@ -1084,7 +1177,11 @@ const SessionDetailPage = () => {
                             <p key={getZhuqueEventKey(event, index)}>
                               {event.type === 'detect'
                                 ? `朱雀检测：${formatRate(event.rate)}`
-                                : `朱雀降重：第 ${event.round ?? '--'} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}${event.length_adjustments?.length ? `，长度校正 ${event.length_adjustments.length} 段` : ''}`}
+                                : event.type === 'segment_classification'
+                                  ? `段落识别：选中 ${event.selected_count ?? 0} 段，跳过 ${event.skipped_count ?? 0} 段`
+                                  : event.type?.startsWith?.('batch_')
+                                    ? `批量处理：${event.batch_id || '--'}，${event.stage || '--'}，${event.status || '--'}`
+                                    : `朱雀降重：第 ${event.round ?? '--'} 轮，策略 ${event.strategy || '--'}，${formatRate(event.old_rate)} → ${formatRate(event.new_rate)}${event.length_adjustments?.length ? `，长度校正 ${event.length_adjustments.length} 段` : ''}`}
                             </p>
                           ))}
                         </div>

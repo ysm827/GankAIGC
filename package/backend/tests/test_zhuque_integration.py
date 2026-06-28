@@ -196,6 +196,32 @@ class FakeAIService:
         raise AssertionError("ai_detect_reduce must reuse polish_text + enhance_text, not a separate reduce prompt")
 
 
+class FakeBatchAIService(FakeAIService):
+    def __init__(self):
+        super().__init__()
+        self.complete_calls = []
+
+    async def complete(self, messages, temperature=0.7, max_tokens=None, reasoning_effort=None):
+        self.complete_calls.append(
+            {
+                "messages": list(messages or []),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "reasoning_effort": reasoning_effort,
+            }
+        )
+        payload = json.loads(messages[-1]["content"])
+        stage = "增强" if "当前阶段的增强处理" in messages[0]["content"] else "润色"
+        prefix = "增强后" if stage == "增强" else "润色后"
+        return json.dumps(
+            [
+                {"id": item["id"], "text": f"{prefix}:{item['text']}"}
+                for item in payload
+            ],
+            ensure_ascii=False,
+        )
+
+
 class BloatedThenLengthRepairAIService(FakeAIService):
     def __init__(self, repaired_text):
         super().__init__()
@@ -3047,12 +3073,12 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         assert trace["threshold"] == 20.0
         assert trace["events"][0]["type"] == "detect"
         assert trace["events"][0]["rate"] == 80
-        assert trace["events"][1]["type"] == "reduce"
-        assert trace["events"][1]["round"] == 1
-        assert trace["events"][1]["strategy"] == "轻度自然化"
-        assert trace["events"][1]["selected_segment_indices"] == [0]
-        assert trace["events"][1]["old_rate"] == 80
-        assert trace["events"][1]["new_rate"] == 12
+        reduce_event = next(event for event in trace["events"] if event["type"] == "reduce")
+        assert reduce_event["round"] == 1
+        assert reduce_event["strategy"] == "轻度自然化"
+        assert reduce_event["selected_segment_indices"] == [0]
+        assert reduce_event["old_rate"] == 80
+        assert reduce_event["new_rate"] == 12
         for event_index, event in enumerate(trace["events"], start=1):
             assert event["id"] == f"zq-{session.session_id}-{event_index}"
             assert event["seq"] == event_index
@@ -3068,10 +3094,12 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
             for item in broadcasts
             if item["data"].get("type") == "zhuque_agent_event"
         ]
-        assert [event["type"] for event in agent_events] == ["detect", "reduce"]
-        assert agent_events[0]["phase"] == "zhuque_detect"
-        assert agent_events[1]["phase"] == "zhuque_reduce"
-        assert agent_events[1]["title"] == "第 1 轮降 AI"
+        assert {event["type"] for event in agent_events} == {"detect", "segment_classification", "reduce"}
+        assert next(event for event in agent_events if event["type"] == "detect")["phase"] == "zhuque_detect"
+        assert next(event for event in agent_events if event["type"] == "segment_classification")["phase"] == "segment_classification"
+        live_reduce_event = next(event for event in agent_events if event["type"] == "reduce")
+        assert live_reduce_event["phase"] == "zhuque_reduce"
+        assert live_reduce_event["title"] == "第 1 轮降 AI"
         assert any(item["data"].get("type") == "zhuque_detect" for item in broadcasts)
         assert any(item["data"].get("type") == "zhuque_reduce" for item in broadcasts)
         assert segment.zhuque_detect_count == 2
@@ -3505,7 +3533,7 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
         db.close()
 
 
-def test_ai_detect_reduce_rewrites_all_segments_when_zhuque_has_no_segment_labels(monkeypatch):
+def test_ai_detect_reduce_uses_fallback_classifier_when_zhuque_has_no_segment_labels(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 
     user_id = _create_user(credit_balance=50, zhuque_free_uses_remaining=20)
@@ -3560,6 +3588,168 @@ def test_ai_detect_reduce_rewrites_all_segments_when_zhuque_has_no_segment_label
         assert [seg.zhuque_reduce_attempt for seg in segments] == [1, 1]
         assert [call["text"] for call in fake_ai.polish_calls] == segment_texts
         assert [call["text"] for call in fake_ai.enhance_calls] == [seg.polished_text for seg in segments]
+        trace = json.loads(session.zhuque_agent_trace)
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert classification["label_source"] == "fallback_classifier"
+        assert classification["selected_segment_indices"] == [0, 1]
+    finally:
+        db.close()
+
+
+def test_zhuque_fallback_classifier_skips_headings_but_reduces_abstract_and_ack_body(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([80, 12])
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_SKIP_SHORT_CHARS", 30, raising=False)
+
+    segment_texts = [
+        "摘要",
+        "本文提出了一种面向论文文本的检测方法，并在公开数据集上完成验证。" * 3,
+        "关键词：深度学习；文本检测；Transformer",
+        "引言",
+        "随着人工智能技术的发展，文本检测任务在学术写作场景中受到关注。" * 3,
+        "致谢",
+        "感谢课题组成员在数据标注和实验设计阶段提供的帮助。" * 3,
+        "参考文献",
+        "[1] Vaswani A, et al. Attention is all you need. 2017.",
+    ]
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-fallback-classifier-headings",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1, 0, 0, 1, 0, 1, 0, 0]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[1], segment_texts[4], segment_texts[6]]
+        trace = json.loads(session.zhuque_agent_trace)
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert classification["selected_segment_indices"] == [1, 4, 6]
+        assert classification["type_counts"]["ABSTRACT_HEADING"] == 1
+        assert classification["type_counts"]["ABSTRACT_BODY"] == 1
+        assert classification["type_counts"]["ACK_BODY"] == 1
+        assert classification["type_counts"]["REFERENCE_ITEM"] == 1
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_batch_polish_and_enhance_records_agent_trace(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
+    fake_ai = FakeBatchAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", True, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_SIZE", 3, raising=False)
+
+    segment_texts = [
+        "批量降重段落甲包含模型方法、实验数据和结论说明。" * 4,
+        "批量降重段落乙描述数据来源、评价指标和对比结果。" * 4,
+    ]
+    starts = _joined_segment_starts(segment_texts)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 80,
+                "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
+                "segment_labels": [
+                    {"label": 0, "position": [starts[0], starts[0] + len(segment_texts[0])]},
+                    {"label": 0, "position": [starts[1], starts[1] + len(segment_texts[1])]},
+                ],
+            },
+            12,
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-batch-trace",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+        assert session.status == "completed"
+        assert len(fake_ai.complete_calls) == 2
+        assert fake_ai.polish_calls == []
+        assert fake_ai.enhance_calls == []
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [1, 1]
+        assert [seg.polished_text for seg in segments] == [f"润色后:{text}" for text in segment_texts]
+        assert [seg.zhuque_reduced_text for seg in segments] == [f"增强后:润色后:{text}" for text in segment_texts]
+        trace = json.loads(session.zhuque_agent_trace)
+        event_types = [event["type"] for event in trace["events"]]
+        assert event_types.count("batch_plan") == 2
+        assert event_types.count("batch_stage") == 2
+        assert any(event["type"] == "batch_plan" and event["saved_llm_calls"] == 1 for event in trace["events"])
+        assert all("批量降重段落甲" not in json.dumps(event, ensure_ascii=False) for event in trace["events"])
     finally:
         db.close()
 
