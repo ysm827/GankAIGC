@@ -748,6 +748,10 @@ def test_zhuque_api_parses_websocket_success_frame():
                 "conf": 0.9979,
                 "order": 1,
                 "position": [0, 4],
+                "position_format": "start_length",
+                "position_start": 0,
+                "position_length": 4,
+                "position_end": 4,
             }
         ],
         "content_type": 0,
@@ -3275,7 +3279,7 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
                         "order": 1,
                         "position": [
                             segment_starts[1],
-                            segment_starts[1] + len(segment_texts[1]),
+                            len(segment_texts[1]),
                         ],
                     },
                     {
@@ -3285,7 +3289,7 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
                         "order": 2,
                         "position": [
                             segment_starts[3],
-                            segment_starts[3] + len(segment_texts[3]),
+                            len(segment_texts[3]),
                         ],
                     },
                 ],
@@ -3459,21 +3463,21 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
                         "label": 2,
                         "conf": 0.95,
                         "order": 1,
-                        "position": [segment_starts[0], segment_starts[0] + len(segment_texts[0])],
+                        "position": [segment_starts[0], len(segment_texts[0])],
                     },
                     {
                         "text": segment_texts[1],
                         "label": 2,
                         "conf": 0.94,
                         "order": 2,
-                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                        "position": [segment_starts[1], len(segment_texts[1])],
                     },
                     {
                         "text": segment_texts[2],
                         "label": 1,
                         "conf": 0.99,
                         "order": 3,
-                        "position": [segment_starts[2], segment_starts[2] + len(segment_texts[2])],
+                        "position": [segment_starts[2], len(segment_texts[2])],
                     },
                 ],
             },
@@ -3693,8 +3697,8 @@ def test_ai_detect_reduce_batch_polish_and_enhance_records_agent_trace(monkeypat
                 "rate": 80,
                 "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
                 "segment_labels": [
-                    {"label": 0, "position": [starts[0], starts[0] + len(segment_texts[0])]},
-                    {"label": 0, "position": [starts[1], starts[1] + len(segment_texts[1])]},
+                    {"label": 0, "position": [starts[0], len(segment_texts[0])]},
+                    {"label": 0, "position": [starts[1], len(segment_texts[1])]},
                 ],
             },
             12,
@@ -4354,7 +4358,7 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
                     {
                         "text": segment_texts[1],
                         "label": 0,
-                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                        "position": [segment_starts[1], len(segment_texts[1])],
                     }
                 ],
             },
@@ -4366,7 +4370,7 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
                     {
                         "text": segment_texts[1],
                         "label": 0,
-                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                        "position": [segment_starts[1], len(segment_texts[1])],
                     }
                 ],
             },
@@ -4378,7 +4382,7 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
                     {
                         "text": segment_texts[1],
                         "label": 0,
-                        "position": [segment_starts[1], segment_starts[1] + len(segment_texts[1])],
+                        "position": [segment_starts[1], len(segment_texts[1])],
                     }
                 ],
             },
@@ -4432,6 +4436,110 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
         trace = json.loads(session.zhuque_agent_trace)
         rollback_events = [event for event in trace["events"] if event.get("rollback_applied")]
         assert rollback_events[0]["restored_segment_indices"] == [1]
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_rescreens_and_only_rewrites_remaining_high_ai_segments(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 2, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
+
+    segment_texts = ["复筛段甲" * 60, "复筛段乙" * 60, "复筛段丙" * 60]
+    initial_starts = _joined_segment_starts(segment_texts)
+    first_round_outputs = [
+        segment_texts[0],
+        f"增强后:润色后:{segment_texts[1]}",
+        f"增强后:润色后:{segment_texts[2]}",
+    ]
+    recheck_starts = _joined_segment_starts(first_round_outputs)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 80,
+                "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
+                "segment_labels": [
+                    {"label": 0, "position": [initial_starts[1], len(segment_texts[1])]},
+                    {"label": 0, "position": [initial_starts[2], len(segment_texts[2])]},
+                ],
+            },
+            {
+                "success": True,
+                "rate": 45,
+                "labels_ratio": {"0": 0.45, "1": 0.55, "2": 0.0},
+                "segment_labels": [
+                    {"label": 0, "position": [recheck_starts[2], len(first_round_outputs[2])]},
+                ],
+            },
+            {
+                "success": True,
+                "rate": 12,
+                "labels_ratio": {"0": 0.12, "1": 0.88, "2": 0.0},
+                "segment_labels": [],
+            },
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-rescreen-only-remaining",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+        assert session.status == "completed"
+        assert [call["text"] for call in fake_ai.polish_calls] == [
+            segment_texts[1],
+            segment_texts[2],
+            first_round_outputs[2],
+        ]
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1, 2]
+        trace = json.loads(session.zhuque_agent_trace)
+        label_events = [
+            event for event in trace["events"]
+            if event["type"] == "segment_classification" and event.get("label_source") == "segment_labels"
+        ]
+        assert [event["selected_segment_indices"] for event in label_events] == [[1, 2], [2]]
+        detect_events = [event for event in trace["events"] if event["type"] == "detect"]
+        assert detect_events[0]["segment_label_count"] == 2
+        assert detect_events[1]["segment_label_count"] == 1
+        assert detect_events[1]["position_format"] == "start_length"
     finally:
         db.close()
 

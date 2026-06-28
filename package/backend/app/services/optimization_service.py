@@ -29,6 +29,50 @@ MAX_ERROR_MESSAGE_LENGTH = 500
 logger = logging.getLogger(__name__)
 
 
+def parse_zhuque_segment_position(position) -> Optional[Tuple[int, int]]:
+    """Parse Zhuque segment position as [start, length].
+
+    Live Zhuque web demo payloads use ``position: [start, length]`` rather
+    than ``[start, end]``. Keep this contract in one helper so selection,
+    report export, and future consumers do not drift.
+    """
+    if (
+        not isinstance(position, list)
+        or len(position) != 2
+        or not all(isinstance(value, (int, float)) for value in position)
+    ):
+        return None
+    start = int(position[0])
+    length = int(position[1])
+    if start < 0 or length <= 0:
+        return None
+    return start, start + length
+
+
+def summarize_zhuque_segment_labels(result: dict) -> Dict[str, object]:
+    labels = result.get("segment_labels") if isinstance(result, dict) else None
+    label_counts: Dict[str, int] = {}
+    usable_position_count = 0
+    invalid_position_count = 0
+    if isinstance(labels, list):
+        for item in labels:
+            if not isinstance(item, dict):
+                continue
+            raw_label = item.get("label")
+            label_key = str(raw_label)
+            label_counts[label_key] = label_counts.get(label_key, 0) + 1
+            if parse_zhuque_segment_position(item.get("position")):
+                usable_position_count += 1
+            elif item.get("position") is not None:
+                invalid_position_count += 1
+    return {
+        "segment_label_count": len(labels) if isinstance(labels, list) else 0,
+        "segment_label_counts": label_counts,
+        "usable_position_count": usable_position_count,
+        "invalid_position_count": invalid_position_count,
+        "position_format": "start_length",
+    }
+
 
 def _zhuque_service_for_user_id(user_id: int):
     """Return per-user Zhuque service; fallback keeps monkeypatched tests working."""
@@ -467,6 +511,7 @@ class OptimizationService:
                 "remaining_uses": result.get("remaining_uses"),
                 "status": "error",
                 "message": f"初始全文检测失败：{message}",
+                **summarize_zhuque_segment_labels(result),
             })
             self._finalize_zhuque_trace("failed", None, f"初始朱雀检测失败：{message}")
             raise RuntimeError(f"朱雀检测失败: 全文: {message}")
@@ -480,6 +525,7 @@ class OptimizationService:
             "threshold": threshold,
             "remaining_uses": result.get("remaining_uses"),
             "message": "初始全文检测超过阈值" if full_text_rate > threshold else "初始全文检测已达标",
+            **summarize_zhuque_segment_labels(result),
         })
         if full_text_rate <= threshold:
             logger.info("No high-AI segments detected, skipping reduce phase")
@@ -545,6 +591,16 @@ class OptimizationService:
                     raise RuntimeError(recheck.get("message") or "朱雀复检返回失败")
                 old_rate = full_text_rate
                 full_text_rate = self._get_zhuque_risk_rate(recheck)
+                await self._emit_zhuque_trace_event({
+                    "type": "detect",
+                    "round": round_number,
+                    "source": "reduced",
+                    "rate": full_text_rate,
+                    "threshold": threshold,
+                    "remaining_uses": recheck.get("remaining_uses"),
+                    "message": f"第 {round_number} 轮改写后全文复检",
+                    **summarize_zhuque_segment_labels(recheck),
+                })
                 rollback_metadata = None
                 if full_text_rate >= old_rate:
                     rollback_metadata = self._rollback_zhuque_regression_round(
@@ -1575,6 +1631,19 @@ class OptimizationService:
                 user = self.db.get(User, self.session_obj.user_id)
                 if user:
                     user.zhuque_total_uses = int(user.zhuque_total_uses or 0) + 1
+            label_meta = summarize_zhuque_segment_labels(result)
+            logger.info(
+                "Zhuque full text detect session=%s source=%s prefer_reduced=%s success=%s rate=%s segment_labels=%s usable_positions=%s label_counts=%s position_format=%s",
+                self.session_obj.session_id,
+                result.get("source"),
+                prefer_reduced,
+                result_success,
+                detect_rate,
+                label_meta["segment_label_count"],
+                label_meta["usable_position_count"],
+                label_meta["segment_label_counts"],
+                label_meta["position_format"],
+            )
             result_json = json.dumps(result, ensure_ascii=False)
             for seg in segments:
                 seg.zhuque_detect_rate = detect_rate
@@ -1594,6 +1663,7 @@ class OptimizationService:
                 "rate": detect_rate,
                 "success": result_success,
                 "message": result.get("message"),
+                **label_meta,
             })
             return result
         except Exception as e:
@@ -1913,16 +1983,9 @@ class OptimizationService:
         for item in labels:
             if not isinstance(item, dict) or item.get("label") not in (0, 2):
                 continue
-            position = item.get("position")
-            if (
-                not isinstance(position, list)
-                or len(position) != 2
-                or not all(isinstance(value, (int, float)) for value in position)
-            ):
-                continue
-            start, end = int(position[0]), int(position[1])
-            if end > start:
-                high_ai_spans.append((start, end))
+            parsed_position = parse_zhuque_segment_position(item.get("position"))
+            if parsed_position:
+                high_ai_spans.append(parsed_position)
 
         if not high_ai_spans:
             selected, classifications = self._select_zhuque_fallback_reduce_segments(
@@ -1961,7 +2024,26 @@ class OptimizationService:
             if any(seg_start < span_end and span_start < seg_end for span_start, span_end in high_ai_spans):
                 selected.append(seg)
 
-        return selected or list(segments)
+        unmatched_positions = bool(high_ai_spans and not selected)
+        selected_for_return = selected or list(segments)
+        selection_event = self._append_zhuque_trace_event({
+            "type": "segment_classification",
+            "label_source": "segment_labels",
+            "source": "reduced" if prefer_reduced else "original",
+            "position_format": "start_length",
+            "segment_label_count": len(labels) if isinstance(labels, list) else 0,
+            "high_ai_span_count": len(high_ai_spans),
+            "selected_count": len(selected_for_return),
+            "selected_segment_indices": [seg.segment_index for seg in selected_for_return],
+            "unmatched_positions": unmatched_positions,
+            "message": (
+                "朱雀段落定位未匹配到本地段落，安全回退为全段处理"
+                if unmatched_positions
+                else f"朱雀段落定位选中 {len(selected_for_return)} 段"
+            ),
+        })
+        self._pending_zhuque_trace_broadcasts.append(selection_event)
+        return selected_for_return
 
     def _summarize_zhuque_classification_counts(
         self,

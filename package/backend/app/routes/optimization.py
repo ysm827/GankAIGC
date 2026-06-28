@@ -27,6 +27,7 @@ from app.services.credit_service import CreditService, calculate_optimization_cr
 from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
+from app.services.optimization_service import parse_zhuque_segment_position
 from app.services.zhuque_service import zhuque_service, zhuque_user_dir
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
@@ -347,16 +348,10 @@ def _segment_report_rows_from_labels(
         for item in labels:
             if not isinstance(item, dict):
                 continue
-            position = item.get("position")
-            if (
-                not isinstance(position, list)
-                or len(position) != 2
-                or not all(isinstance(value, (int, float)) for value in position)
-            ):
+            parsed_position = parse_zhuque_segment_position(item.get("position"))
+            if not parsed_position:
                 continue
-            start, end = int(position[0]), int(position[1])
-            if end <= start:
-                continue
+            start, end = parsed_position
             try:
                 label = int(item.get("label"))
             except (TypeError, ValueError):

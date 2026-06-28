@@ -347,6 +347,21 @@ def _convert_segment_labels(segment_labels: Any, label_map: dict[int, int]) -> l
             converted.append(cloned)
             continue
         cloned["label"] = label_map.get(raw_label, raw_label)
+        # Live Zhuque payloads expose position as [start, length]. Preserve the
+        # original field and add explicit metadata for downstream debugging.
+        position = cloned.get("position")
+        if (
+            isinstance(position, list)
+            and len(position) == 2
+            and all(isinstance(value, (int, float)) for value in position)
+        ):
+            start = int(position[0])
+            length = int(position[1])
+            if start >= 0 and length > 0:
+                cloned["position_format"] = "start_length"
+                cloned["position_start"] = start
+                cloned["position_length"] = length
+                cloned["position_end"] = start + length
         converted.append(cloned)
     return converted
 

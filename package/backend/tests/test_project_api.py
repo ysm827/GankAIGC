@@ -319,9 +319,9 @@ def _create_completed_zhuque_session(user_id, project_id=None, task_title=None, 
             "message": "检测完成",
             "segment_labels": [
                 {"label": 0, "position": [0, 4]},
-                {"label": 1, "position": [4, 8]},
-                {"label": 2, "position": [10, 14]},
-                {"label": 1, "position": [14, 18]},
+                {"label": 1, "position": [4, 4]},
+                {"label": 2, "position": [10, 4]},
+                {"label": 1, "position": [14, 4]},
             ],
         }
         for index, text in enumerate(["改后第一段", "改后第二段"]):
