@@ -28,6 +28,7 @@ from app.services.ai_service import (
     anthropic_headers,
     anthropic_messages_url,
     build_anthropic_messages_payload,
+    create_async_openai_client,
     normalize_api_format,
 )
 from app.utils.url_security import validate_model_base_url
@@ -1101,7 +1102,8 @@ async def test_model_connection(
                 response.raise_for_status()
                 response_id = response.json().get("id")
         else:
-            client = AsyncOpenAI(
+            client = create_async_openai_client(
+                AsyncOpenAI,
                 api_key=config["api_key"],
                 base_url=config["base_url"],
                 timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,
@@ -1171,7 +1173,8 @@ async def test_provider_model_connection(provider_config: Dict[str, Optional[str
                 response.raise_for_status()
                 response_id = response.json().get("id")
         else:
-            client = AsyncOpenAI(
+            client = create_async_openai_client(
+                AsyncOpenAI,
                 api_key=api_key,
                 base_url=base_url,
                 timeout=settings.MODEL_TEST_TIMEOUT_SECONDS,

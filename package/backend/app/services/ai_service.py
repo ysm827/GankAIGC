@@ -36,6 +36,34 @@ ANTHROPIC_MODEL_IDS = [
 ]
 
 
+def create_async_openai_client(client_cls: Any = AsyncOpenAI, **kwargs: Any) -> AsyncOpenAI:
+    """Create an AsyncOpenAI client across httpx minor-version drift.
+
+    The installed OpenAI SDK in this project can still pass the legacy
+    `proxies=` argument to its default internal httpx client. httpx 0.28+
+    removed that constructor argument, so a dependency resolver bump can make
+    model initialization fail before any API request is made. Supplying our own
+    plain httpx.AsyncClient keeps OpenAI-compatible behavior stable while
+    preserving the caller's timeout/retry/base-url settings.
+    """
+    if "http_client" not in kwargs and client_cls is AsyncOpenAI:
+        timeout = kwargs.get("timeout")
+        return client_cls(
+            **kwargs,
+            http_client=httpx.AsyncClient(timeout=timeout),
+        )
+    try:
+        return client_cls(**kwargs)
+    except TypeError as exc:
+        if "unexpected keyword argument 'proxies'" not in str(exc):
+            raise
+        timeout = kwargs.get("timeout")
+        return client_cls(
+            **kwargs,
+            http_client=httpx.AsyncClient(timeout=timeout),
+        )
+
+
 def normalize_api_format(value: Optional[str]) -> str:
     normalized = (value or API_FORMAT_OPENAI_CHAT).strip().lower()
     if normalized in {"openai", "openai-compatible", "openai_compatible", "chat_completions"}:
@@ -306,7 +334,7 @@ class AIService:
             self.client = None
             if self.api_format == API_FORMAT_OPENAI_CHAT:
                 # 初始化 OpenAI 客户端
-                self.client = AsyncOpenAI(
+                self.client = create_async_openai_client(
                     api_key=self.api_key,
                     base_url=self.base_url,
                     timeout=60.0,
@@ -1269,5 +1297,3 @@ def get_compression_prompt() -> str:
 - 这个压缩内容仅作为历史上下文,不会出现在最终论文中
 - 压缩比例应该至少达到50%
 - 只返回压缩后的内容,不要添加说明，不要附加任何解释、注释或标签"""
-
-
