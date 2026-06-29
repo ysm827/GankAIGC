@@ -245,9 +245,9 @@ def test_workspace_persists_selected_processing_and_billing_modes():
 def test_workspace_zhuque_status_polling_avoids_overlapping_requests():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
 
-    assert "ZHUQUE_STATUS_POLL_INTERVAL_MS = 1000" in workspace
-    assert "ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 350" in workspace
-    assert "ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 12000" in workspace
+    assert "ZHUQUE_STATUS_POLL_INTERVAL_MS = 5000" in workspace
+    assert "ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 1500" in workspace
+    assert "ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 8000" in workspace
     assert "isLoadingZhuqueStatusRef = useRef(false)" in workspace
     assert "loadZhuqueStatusPanel" in workspace
     assert "if (isLoadingZhuqueStatusRef.current)" in workspace
@@ -329,6 +329,13 @@ def test_frontend_uses_apple_glass_theme_tokens():
         assert "prefers-reduced-transparency" in css
         assert "@supports not ((backdrop-filter" in css
         assert "color-scheme:" in css and "light" in css
+
+    source_textarea_match = re.search(r"\.aurora-textarea\s*\{(?P<body>[^}]+)\}", index_css)
+    static_textarea_match = re.search(r"\.aurora-textarea\{(?P<body>[^}]+)\}", static_css_bundle)
+    assert source_textarea_match
+    assert static_textarea_match
+    assert "line-height: 1.5" in source_textarea_match.group("body")
+    assert "line-height:1.5" in static_textarea_match.group("body")
 
     assert "AI PAPER RECONSTRUCTION" in workspace
     assert "apple-product-tile" in workspace

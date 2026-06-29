@@ -282,6 +282,36 @@ def test_parse_pdf_docling_merges_same_page_body_lines():
     assert parsed.segments[1].bbox_json is None
 
 
+def test_parse_pdf_text_export_merges_soft_wrapped_lines():
+    from app.services import document_structure_service as structure_module
+
+    text = (
+        "1 Introduction\n"
+        "To popularize Chinese culture in digital media, various aspects need to be considered. The\n"
+        "influence of gender-switching videos in the Chinese digital media environment is growing,\n"
+        "indicating the potential for increased popularity of pop or queer culture [1]. Additionally, the\n"
+        "construction of digital identities by transnational bloggers on Chinese social media platforms\n\n"
+        "2 Methods\n"
+        "The study collects video samples and interview material to compare narrative strategies."
+    )
+
+    parsed = structure_module.build_parsed_document_from_text(
+        structure_module.normalize_parsed_document_text(text),
+        parser="markitdown",
+        document_format="pdf",
+        semantic_source=structure_module.SEMANTIC_SOURCE_MARKITDOWN_TEXT_RULE,
+        warnings=[],
+        parse_engine="markitdown",
+        trace={"engine": "markitdown"},
+    )
+
+    assert "The\n\ninfluence" not in parsed.text
+    assert "The influence of gender-switching videos" in parsed.text
+    assert len(parsed.segments) == 4
+    assert parsed.segments[1].semantic_type == "BODY"
+    assert parsed.segments[1].reduce_allowed is True
+
+
 def test_parse_pdf_document_upload_falls_back_to_markitdown(client, monkeypatch):
     from app.services import document_structure_service as structure_module
 

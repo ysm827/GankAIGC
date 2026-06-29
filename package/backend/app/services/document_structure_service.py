@@ -858,7 +858,7 @@ def build_parsed_document_from_text(
     parse_engine: str,
     trace: Dict[str, Any],
 ) -> ParsedDocument:
-    segments = split_text_into_segments(text) if text else []
+    segments = split_pdf_extracted_text_into_segments(text) if document_format == "pdf" else (split_text_into_segments(text) if text else [])
     raw_segments = [(segment, None, None, None) for segment in segments]
     return build_parsed_document_from_raw_segments(
         raw_segments,
@@ -869,6 +869,29 @@ def build_parsed_document_from_text(
         parse_engine=parse_engine,
         trace=trace,
     )
+
+
+def split_pdf_extracted_text_into_segments(text: str) -> List[str]:
+    """Convert PDF extractor line text into paragraph-like segments.
+
+    MarkItDown and Docling's text-export fallback can emit rendered PDF lines
+    separated by single newlines. Passing those lines into the generic splitter
+    turns each visual line into a paragraph and the API later serializes it as
+    `line\n\nline`. For PDFs, treat single newlines inside an extracted block as
+    soft wraps, while preserving explicit blank-line blocks and structural lines.
+    """
+    normalized = normalize_parsed_document_text(text)
+    if not normalized:
+        return []
+
+    segments: List[str] = []
+    for block in re.split(r"\n{2,}", normalized):
+        lines = [normalize_segment_line(line) for line in block.split("\n")]
+        raw_lines = [(line, None, None, None) for line in lines if line]
+        if not raw_lines:
+            continue
+        segments.extend(segment_text for segment_text, _decision, _page, _bbox in merge_pdf_line_segments(raw_lines))
+    return segments
 
 
 def build_parsed_document_from_raw_segments(
