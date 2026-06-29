@@ -461,7 +461,10 @@ class DocumentStructureService:
         timeout = max(1, int(getattr(settings, "PDF_STRUCTURE_TIMEOUT_SECONDS", 120) or 120))
         do_ocr = bool(getattr(settings, "PDF_DO_OCR", False))
         do_table_structure = bool(getattr(settings, "PDF_DO_TABLE_STRUCTURE", True))
-        ctx = mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
+        # This method is called from a Starlette worker thread. Forking a
+        # multi-threaded Python process can deadlock in native libraries loaded
+        # by Docling/PyTorch, so prefer spawn even on Linux.
+        ctx = mp.get_context("spawn")
         output_queue = ctx.Queue(maxsize=1)
         process = ctx.Process(
             target=convert_pdf_with_docling_worker,
