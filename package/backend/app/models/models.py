@@ -122,6 +122,10 @@ class OptimizationSession(Base):
     project_id = Column(Integer, ForeignKey("paper_projects.id"), nullable=True, index=True)
     task_title = Column(String(255), nullable=True)
     zhuque_agent_trace = Column(Text, nullable=True)
+    document_format = Column(String(32), nullable=True)
+    parse_engine = Column(String(64), nullable=True)
+    parse_fallback_used = Column(Boolean, nullable=True)
+    parse_trace = Column(Text, nullable=True)
     
     # 关系
     user = relationship("User", back_populates="sessions")
@@ -163,6 +167,15 @@ class OptimizationSegment(Base):
     zhuque_detect_count = Column(Integer, default=0)
     zhuque_reduce_attempt = Column(Integer, default=0)
     zhuque_reduced_text = Column(Text, nullable=True)
+    semantic_type = Column(String(64), nullable=True)
+    semantic_source = Column(String(64), nullable=True)
+    semantic_confidence = Column(Float, nullable=True)
+    reduce_allowed = Column(Boolean, nullable=True)
+    semantic_reason = Column(String(128), nullable=True)
+    char_start = Column(Integer, nullable=True)
+    char_end = Column(Integer, nullable=True)
+    page_number = Column(Integer, nullable=True)
+    bbox_json = Column(Text, nullable=True)
     session = relationship("OptimizationSession", back_populates="segments")
 
 

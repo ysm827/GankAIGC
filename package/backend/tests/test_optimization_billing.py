@@ -1,10 +1,11 @@
 import socket
 import sys
 import types
+from io import BytesIO
 
 import app.config as config_module
 from app.database import SessionLocal
-from app.models.models import CreditTransaction, OptimizationSession, User
+from app.models.models import CreditTransaction, OptimizationSegment, OptimizationSession, User
 from app.utils.auth import create_user_access_token, get_password_hash, verify_stream_token
 
 
@@ -106,7 +107,48 @@ def test_parse_document_upload_zero_config_falls_back_to_default_limit(client, m
     assert response.json()["text"] == "# Title\n\nMarkdown body"
 
 
-def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
+def test_parse_docx_document_upload_uses_docx_styles_before_text_rules(client):
+    from docx import Document
+
+    _, token = _create_user(credit_balance=0)
+    document = Document()
+    document.add_paragraph("论文标题", style="Title")
+    document.add_paragraph("摘要", style="Heading 1")
+    document.add_paragraph("摘要正文用于说明研究背景和主要结论。" * 4)
+    document.add_paragraph("1 绪论", style="Heading 1")
+    document.add_paragraph("正文段落围绕研究背景展开，且长度足够进入正文候选。" * 5)
+    buffer = BytesIO()
+    document.save(buffer)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={
+            "file": (
+                "paper.docx",
+                buffer.getvalue(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "paper.docx"
+    assert payload["parser"] == "python_docx"
+    assert payload["parse_engine"] == "python_docx"
+    assert payload["structure_summary"]["TITLE"] == 1
+    assert payload["structure_summary"]["ABSTRACT_HEADING"] == 1
+    assert payload["structure_summary"]["ABSTRACT_BODY"] == 1
+    assert payload["structure_summary"]["SECTION_HEADING"] == 1
+    body_segments = [segment for segment in payload["segments"] if segment["semantic_type"] == "BODY"]
+    assert len(body_segments) == 1
+    assert body_segments[0]["reduce_allowed"] is True
+
+
+def test_parse_docx_document_upload_falls_back_to_markitdown(client, monkeypatch):
+    from app.services import document_structure_service as structure_module
+
     _, token = _create_user(credit_balance=0)
     seen_extensions = []
 
@@ -120,6 +162,7 @@ def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
             return types.SimpleNamespace(text_content="# 论文标题\n\n解析正文")
 
     monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
+    monkeypatch.setattr(structure_module, "classify_docx_style", lambda _style_name: (_ for _ in ()).throw(RuntimeError("docx broken")))
 
     response = client.post(
         "/api/optimization/documents/parse",
@@ -138,11 +181,63 @@ def test_parse_docx_document_upload_uses_markitdown(client, monkeypatch):
     assert seen_extensions == [".docx"]
     assert payload["filename"] == "paper.docx"
     assert payload["parser"] == "markitdown"
+    assert payload["parse_engine"] == "markitdown"
     assert payload["text"] == "# 论文标题\n\n解析正文"
     assert payload["char_count"] == 8
 
 
-def test_parse_pdf_document_upload_uses_markitdown(client, monkeypatch):
+def test_parse_pdf_document_upload_defaults_to_docling(client, monkeypatch):
+    from app.services import document_structure_service as structure_module
+
+    _, token = _create_user(credit_balance=0)
+
+    def fake_docling(_content):
+        raw_segments = [
+            (
+                "1 绪论",
+                structure_module.SegmentSemanticDecision(
+                    structure_module.SEMANTIC_TYPE_SECTION_HEADING,
+                    structure_module.SEMANTIC_SOURCE_DOCLING,
+                    0.9,
+                    False,
+                    "docling_section_header",
+                ),
+                1,
+                '{"l": 1}',
+            ),
+            ("PDF 正文段落围绕研究背景展开，长度足够进入正文候选。" * 5, None, 1, None),
+        ]
+        return structure_module.build_parsed_document_from_raw_segments(
+            raw_segments,
+            parser="docling",
+            document_format="pdf",
+            fallback_source=structure_module.SEMANTIC_SOURCE_DOCLING,
+            warnings=[],
+            parse_engine="docling",
+            trace={"engine": "docling", "item_count": len(raw_segments)},
+        )
+
+    monkeypatch.setattr(structure_module.DocumentStructureService, "_parse_pdf_with_docling", lambda self, content: fake_docling(content))
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.pdf", b"%PDF-1.7 fake pdf", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["parser"] == "docling"
+    assert payload["parse_engine"] == "docling"
+    assert payload["parse_fallback_used"] is False
+    assert payload["structure_summary"]["SECTION_HEADING"] == 1
+    assert payload["structure_summary"]["BODY"] == 1
+    assert payload["segments"][0]["page_number"] == 1
+
+
+def test_parse_pdf_document_upload_falls_back_to_markitdown(client, monkeypatch):
+    from app.services import document_structure_service as structure_module
+
     _, token = _create_user(credit_balance=0)
     seen_extensions = []
 
@@ -156,6 +251,7 @@ def test_parse_pdf_document_upload_uses_markitdown(client, monkeypatch):
             return types.SimpleNamespace(text_content="PDF parsed body")
 
     monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
+    monkeypatch.setattr(structure_module.DocumentStructureService, "_parse_pdf_with_docling", lambda self, content: (_ for _ in ()).throw(RuntimeError("docling failed")))
 
     response = client.post(
         "/api/optimization/documents/parse",
@@ -168,10 +264,15 @@ def test_parse_pdf_document_upload_uses_markitdown(client, monkeypatch):
     assert seen_extensions == [".pdf"]
     assert payload["filename"] == "paper.pdf"
     assert payload["parser"] == "markitdown"
+    assert payload["parse_engine"] == "markitdown"
+    assert payload["parse_fallback_used"] is True
     assert payload["text"] == "PDF parsed body"
 
 
-def test_parse_pdf_document_upload_extracts_text_with_real_markitdown(client):
+def test_parse_pdf_document_upload_extracts_text_with_real_markitdown(client, monkeypatch):
+    from app.routes import optimization
+
+    monkeypatch.setattr(optimization.settings, "PDF_STRUCTURE_ENGINE", "markitdown", raising=False)
     _, token = _create_user(credit_balance=0)
     pdf = b"""%PDF-1.4
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj

@@ -278,6 +278,87 @@ def _generate_fp() -> str:
     return uuid.uuid4().hex
 
 
+def _decode_zhuque_json_payload(payload: Any) -> Optional[dict]:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, bytes):
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    if not isinstance(payload, str):
+        return None
+    try:
+        decoded = json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _extract_zhuque_terminal_payload(payload: Any) -> Optional[dict]:
+    """Extract the real Zhuque detect result payload from observed envelopes.
+
+    Confirmed Zhuque frontend flow:
+    - WebSocket terminal frame can be `{"status":"success", ...result...}`.
+    - Running frame stores `cos`; the page polls `/user/detect/result` and then
+      calls `getRst(e.data.data)`, where `data` is the JSON string containing
+      `confidence`, `labels_ratio`, and `segment_labels`.
+    """
+    data = _decode_zhuque_json_payload(payload)
+    if not data:
+        return None
+
+    status = str(data.get("status") or "").strip().lower()
+    if status == "success" and data.get("confidence") is not None:
+        return data
+
+    if status == "success" and data.get("data"):
+        return _decode_zhuque_json_payload(data.get("data"))
+
+    if data.get("success") is True and data.get("data"):
+        return _decode_zhuque_json_payload(data.get("data"))
+
+    if data.get("confidence") is not None and (
+        data.get("labels_ratio") is not None
+        or data.get("labelsRatio") is not None
+        or data.get("segment_labels") is not None
+    ):
+        return data
+
+    if isinstance(data.get("segment_labels"), list):
+        return data
+
+    return None
+
+
+def _zhuque_payload_has_segment_labels(payload: Any) -> bool:
+    data = payload if isinstance(payload, dict) else None
+    labels = data.get("segment_labels") if data else None
+    return isinstance(labels, list) and len(labels) > 0
+
+
+def _merge_zhuque_page_payload(*, observed_payloads: list[dict], vue: dict, page_state: dict) -> dict:
+    payload = next(
+        (item for item in reversed(observed_payloads) if _zhuque_payload_has_segment_labels(item)),
+        None,
+    )
+    if payload is None and observed_payloads:
+        payload = observed_payloads[-1]
+    if not isinstance(payload, dict):
+        payload = {}
+    payload = dict(payload)
+    payload.update({
+        "confidence": vue.get("rate"),
+        "rateLabel": vue.get("rateLabel"),
+        "labelsRatio": vue.get("labelsRatio") or {},
+        "msg": vue.get("msg") or "",
+        "alert_text": (page_state.get("alert") or "").replace("Report", "").replace("下载报告", "").strip(),
+        "alert_title": page_state.get("alert_title") or "",
+        "availableUses": _parse_remaining_uses(page_state.get("button_text") or ""),
+    })
+    return payload
+
+
 def parse_zhuque_websocket_result(payload: str, text_length: int) -> Optional[dict]:
     """Parse a terminal Zhuque WebSocket result frame into the public result shape.
 
@@ -285,12 +366,8 @@ def parse_zhuque_websocket_result(payload: str, text_length: int) -> Optional[di
     朱雀网页历史结果里有过 0/1 语义切换，因此这里会用 confidence/rate 做一次
     归一化，避免把人工占比错当 AI 风险。
     """
-    try:
-        data = json.loads(payload)
-    except (TypeError, json.JSONDecodeError):
-        return None
-
-    if data.get("status") != "success":
+    data = _extract_zhuque_terminal_payload(payload)
+    if not data:
         return None
 
     return normalize_zhuque_result(data, text_length=text_length, source="websocket")
@@ -1264,6 +1341,27 @@ class ZhuqueAPI:
                 ctx_kwargs["storage_state"] = str(state_file)
             ctx = await browser.new_context(**ctx_kwargs)
             page = await ctx.new_page()
+            observed_result_payloads: list[dict] = []
+
+            def remember_result_payload(payload: Any) -> None:
+                result_payload = _extract_zhuque_terminal_payload(payload)
+                if not result_payload:
+                    return
+                observed_result_payloads.append(result_payload)
+                if len(observed_result_payloads) > 20:
+                    del observed_result_payloads[:-20]
+
+            def on_websocket(ws) -> None:
+                ws.on("framereceived", remember_result_payload)
+
+            async def on_response(response) -> None:
+                if "/user/detect/result" not in response.url:
+                    return
+                with contextlib.suppress(Exception):
+                    remember_result_payload(await response.text())
+
+            page.on("websocket", on_websocket)
+            page.on("response", lambda response: asyncio.create_task(on_response(response)))
             await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(5000)
 
@@ -1342,6 +1440,90 @@ class ZhuqueAPI:
                         const alert = document.querySelector('.el-alert__description');
                         const title = document.querySelector('.el-alert__title');
                         const btn = document.querySelector('.submit-btn');
+                        const payloads = [];
+                        const pushPayload = (value, source) => {
+                            if (!value || typeof value !== 'object') return;
+                            const hasScore = value.confidence !== undefined || value.rate !== undefined || value.ai_generated !== undefined;
+                            const hasLabels = value.labels_ratio !== undefined || value.labelsRatio !== undefined;
+                            const hasSegments = Array.isArray(value.segment_labels);
+                            if (!hasScore && !hasLabels && !hasSegments) return;
+                            const cleanSegmentLabels = (items) => {
+                                if (!Array.isArray(items)) return undefined;
+                                return items
+                                    .filter((item) => item && typeof item === 'object')
+                                    .map((item) => ({
+                                        text: item.text,
+                                        label: item.label,
+                                        conf: item.conf,
+                                        order: item.order,
+                                        position: Array.isArray(item.position) ? item.position.slice(0, 2) : item.position
+                                    }));
+                            };
+                            const cleanValue = {
+                                confidence: value.confidence,
+                                rate: value.rate,
+                                ai_generated: value.ai_generated,
+                                rateLabel: value.rateLabel,
+                                rate_label: value.rate_label,
+                                labels_ratio: value.labels_ratio,
+                                labelsRatio: value.labelsRatio,
+                                msg: value.msg,
+                                message: value.message,
+                                availableUses: value.availableUses,
+                                remainingUses: value.remainingUses,
+                                remaining_uses: value.remaining_uses,
+                                content_type: value.content_type,
+                                feedback_token: value.feedback_token,
+                                segment_labels: cleanSegmentLabels(value.segment_labels)
+                            };
+                            Object.keys(cleanValue).forEach((key) => cleanValue[key] === undefined && delete cleanValue[key]);
+                            payloads.push({ source, value: cleanValue });
+                        };
+                        const pushKnownVuePayloads = (vm, source) => {
+                            if (!vm || typeof vm !== 'object') return;
+                            try { pushPayload(vm.data, `${source}.data`); } catch (_) {}
+                            try {
+                                if (Array.isArray(vm.segmentLabel)) {
+                                    pushPayload({ segment_labels: vm.segmentLabel }, `${source}.segmentLabel`);
+                                }
+                            } catch (_) {}
+                            try {
+                                if (Array.isArray(vm.segmentLabels)) {
+                                    pushPayload({ segment_labels: vm.segmentLabels }, `${source}.segmentLabels`);
+                                }
+                            } catch (_) {}
+                            try {
+                                if (vm.data && Array.isArray(vm.data.segment_labels)) {
+                                    pushPayload(vm.data, `${source}.data.segment_labels`);
+                                }
+                            } catch (_) {}
+                        };
+                        const walkForPayloads = (obj, source, depth = 0, seen = new Set()) => {
+                            if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj)) return;
+                            seen.add(obj);
+                            pushPayload(obj, source);
+                            for (const key of Object.keys(obj)) {
+                                if (![
+                                    'data',
+                                    'segmentLabel',
+                                    'segmentLabels',
+                                    'segment_labels',
+                                    'props',
+                                    'setupState',
+                                    'ctx',
+                                    '$props',
+                                    '$data',
+                                    '$parent'
+                                ].includes(key)) continue;
+                                let value;
+                                try { value = obj[key]; } catch (_) { continue; }
+                                if (Array.isArray(value) && key !== 'segment_labels') {
+                                    pushPayload({ segment_labels: value }, `${source}.${key}`);
+                                } else if (value && typeof value === 'object') {
+                                    walkForPayloads(value, `${source}.${key}`, depth + 1, seen);
+                                }
+                            }
+                        };
                         let anonymousFp = '';
                         try {
                             anonymousFp = (localStorage.getItem('fp') || '').trim();
@@ -1359,8 +1541,29 @@ class ZhuqueAPI:
                                 msg: el.__vue__.msg || ''
                             };
                         }
+                        document.querySelectorAll('*').forEach((node, index) => {
+                            if (node.__vue__) {
+                                pushKnownVuePayloads(node.__vue__, `vue:${index}`);
+                                walkForPayloads(node.__vue__, `vue:${index}`);
+                            }
+                            if (node.__vueParentComponent) {
+                                pushKnownVuePayloads(node.__vueParentComponent.props, `vue3:${index}.props`);
+                                pushKnownVuePayloads(node.__vueParentComponent.setupState, `vue3:${index}.setupState`);
+                                pushKnownVuePayloads(node.__vueParentComponent.ctx, `vue3:${index}.ctx`);
+                                walkForPayloads(node.__vueParentComponent.props, `vue3:${index}.props`);
+                                walkForPayloads(node.__vueParentComponent.setupState, `vue3:${index}.setupState`);
+                                walkForPayloads(node.__vueParentComponent.ctx, `vue3:${index}.ctx`);
+                            }
+                        });
                         return {
                             vue,
+                            result_payloads: payloads
+                                .sort((left, right) => {
+                                    const leftHasSegments = Array.isArray(left.value.segment_labels) && left.value.segment_labels.length > 0;
+                                    const rightHasSegments = Array.isArray(right.value.segment_labels) && right.value.segment_labels.length > 0;
+                                    return Number(rightHasSegments) - Number(leftHasSegments);
+                                })
+                                .slice(0, 8),
                             alert: alert ? alert.textContent.trim() : '',
                             alert_title: title ? title.textContent.trim() : '',
                             button_text: btn ? btn.textContent.trim() : '',
@@ -1369,18 +1572,21 @@ class ZhuqueAPI:
                         };
                     }"""
                 )
+                for observed in data.get("result_payloads") or []:
+                    if isinstance(observed, dict):
+                        remember_result_payload(observed.get("value"))
                 vue = data.get("vue") or {}
                 if vue.get("type") and not vue.get("processing") and vue.get("rate") is not None:
-                    payload = {
-                        "confidence": vue.get("rate"),
-                        "rateLabel": vue.get("rateLabel"),
-                        "labelsRatio": vue.get("labelsRatio") or {},
-                        "msg": vue.get("msg") or "",
-                        "alert_text": (data.get("alert") or "").replace("Report", "").replace("下载报告", "").strip(),
-                        "alert_title": data.get("alert_title") or "",
-                        "availableUses": _parse_remaining_uses(data.get("button_text") or ""),
-                    }
+                    payload = _merge_zhuque_page_payload(
+                        observed_payloads=observed_result_payloads,
+                        vue=vue,
+                        page_state=data,
+                    )
                     result = normalize_zhuque_result(payload, text_length=len(text), source="page_fallback")
+                    result["page_result_payload_count"] = len(observed_result_payloads)
+                    result["page_result_has_segment_labels"] = any(
+                        _zhuque_payload_has_segment_labels(item) for item in observed_result_payloads
+                    )
                     anonymous_fp = str(data.get("anonymous_fp") or data.get("fp") or "").strip()
                     if anonymous and anonymous_fp:
                         result.update(

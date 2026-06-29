@@ -41,13 +41,28 @@ def test_startup_schema_includes_zhuque_columns(client):
     tables = set(inspector.get_table_names())
 
     assert {"zhuque_free_uses_remaining", "zhuque_total_uses"}.issubset(user_columns)
-    assert {"zhuque_agent_trace"}.issubset(session_columns)
+    assert {
+        "zhuque_agent_trace",
+        "document_format",
+        "parse_engine",
+        "parse_fallback_used",
+        "parse_trace",
+    }.issubset(session_columns)
     assert {
         "zhuque_detect_rate",
         "zhuque_detect_result",
         "zhuque_detect_count",
         "zhuque_reduce_attempt",
         "zhuque_reduced_text",
+        "semantic_type",
+        "semantic_source",
+        "semantic_confidence",
+        "reduce_allowed",
+        "semantic_reason",
+        "char_start",
+        "char_end",
+        "page_number",
+        "bbox_json",
     }.issubset(segment_columns)
     assert "zhuque_prompt_memories" in tables
 

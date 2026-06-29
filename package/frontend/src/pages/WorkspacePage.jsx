@@ -462,6 +462,7 @@ const WorkspacePage = () => {
   const [movingSessionId, setMovingSessionId] = useState(null);
   const [openProjectMenuSessionId, setOpenProjectMenuSessionId] = useState(null);
   const [taskTitle, setTaskTitle] = useState('');
+  const [documentParse, setDocumentParse] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
   const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
   const [isRefreshingZhuqueQuota, setIsRefreshingZhuqueQuota] = useState(false);
@@ -1151,6 +1152,14 @@ const WorkspacePage = () => {
       const response = await optimizationAPI.parseDocument(formData);
       const parsed = response.data || {};
       setText(parsed.text || '');
+      setDocumentParse({
+        document_format: parsed.document_format || null,
+        parse_engine: parsed.parse_engine || parsed.parser || null,
+        parse_fallback_used: Boolean(parsed.parse_fallback_used),
+        parse_trace: parsed.parse_trace || null,
+        parser: parsed.parser || null,
+        segments: Array.isArray(parsed.segments) ? parsed.segments : [],
+      });
       if (!taskTitle.trim()) {
         setTaskTitle(getDocumentTitleFromFilename(parsed.filename || filename));
       }
@@ -1214,12 +1223,14 @@ const WorkspacePage = () => {
         billing_mode: billingMode,
         project_id: activeProjectId && activeProjectId !== 0 ? activeProjectId : null,
         task_title: taskTitle.trim() || null,
+        document_parse: documentParse,
       });
 
       setActiveSession(response.data.session_id);
       toast.success('优化任务已启动');
       setText('');
       setTaskTitle('');
+      setDocumentParse(null);
       loadAccountState();
       loadSessions(activeProjectId);
     } catch (error) {
@@ -1227,7 +1238,7 @@ const WorkspacePage = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, mergeZhuqueReadiness, navigate]);
+  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, mergeZhuqueReadiness, navigate, documentParse]);
 
   const handleStartZhuqueLogin = useCallback(async () => {
     if (isStartingZhuqueLogin) {
@@ -1684,7 +1695,10 @@ const WorkspacePage = () => {
                     <textarea
                       id="paper-content"
                       value={text}
-                      onChange={(e) => setText(e.target.value)}
+                      onChange={(e) => {
+                        setText(e.target.value);
+                        setDocumentParse(null);
+                      }}
                       placeholder="请输入或粘贴论文内容，支持中英文..."
                       className="aurora-textarea"
                     />

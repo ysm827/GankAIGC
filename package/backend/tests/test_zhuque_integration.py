@@ -1410,6 +1410,96 @@ def test_zhuque_api_treats_websocket_label_one_as_human():
     assert result["alert_text"] == "人工创作特征较明显"
 
 
+def test_zhuque_api_extracts_segment_labels_from_poll_result_envelope():
+    from app.services.zhuque_api import parse_zhuque_websocket_result
+
+    payload = json.dumps(
+        {
+            "status": "success",
+            "data": json.dumps(
+                {
+                    "confidence": 100,
+                    "labels_ratio": {"0": 1.0, "1": 0.0, "2": 0.0},
+                    "segment_labels": [
+                        {
+                            "text": "朱雀原始段落",
+                            "label": 0,
+                            "conf": 0.997,
+                            "order": 1,
+                            "position": [12, 6],
+                        }
+                    ],
+                    "availableUses": 16,
+                },
+                ensure_ascii=False,
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+    result = parse_zhuque_websocket_result(payload, text_length=738)
+
+    assert result["segment_labels"] == [
+        {
+            "text": "朱雀原始段落",
+            "label": 0,
+            "conf": 0.997,
+            "order": 1,
+            "position": [12, 6],
+            "position_format": "start_length",
+            "position_start": 12,
+            "position_length": 6,
+            "position_end": 18,
+        }
+    ]
+    assert result["remaining_uses"] == 16
+
+
+def test_zhuque_api_page_payload_merge_prefers_segment_labels_over_card_summary():
+    from app.services.zhuque_api import _merge_zhuque_page_payload, normalize_zhuque_result
+
+    observed_payloads = [
+        {
+            "confidence": 35.36,
+            "labels_ratio": {"0": 0.6464, "1": 0.0085, "2": 0.3451},
+            "segment_labels": [
+                {
+                    "text": "真实朱雀段落",
+                    "label": 0,
+                    "conf": 0.996,
+                    "order": 1,
+                    "position": [0, 6],
+                }
+            ],
+            "feedback_token": "real-token",
+            "content_type": 0,
+        }
+    ]
+
+    payload = _merge_zhuque_page_payload(
+        observed_payloads=observed_payloads,
+        vue={
+            "rate": 35.36,
+            "rateLabel": "AI content ratio",
+            "labelsRatio": {"0": 0.6464, "1": 0.0085, "2": 0.3451},
+            "msg": "",
+        },
+        page_state={
+            "button_text": "Detect now(16 left)",
+            "alert": "Strong human creation Report",
+            "alert_title": "Notice",
+        },
+    )
+    result = normalize_zhuque_result(payload, text_length=31543, source="page_fallback")
+
+    assert result["segment_labels"][0]["text"] == "真实朱雀段落"
+    assert result["segment_labels"][0]["position_end"] == 6
+    assert result["feedback_token"] == "real-token"
+    assert result["content_type"] == 0
+    assert result["remaining_uses"] == 16
+    assert result["source"] == "page_fallback"
+
+
 def test_zhuque_api_ignores_non_terminal_websocket_frames():
     from app.services.zhuque_api import parse_zhuque_websocket_result
 
@@ -3039,12 +3129,14 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
+    original_text = "待检测文本" * 80
+
     db = SessionLocal()
     try:
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-session",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -3057,7 +3149,7 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
             session_id=session.id,
             segment_index=0,
             stage="ai_detect_reduce",
-            original_text="待检测文本" * 80,
+            original_text=original_text,
             status="pending",
         )
         db.add(segment)
@@ -3077,6 +3169,7 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         assert trace["threshold"] == 20.0
         assert trace["events"][0]["type"] == "detect"
         assert trace["events"][0]["rate"] == 80
+        assert trace["events"][0]["detect_text_source"] == "session_original_text"
         reduce_event = next(event for event in trace["events"] if event["type"] == "reduce")
         assert reduce_event["round"] == 1
         assert reduce_event["strategy"] == "轻度自然化"
@@ -3262,7 +3355,8 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
     segment_texts = ["短段甲" * 60, "短段乙" * 60, "短段丙" * 60, "短段丁" * 60]
-    joined_text = "\n\n".join(segment_texts)
+    original_text = "\n\n".join(segment_texts)
+    joined_text = original_text
     segment_starts = _joined_segment_starts(segment_texts)
 
     fake_zhuque = FakeZhuqueService(
@@ -3304,7 +3398,7 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-full-text-detect",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -3374,6 +3468,194 @@ def test_ai_detect_reduce_rewrites_only_segments_marked_ai_by_zhuque_labels(monk
             ("zhuque_reduce", -10),
             ("zhuque_reduce", -10),
         ]
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_page_fallback_segment_labels_skip_fallback_classifier(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=50, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
+
+    segment_texts = ["page段甲" * 60, "page段乙" * 60, "page段丙" * 60]
+    original_text = "\n\n".join(segment_texts)
+    starts = _joined_segment_starts(segment_texts)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 35.36,
+                "risk_rate": 64.64,
+                "rate_label": "AI content ratio",
+                "labels_ratio": {"0": 0.6464, "1": 0.0085, "2": 0.3451},
+                "segment_labels": [
+                    {
+                        "text": segment_texts[1],
+                        "label": 0,
+                        "conf": 0.996,
+                        "order": 1,
+                        "position": [starts[1], len(segment_texts[1])],
+                    }
+                ],
+                "remaining_uses": 16,
+                "source": "page_fallback",
+            },
+            12,
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-page-fallback-segment-labels",
+            original_text=original_text,
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert session.status == "completed"
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1, 0]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[1]]
+        trace = json.loads(session.zhuque_agent_trace)
+        detect_event = next(event for event in trace["events"] if event["type"] == "detect")
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert detect_event["segment_label_count"] == 1
+        assert detect_event["usable_position_count"] == 1
+        assert classification["label_source"] == "segment_labels"
+        assert classification["selected_segment_indices"] == [1]
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_uses_original_text_offsets_and_never_fallbacks_to_all_on_labels(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=50, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
+
+    segment_texts = [
+        "原文结构段甲包含研究背景和方法说明。" * 8,
+        "原文结构段乙才是真正需要降AI的正文段落。" * 8,
+        "原文结构段丙属于人工特征较明显的正文段落。" * 8,
+    ]
+    original_text = f"论文标题\n\n{segment_texts[0]}\n\n{segment_texts[1]}\n\n{segment_texts[2]}\n\n附录说明"
+    second_start = original_text.index(segment_texts[1])
+    tail_start = original_text.index("附录说明")
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 80,
+                "labels_ratio": {"0": 0.8, "1": 0.2, "2": 0.0},
+                "segment_labels": [
+                    {
+                        "text": segment_texts[1],
+                        "label": "0",
+                        "conf": 0.99,
+                        "order": 1,
+                        "position": [second_start, len(segment_texts[1])],
+                    },
+                    {
+                        "text": "附录说明",
+                        "label": 0,
+                        "conf": 0.188,
+                        "order": 2,
+                        "position": [tail_start, len("附录说明")],
+                    },
+                ],
+            },
+            12,
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-original-text-offsets-no-full-fallback",
+            original_text=original_text,
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert fake_zhuque.detected_texts[0] == original_text
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1, 0]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[1]]
+        trace = json.loads(session.zhuque_agent_trace)
+        detect_event = next(event for event in trace["events"] if event["type"] == "detect")
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert detect_event["detect_text_source"] == "session_original_text"
+        assert classification["detect_text_source"] == "session_original_text"
+        assert classification["fallback_classifier_used"] is False
+        assert classification["high_ai_span_count"] == 1
+        assert classification["selected_segment_indices"] == [1]
     finally:
         db.close()
 
@@ -3450,6 +3732,7 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
     segment_texts = ["疑似段甲" * 50, "疑似段乙" * 50, "人工段丙" * 50]
+    original_text = "\n\n".join(segment_texts)
     segment_starts = _joined_segment_starts(segment_texts)
     fake_zhuque = FakeZhuqueService(
         [
@@ -3491,7 +3774,7 @@ def test_ai_detect_reduce_rewrites_suspicious_segments_but_keeps_human_segments(
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-suspicious-only-selected",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -3600,7 +3883,7 @@ def test_ai_detect_reduce_uses_fallback_classifier_when_zhuque_has_no_segment_la
         db.close()
 
 
-def test_zhuque_fallback_classifier_skips_headings_but_reduces_abstract_and_ack_body(monkeypatch):
+def test_zhuque_fallback_classifier_protects_front_matter_and_reduces_body(monkeypatch):
     import app.services.optimization_service as optimization_service_module
 
     user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
@@ -3611,17 +3894,18 @@ def test_zhuque_fallback_classifier_skips_headings_but_reduces_abstract_and_ack_
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_SKIP_SHORT_CHARS", 30, raising=False)
 
     segment_texts = [
-        "摘要",
+        "# 摘要",
         "本文提出了一种面向论文文本的检测方法，并在公开数据集上完成验证。" * 3,
-        "关键词：深度学习；文本检测；Transformer",
+        "**关键词：**深度学习；文本检测；Transformer",
         "引言",
         "随着人工智能技术的发展，文本检测任务在学术写作场景中受到关注。" * 3,
-        "致谢",
+        "# 致谢",
         "感谢课题组成员在数据标注和实验设计阶段提供的帮助。" * 3,
-        "参考文献",
+        "# 参考文献",
         "[1] Vaswani A, et al. Attention is all you need. 2017.",
     ]
 
@@ -3660,15 +3944,223 @@ def test_zhuque_fallback_classifier_skips_headings_but_reduces_abstract_and_ack_
             .order_by(OptimizationSegment.segment_index)
             .all()
         )
-        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1, 0, 0, 1, 0, 1, 0, 0]
-        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[1], segment_texts[4], segment_texts[6]]
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 0, 0, 0, 1, 0, 0, 0, 0]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[4]]
         trace = json.loads(session.zhuque_agent_trace)
         classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
-        assert classification["selected_segment_indices"] == [1, 4, 6]
+        assert classification["selected_segment_indices"] == [4]
         assert classification["type_counts"]["ABSTRACT_HEADING"] == 1
         assert classification["type_counts"]["ABSTRACT_BODY"] == 1
         assert classification["type_counts"]["ACK_BODY"] == 1
         assert classification["type_counts"]["REFERENCE_ITEM"] == 1
+        assert classification["action_counts"]["skip"] == 8
+        assert classification["action_counts"]["reduce"] == 1
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_segment_labels_protect_front_matter_and_references(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_SKIP_SHORT_CHARS", 30, raising=False)
+
+    segment_texts = [
+        "# 摘要",
+        "摘要正文说明研究背景、研究对象、研究方法和主要结论，用于论文前置概览。" * 4,
+        "**Keywords:** text detection; academic writing; transformer",
+        "目 录",
+        "[1 绪论 1](#_Toc227222402)",
+        "# 1 绪论",
+        "正文段落围绕研究背景、研究问题和方法展开，需要在朱雀高风险命中时执行降重。" * 4,
+        "# 致谢",
+        "感谢导师、同学和家人在论文写作过程中给予的支持与帮助。" * 4,
+        "# 参考文献",
+        "1. Vaswani A, et al. Attention is all you need. 2017.",
+    ]
+    original_text = "\n\n".join(segment_texts)
+    starts = _joined_segment_starts(segment_texts)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 82,
+                "labels_ratio": {"0": 0.82, "1": 0.18, "2": 0.0},
+                "segment_labels": [
+                    {"label": 0, "conf": 0.99, "position": [starts[1], len(segment_texts[1])]},
+                    {"label": 0, "conf": 0.99, "position": [starts[2], len(segment_texts[2])]},
+                    {"label": 0, "conf": 0.99, "position": [starts[4], len(segment_texts[4])]},
+                    {"label": 0, "conf": 0.99, "position": [starts[6], len(segment_texts[6])]},
+                    {"label": 0, "conf": 0.99, "position": [starts[8], len(segment_texts[8])]},
+                    {"label": 0, "conf": 0.99, "position": [starts[10], len(segment_texts[10])]},
+                ],
+            },
+            12,
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-segment-labels-protect-front-matter",
+            original_text=original_text,
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        for index, text in enumerate(segment_texts):
+            db.add(
+                OptimizationSegment(
+                    session_id=session.id,
+                    segment_index=index,
+                    stage="ai_detect_reduce",
+                    original_text=text,
+                    status="pending",
+                )
+            )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[6]]
+        trace = json.loads(session.zhuque_agent_trace)
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert classification["label_source"] == "segment_labels"
+        assert classification["pre_filter_selected_count"] == 6
+        assert classification["classifier_filtered_count"] == 5
+        assert classification["selected_segment_indices"] == [6]
+        assert classification["type_counts"]["ABSTRACT_BODY"] == 1
+        assert classification["type_counts"]["KEYWORDS"] == 1
+        assert classification["type_counts"]["TOC_HEADING"] == 1
+        assert classification["type_counts"]["TOC_ITEM"] == 1
+        assert classification["type_counts"]["ACK_BODY"] == 1
+        assert classification["type_counts"]["REFERENCE_ITEM"] == 1
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_segment_labels_use_stored_semantic_metadata(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=80, zhuque_free_uses_remaining=20)
+    fake_ai = FakeAIService()
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, fake_ai))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_THRESHOLD", 20.0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_MAX_REDUCE_ROUNDS", 1, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
+
+    segment_texts = [
+        "这是一段由解析器确认的摘要正文，即使没有摘要标题上下文也必须受保护。" * 4,
+        "正文段落由解析器确认为 BODY，朱雀命中后应该进入真实降重流程。" * 4,
+    ]
+    original_text = "\n\n".join(segment_texts)
+    starts = _joined_segment_starts(segment_texts)
+    fake_zhuque = FakeZhuqueService(
+        [
+            {
+                "success": True,
+                "rate": 88,
+                "labels_ratio": {"0": 0.88, "1": 0.12, "2": 0.0},
+                "segment_labels": [
+                    {"label": "0", "conf": 0.99, "position": [starts[0], len(segment_texts[0])]},
+                    {"label": "0", "conf": 0.99, "position": [starts[1], len(segment_texts[1])]},
+                ],
+            },
+            12,
+        ]
+    )
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-segment-labels-stored-semantic",
+            original_text=original_text,
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            parse_engine="python_docx",
+            parse_fallback_used=False,
+        )
+        db.add(session)
+        db.flush()
+        db.add(
+            OptimizationSegment(
+                session_id=session.id,
+                segment_index=0,
+                stage="ai_detect_reduce",
+                original_text=segment_texts[0],
+                status="pending",
+                semantic_type="ABSTRACT_BODY",
+                semantic_source="docx_style",
+                semantic_confidence=0.97,
+                reduce_allowed=False,
+                semantic_reason="stored_abstract_body",
+            )
+        )
+        db.add(
+            OptimizationSegment(
+                session_id=session.id,
+                segment_index=1,
+                stage="ai_detect_reduce",
+                original_text=segment_texts[1],
+                status="pending",
+                semantic_type="BODY",
+                semantic_source="docx_style",
+                semantic_confidence=0.93,
+                reduce_allowed=True,
+                semantic_reason="stored_body",
+            )
+        )
+        db.commit()
+
+        service = OptimizationService(db, session)
+        asyncio.run(service.start_optimization())
+
+        segments = (
+            db.query(OptimizationSegment)
+            .filter(OptimizationSegment.session_id == session.id)
+            .order_by(OptimizationSegment.segment_index)
+            .all()
+        )
+
+        assert [seg.zhuque_reduce_attempt for seg in segments] == [0, 1]
+        assert [call["text"] for call in fake_ai.polish_calls] == [segment_texts[1]]
+        trace = json.loads(session.zhuque_agent_trace)
+        classification = next(event for event in trace["events"] if event["type"] == "segment_classification")
+        assert classification["label_source"] == "segment_labels"
+        assert classification["pre_filter_selected_count"] == 2
+        assert classification["classifier_filtered_count"] == 1
+        assert classification["selected_segment_indices"] == [1]
+        assert classification["filtered_semantic_summary"] == {"ABSTRACT_BODY": 1}
+        assert classification["protected_samples"][0]["semantic_source"] == "docx_style"
+        assert classification["parse_engine"] == "python_docx"
+        assert classification["parse_fallback_used"] is False
     finally:
         db.close()
 
@@ -3689,6 +4181,7 @@ def test_ai_detect_reduce_batch_polish_and_enhance_records_agent_trace(monkeypat
         "批量降重段落甲包含模型方法、实验数据和结论说明。" * 4,
         "批量降重段落乙描述数据来源、评价指标和对比结果。" * 4,
     ]
+    original_text = "\n\n".join(segment_texts)
     starts = _joined_segment_starts(segment_texts)
     fake_zhuque = FakeZhuqueService(
         [
@@ -3711,7 +4204,7 @@ def test_ai_detect_reduce_batch_polish_and_enhance_records_agent_trace(monkeypat
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-batch-trace",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -3770,13 +4263,14 @@ def test_ai_detect_reduce_leaves_original_segments_when_full_text_is_below_thres
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
     segment_texts = ["人工短段甲" * 20, "人工短段乙" * 20]
+    original_text = "\n\n".join(segment_texts)
 
     db = SessionLocal()
     try:
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-full-text-low-ai",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -4347,6 +4841,7 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
 
     segment_texts = ["短段甲" * 60, "短段乙" * 60]
+    original_text = "\n\n".join(segment_texts)
     segment_starts = _joined_segment_starts(segment_texts)
     fake_zhuque = FakeZhuqueService(
         [
@@ -4395,7 +4890,7 @@ def test_ai_detect_reduce_rollback_restores_full_text_detect_metadata_for_all_se
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-rollback-full-metadata",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",
@@ -4452,6 +4947,7 @@ def test_ai_detect_reduce_rescreens_and_only_rewrites_remaining_high_ai_segments
     monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_REDUCE_BATCH_ENABLED", False, raising=False)
 
     segment_texts = ["复筛段甲" * 60, "复筛段乙" * 60, "复筛段丙" * 60]
+    original_text = "\n\n".join(segment_texts)
     initial_starts = _joined_segment_starts(segment_texts)
     first_round_outputs = [
         segment_texts[0],
@@ -4493,7 +4989,7 @@ def test_ai_detect_reduce_rescreens_and_only_rewrites_remaining_high_ai_segments
         session = OptimizationSession(
             user_id=user_id,
             session_id="zhuque-rescreen-only-remaining",
-            original_text="原始文本",
+            original_text=original_text,
             current_stage="ai_detect_reduce",
             status="queued",
             processing_mode="ai_detect_reduce",

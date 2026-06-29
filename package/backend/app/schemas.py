@@ -233,6 +233,31 @@ class ModelConfig(BaseModel):
     api_format: Optional[str] = None
 
 
+class ParsedSegmentPayload(BaseModel):
+    """结构化解析段落元数据"""
+    index: int
+    text: str
+    semantic_type: Optional[str] = None
+    semantic_source: Optional[str] = None
+    semantic_confidence: Optional[float] = None
+    reduce_allowed: Optional[bool] = None
+    semantic_reason: Optional[str] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    page_number: Optional[int] = None
+    bbox_json: Optional[str] = None
+
+
+class DocumentParseMetadata(BaseModel):
+    """上传解析元数据，启动任务时回传用于保留结构标签"""
+    document_format: Optional[str] = None
+    parse_engine: Optional[str] = None
+    parse_fallback_used: bool = False
+    parse_trace: Optional[str] = None
+    parser: Optional[str] = None
+    segments: List[ParsedSegmentPayload] = []
+
+
 class OptimizationCreate(BaseModel):
     """创建优化任务"""
     original_text: str
@@ -244,6 +269,7 @@ class OptimizationCreate(BaseModel):
     emotion_config: Optional[ModelConfig] = None
     project_id: Optional[int] = None
     task_title: Optional[str] = Field(default=None, max_length=255)
+    document_parse: Optional[DocumentParseMetadata] = None
 
 
 class SessionRetryRequest(BaseModel):
@@ -270,6 +296,12 @@ class ParsedDocumentResponse(BaseModel):
     char_count: int
     parser: str
     warnings: List[str] = []
+    document_format: Optional[str] = None
+    parse_engine: Optional[str] = None
+    parse_fallback_used: bool = False
+    parse_trace: Optional[str] = None
+    segments: List[ParsedSegmentPayload] = []
+    structure_summary: dict = {}
 
 
 class ZhuqueBrowserLaunchResponse(BaseModel):
@@ -363,6 +395,15 @@ class SegmentResponse(BaseModel):
     zhuque_detect_count: int = 0
     zhuque_reduce_attempt: int = 0
     zhuque_reduced_text: Optional[str] = None
+    semantic_type: Optional[str] = None
+    semantic_source: Optional[str] = None
+    semantic_confidence: Optional[float] = None
+    reduce_allowed: Optional[bool] = None
+    semantic_reason: Optional[str] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    page_number: Optional[int] = None
+    bbox_json: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -388,6 +429,10 @@ class SessionResponse(BaseModel):
     project_title: Optional[str] = None
     task_title: Optional[str] = None
     zhuque_agent_trace: Optional[str] = None
+    document_format: Optional[str] = None
+    parse_engine: Optional[str] = None
+    parse_fallback_used: Optional[bool] = None
+    parse_trace: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime

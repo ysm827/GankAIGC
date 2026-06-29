@@ -153,6 +153,14 @@ class Settings(BaseSettings):
     ZHUQUE_REDUCE_BATCH_SINGLE_SEGMENT_CHARS: int = 1500
     ZHUQUE_REDUCE_FALLBACK_TOP_N: int = 20
     ZHUQUE_REDUCE_SKIP_SHORT_CHARS: int = 80
+
+    # 文档结构解析配置
+    PDF_STRUCTURE_ENGINE: str = "docling"
+    PDF_STRUCTURE_FALLBACK_ENGINE: str = "markitdown"
+    PDF_DO_OCR: bool = False
+    PDF_DO_TABLE_STRUCTURE: bool = True
+    PDF_STRUCTURE_TIMEOUT_SECONDS: int = 120
+    DOCX_STRUCTURE_ENGINE: str = "python_docx"
     
     # 流式输出配置
     USE_STREAMING: bool = False  # 默认使用非流式模式，避免被API阻止

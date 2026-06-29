@@ -59,11 +59,28 @@ def test_alembic_upgrade_creates_current_schema():
         "task_title",
         "charged_credits",
         "zhuque_agent_trace",
+        "document_format",
+        "parse_engine",
+        "parse_fallback_used",
+        "parse_trace",
         "queued_at",
         "started_at",
         "finished_at",
         "worker_id",
     }.issubset(session_columns)
+
+    segment_columns = {column["name"] for column in inspector.get_columns("optimization_segments")}
+    assert {
+        "semantic_type",
+        "semantic_source",
+        "semantic_confidence",
+        "reduce_allowed",
+        "semantic_reason",
+        "char_start",
+        "char_end",
+        "page_number",
+        "bbox_json",
+    }.issubset(segment_columns)
 
     session_indexes = {index["name"] for index in inspector.get_indexes("optimization_sessions")}
     assert {

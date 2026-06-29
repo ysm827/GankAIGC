@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import func, and_, case
 from typing import List, Optional
 import base64
-import tempfile
 import importlib.util
 import os
 import subprocess
@@ -31,6 +30,11 @@ from app.services.optimization_service import parse_zhuque_segment_position
 from app.services.zhuque_service import zhuque_service, zhuque_user_dir
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
+from app.services.document_structure_service import (
+    document_structure_service,
+    normalize_parsed_document_text,
+    serialize_parse_trace,
+)
 from app.utils.auth import (
     create_stream_access_token,
     generate_session_id,
@@ -60,6 +64,27 @@ DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES = {
     "application/octet-stream",
 }
 DEFAULT_DOCUMENT_UPLOAD_FILE_SIZE_MB = 20
+
+
+def _parsed_segments_match_text(original_text: str, segments_payload: list) -> bool:
+    if not original_text or not segments_payload:
+        return False
+    joined = "\n\n".join(str(getattr(item, "text", "") or "") for item in segments_payload)
+    return normalize_parsed_document_text(joined) == normalize_parsed_document_text(original_text)
+
+
+def _segment_kwargs_from_parsed_payload(item) -> dict:
+    return {
+        "semantic_type": item.semantic_type,
+        "semantic_source": item.semantic_source,
+        "semantic_confidence": item.semantic_confidence,
+        "reduce_allowed": item.reduce_allowed,
+        "semantic_reason": item.semantic_reason,
+        "char_start": item.char_start,
+        "char_end": item.char_end,
+        "page_number": item.page_number,
+        "bbox_json": item.bbox_json,
+    }
 
 
 def _clean_export_filename_part(value: str, fallback: str) -> str:
@@ -149,61 +174,6 @@ def _validate_document_upload(file: UploadFile) -> tuple[str, str]:
     return filename or f"paper{extension}", extension
 
 
-def _decode_markdown_upload(content: bytes) -> tuple[str, list[str]]:
-    warnings: list[str] = []
-    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            return content.decode(encoding), warnings
-        except UnicodeDecodeError:
-            continue
-    warnings.append("Markdown 文件编码无法准确识别，已使用替换模式读取")
-    return content.decode("utf-8", errors="replace"), warnings
-
-
-def _parse_document_with_markitdown(content: bytes, extension: str) -> tuple[str, list[str]]:
-    try:
-        from markitdown import MarkItDown
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="服务器未安装 MarkItDown，暂时无法解析 Word/PDF 文件",
-        ) from exc
-
-    temp_path = None
-    extension = extension if extension in {".docx", ".pdf"} else ".docx"
-    try:
-        md = MarkItDown(enable_plugins=False)
-        convert_stream = getattr(md, "convert_stream", None)
-        if callable(convert_stream):
-            result = convert_stream(BytesIO(content), file_extension=extension)
-        else:
-            with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
-                temp_file.write(content)
-                temp_path = temp_file.name
-            convert_local = getattr(md, "convert_local", None)
-            result = convert_local(temp_path) if callable(convert_local) else md.convert(temp_path)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        file_label = "PDF" if extension == ".pdf" else "Word"
-        raise HTTPException(status_code=400, detail=f"{file_label} 文件解析失败: {exc}") from exc
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-
-    text = getattr(result, "text_content", "") or ""
-    return text, []
-
-
-def _normalize_parsed_document_text(text: str) -> str:
-    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    return normalized.strip()
-
-
 @router.post("/documents/parse", response_model=ParsedDocumentResponse)
 async def parse_optimization_document(
     file: UploadFile = File(...),
@@ -214,15 +184,8 @@ async def parse_optimization_document(
     filename, extension = _validate_document_upload(file)
     content = await _read_document_upload_with_limit(file)
 
-    parser = "markdown"
-    warnings: list[str]
-    if extension in {".md", ".markdown"}:
-        parsed_text, warnings = _decode_markdown_upload(content)
-    else:
-        parser = "markitdown"
-        parsed_text, warnings = _parse_document_with_markitdown(content, extension)
-
-    text = _normalize_parsed_document_text(parsed_text)
+    parsed_document = document_structure_service.parse_uploaded_document(content, extension)
+    text = normalize_parsed_document_text(parsed_document.text)
     if not text:
         raise HTTPException(status_code=400, detail="未能从文件中解析出有效文本")
 
@@ -230,8 +193,14 @@ async def parse_optimization_document(
         filename=filename,
         text=text,
         char_count=count_text_length(text),
-        parser=parser,
-        warnings=warnings,
+        parser=parsed_document.parser,
+        warnings=parsed_document.warnings,
+        document_format=parsed_document.document_format,
+        parse_engine=parsed_document.parse_engine,
+        parse_fallback_used=parsed_document.parse_fallback_used,
+        parse_trace=serialize_parse_trace(parsed_document.parse_trace),
+        segments=[segment.to_public_dict() for segment in parsed_document.segments],
+        structure_summary=parsed_document.structure_summary,
     )
 
 
@@ -1038,6 +1007,12 @@ async def start_optimization(
 
     # 创建会话
     session_id = generate_session_id()
+    document_parse = data.document_parse
+    parsed_segments_payload = list(document_parse.segments) if document_parse and document_parse.segments else []
+    use_parsed_segments = _parsed_segments_match_text(data.original_text, parsed_segments_payload)
+    fallback_parsed_document = None
+    if not use_parsed_segments:
+        fallback_parsed_document = document_structure_service.classify_manual_text(data.original_text)
     session = OptimizationSession(
         user_id=user.id,
         session_id=session_id,
@@ -1069,10 +1044,46 @@ async def start_optimization(
         emotion_api_format=emotion_api_format,
         project_id=project.id if project else None,
         task_title=data.task_title.strip() if data.task_title else None,
+        document_format=(document_parse.document_format if use_parsed_segments and document_parse else fallback_parsed_document.document_format if fallback_parsed_document else None),
+        parse_engine=(document_parse.parse_engine if use_parsed_segments and document_parse else fallback_parsed_document.parse_engine if fallback_parsed_document else None),
+        parse_fallback_used=(document_parse.parse_fallback_used if use_parsed_segments and document_parse else fallback_parsed_document.parse_fallback_used if fallback_parsed_document else False),
+        parse_trace=(document_parse.parse_trace if use_parsed_segments and document_parse else serialize_parse_trace(fallback_parsed_document.parse_trace) if fallback_parsed_document else None),
     )
     
     db.add(session)
     db.flush()
+    if use_parsed_segments:
+        session.total_segments = len(parsed_segments_payload)
+        for item in parsed_segments_payload:
+            segment = OptimizationSegment(
+                session_id=session.id,
+                segment_index=item.index,
+                stage="ai_detect_reduce" if data.processing_mode == "ai_detect_reduce" else "polish",
+                original_text=item.text,
+                status="pending",
+                **_segment_kwargs_from_parsed_payload(item),
+            )
+            db.add(segment)
+    elif fallback_parsed_document and fallback_parsed_document.segments:
+        session.total_segments = len(fallback_parsed_document.segments)
+        for item in fallback_parsed_document.segments:
+            segment = OptimizationSegment(
+                session_id=session.id,
+                segment_index=item.index,
+                stage="ai_detect_reduce" if data.processing_mode == "ai_detect_reduce" else "polish",
+                original_text=item.text,
+                status="pending",
+                semantic_type=item.semantic_type,
+                semantic_source=item.semantic_source,
+                semantic_confidence=item.semantic_confidence,
+                reduce_allowed=item.reduce_allowed,
+                semantic_reason=item.semantic_reason,
+                char_start=item.char_start,
+                char_end=item.char_end,
+                page_number=item.page_number,
+                bbox_json=item.bbox_json,
+            )
+            db.add(segment)
     if data.billing_mode == "platform" and data.processing_mode != "ai_detect_reduce":
         CreditService(db).hold_platform_credit(
             user,

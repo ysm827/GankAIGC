@@ -454,3 +454,129 @@ response = await client.post(
     ),
 )
 ```
+
+## Scenario: Structure-Aware Document Parsing for Zhuque Reduce Selection
+
+### 1. Scope / Trigger
+
+- Trigger: any change to document upload parsing, `POST /api/optimization/parse-document`, `POST /api/optimization/start`, Zhuque detect/reduce segment selection, `OptimizationSession`/`OptimizationSegment` metadata, PDF/DOCX dependencies, or trace events for `ai_detect_reduce`.
+- This is a cross-layer contract: backend config, API payloads, DB columns, service selection logic, frontend start payloads, static bundle sync, and tests must stay aligned.
+
+### 2. Signatures
+
+- Config keys:
+  - `PDF_STRUCTURE_ENGINE=docling|markitdown` with default `docling`.
+  - `PDF_STRUCTURE_FALLBACK_ENGINE=markitdown`.
+  - `PDF_DO_OCR=false` by default.
+  - `PDF_DO_TABLE_STRUCTURE=true` by default.
+  - `PDF_STRUCTURE_TIMEOUT_SECONDS=120`.
+  - `DOCX_STRUCTURE_ENGINE=python_docx`.
+- API response from `POST /api/optimization/parse-document` includes:
+  - `text`, `parser`, `segments`, `structure_summary`, `document_format`, `parse_engine`, `parse_fallback_used`, `parse_trace`.
+  - Each segment includes `text`, `semantic_type`, `semantic_source`, `semantic_confidence`, `reduce_allowed`, `semantic_reason`, `char_start`, `char_end`, optional `page_number`, optional `bbox_json`.
+- API request to `POST /api/optimization/start` may include `document_parse` with the same compact segment metadata returned by parse-document.
+- DB fields:
+  - `optimization_sessions.document_format`, `parse_engine`, `parse_fallback_used`, `parse_trace`.
+  - `optimization_segments.semantic_type`, `semantic_source`, `semantic_confidence`, `reduce_allowed`, `semantic_reason`, `char_start`, `char_end`, `page_number`, `bbox_json`.
+- Dependency contract:
+  - `docling>=2.0.0,<3.0.0` is a real product dependency.
+  - `torch==2.12.1+cpu` and `torchvision==0.27.1+cpu` must stay pinned with the PyTorch CPU wheel index before/with Docling installation.
+  - Alembic revision identifiers must be no longer than 32 characters because the project stores versions in a `varchar(32)` column.
+
+### 3. Contracts
+
+- Zhuque detection must still receive the complete joined document text. Do not remove abstract, TOC, references, acknowledgements, headings, or other protected content before the Zhuque full-text check.
+- PDF parsing defaults to Docling. Missing Docling, timeout, exception, or empty extracted text must fall back to MarkItDown and set `parse_fallback_used=true` plus a compact fallback reason in `parse_trace`.
+- DOCX parsing uses `python-docx` paragraph styles before text rules:
+  - `Title` -> `TITLE`.
+  - `Heading 1` through `Heading 4` -> `SECTION_HEADING` unless text rules identify a more specific protected semantic type.
+  - `TOC 1` through `TOC 4` -> `TOC_ITEM`.
+  - headers/footers -> `HEADER_FOOTER`.
+- Allowed rewrite semantic types are only `BODY` and `MIXED_HEADING_BODY`.
+- Protected semantic types include `TITLE`, `SECTION_HEADING`, `ABSTRACT_HEADING`, `ABSTRACT_BODY`, `KEYWORDS`, `TOC_HEADING`, `TOC_ITEM`, `ACK_HEADING`, `ACK_BODY`, `REFERENCE_HEADING`, `REFERENCE_ITEM`, `TABLE`, `CAPTION`, `FORMULA`, `META`, `HEADER_FOOTER`, `SHORT_TEXT`, and `UNKNOWN_PROTECTED`.
+- Zhuque `segment_labels` remain the first gate. Local semantic metadata is the second gate. A segment may be rewritten only when Zhuque maps it as AI/suspicious and `reduce_allowed=true`.
+- If Zhuque hits only protected segments, the pipeline must not fallback to full-document rewriting. It should report no reducible body segments or continue only through safe plateau/stubborn-segment paths that already have explicit rewrite history and trace evidence.
+- Trace must stay compact metadata only: parser engine, fallback flag/reason, hit/selected/filtered counts, selected segment indices, filtered semantic summary, protected sample indices/reasons. Never store full paper text in trace.
+- Frontend must send `document_parse` returned by upload parsing into start. If the user manually edits the textarea after upload, clear `document_parse` so stale spans/styles are not applied to changed text.
+
+### 4. Validation & Error Matrix
+
+- PDF Docling succeeds -> `parse_engine="docling"`, `parse_fallback_used=false`, segments carry Docling/text-rule semantic metadata.
+- PDF Docling import/convert/timeout/empty fails -> fallback to MarkItDown, `parse_engine="markitdown"`, `parse_fallback_used=true`, and no request failure solely because Docling failed.
+- DOCX with Word styles -> styled headings/TOC/header/footer are protected even when the raw text could look like ordinary short paragraphs.
+- Manual text or legacy sessions without stored semantic fields -> classify with reusable text-rule semantics at runtime; historical sessions must still process.
+- Zhuque label maps to `ABSTRACT_BODY`/`TOC_ITEM`/`REFERENCE_ITEM` only -> selected count is zero and no full-document fallback rewrite occurs.
+- Zhuque label maps to `BODY` with sufficient confidence/overlap -> only that body segment is charged and rewritten.
+- User edits upload text after parse -> start payload must not include stale `document_parse`; backend uses fallback text parsing/classification.
+- Installing dependencies on WSL/Docker Desktop -> must use CPU-only PyTorch wheels; default CUDA torch wheels are forbidden for this project because they can consume excessive bandwidth/disk/IO and destabilize Docker Desktop WSL bootstrap.
+- Migration upgrade -> revision id length must fit `varchar(32)`; long natural-language revision ids are forbidden.
+
+### 5. Good/Base/Bad Cases
+
+- Good: a PDF upload parses through Docling into title/heading/body segments; Zhuque reports high AI over the whole document, but only `BODY`/`MIXED_HEADING_BODY` Zhuque-hit segments run polish/enhance.
+- Good: a DOCX `Heading 2` paragraph and `TOC 1` entries are protected from rewrite while following body paragraphs remain eligible.
+- Good: Docling throws on one PDF; MarkItDown fallback still returns text and semantic text-rule segments, with `fallback_reason` in `parse_trace`.
+- Base: pasted plain text has no structure metadata; start creates fallback parsed segments and applies text-rule semantics.
+- Bad: joining the whole paper as one paragraph before Zhuque selection, then treating one full-text Zhuque hit as permission to rewrite the entire paper.
+- Bad: filtering out abstract/references before Zhuque detection and then presenting the result as the full-text Zhuque rate.
+- Bad: using `a.xxx || b.xxx` style speculative field fallback for unknown Zhuque or parser payloads instead of tracing the real field contract.
+- Bad: adding `docling` without CPU-only torch pins, causing pip to pull GPU/CUDA wheels in WSL.
+
+### 6. Tests Required
+
+- Parse API tests:
+  - DOCX style classification for title/headings/TOC/header-footer/body.
+  - PDF Docling success path by monkeypatching Docling conversion.
+  - PDF MarkItDown fallback on Docling exception/empty output.
+  - Manual/plain text fallback classification.
+- Zhuque integration tests:
+  - `segment_labels` AI/suspicious mapping plus semantic gate selects only body segments.
+  - Protected front/back matter is filtered and summarized in trace.
+  - Mixed heading+body remains rewrite-eligible.
+  - No-label or legacy fallback does not rewrite titles/references/short fragments blindly.
+  - Plateau/stubborn recovery does not bypass semantic protection except the explicit trace-backed stubborn history case.
+- Migration/schema tests:
+  - New session/segment metadata columns exist.
+  - Alembic version ids fit the configured version table.
+- Frontend/build tests:
+  - upload stores `documentParse`, manual edit clears it, start sends `document_parse`, and production static bundle is rebuilt/synced.
+- Dependency smoke:
+  - `python -m pip check`.
+  - a real Docling import or small smoke parse in the active venv when changing dependency pins.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+# One joined paper paragraph destroys paragraph-level selection and makes Zhuque hits look like full-document rewrite permission.
+text_for_detection = " ".join(all_paragraphs)
+segments = [OptimizationSegment(index=0, original_text=text_for_detection)]
+```
+
+#### Correct
+
+```python
+# Keep full-text detection semantics while preserving local segment spans for selection.
+joined_text = "\n\n".join(segment.original_text for segment in segments)
+label_hits = map_zhuque_positions_to_segments(joined_text, segments, segment_labels)
+selected = [seg for seg in label_hits if semantic_decision(seg).reduce_allowed]
+```
+
+#### Wrong
+
+```python
+# Pulls default torch wheels; on WSL this may fetch large CUDA packages and destabilize Docker Desktop.
+pip install docling
+```
+
+#### Correct
+
+```bash
+python -m pip install --cache-dir /tmp/pip-cache \
+  --index-url https://download.pytorch.org/whl/cpu \
+  'torch==2.12.1+cpu' 'torchvision==0.27.1+cpu'
+python -m pip install --cache-dir /tmp/pip-cache \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  'docling>=2.0.0,<3.0.0'
+```

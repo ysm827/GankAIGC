@@ -21,12 +21,34 @@ from app.services.error_messages import build_task_error_message
 from app.services.stream_manager import stream_manager
 from app.services.zhuque_service import zhuque_service
 from app.services.zhuque_prompt_evolution_service import ZhuquePromptEvolutionService
+from app.services.document_structure_service import (
+    PROTECTED_SEMANTIC_TYPES,
+    SEMANTIC_SOURCE_LEGACY_TEXT_RULE,
+    SEMANTIC_TYPE_CAPTION,
+    SEMANTIC_TYPE_SHORT_TEXT,
+    TextRuleSemanticClassifier,
+    semantic_decision_from_segment,
+)
 from app.config import settings
 from app.utils.time import utcnow
 
 # 错误信息最大长度，避免数据库字段溢出
 MAX_ERROR_MESSAGE_LENGTH = 500
 logger = logging.getLogger(__name__)
+
+
+def normalize_zhuque_segment_label(label) -> Optional[int]:
+    """Return the normalized project label for Zhuque segment labels.
+
+    The live Zhuque payload observed by the integration captures emits numeric
+    labels. Tests also cover numeric-looking strings because JSON/runtime
+    extraction can preserve them as strings without changing the protocol
+    meaning.
+    """
+    try:
+        return int(label)
+    except (TypeError, ValueError):
+        return None
 
 
 def parse_zhuque_segment_position(position) -> Optional[Tuple[int, int]]:
@@ -128,6 +150,8 @@ ZHUQUE_SEGMENT_TYPE_ABSTRACT_HEADING = "ABSTRACT_HEADING"
 ZHUQUE_SEGMENT_TYPE_KEYWORDS_HEADING = "KEYWORDS_HEADING"
 ZHUQUE_SEGMENT_TYPE_ACK_HEADING = "ACK_HEADING"
 ZHUQUE_SEGMENT_TYPE_REFERENCE_HEADING = "REFERENCE_HEADING"
+ZHUQUE_SEGMENT_TYPE_TOC_HEADING = "TOC_HEADING"
+ZHUQUE_SEGMENT_TYPE_TOC_ITEM = "TOC_ITEM"
 ZHUQUE_SEGMENT_TYPE_ABSTRACT_BODY = "ABSTRACT_BODY"
 ZHUQUE_SEGMENT_TYPE_ACK_BODY = "ACK_BODY"
 ZHUQUE_SEGMENT_TYPE_BODY = "BODY"
@@ -509,6 +533,7 @@ class OptimizationService:
                 "rate": None,
                 "threshold": threshold,
                 "remaining_uses": result.get("remaining_uses"),
+                "detect_text_source": result.get("detect_text_source"),
                 "status": "error",
                 "message": f"初始全文检测失败：{message}",
                 **summarize_zhuque_segment_labels(result),
@@ -524,6 +549,7 @@ class OptimizationService:
             "rate": full_text_rate,
             "threshold": threshold,
             "remaining_uses": result.get("remaining_uses"),
+            "detect_text_source": result.get("detect_text_source"),
             "message": "初始全文检测超过阈值" if full_text_rate > threshold else "初始全文检测已达标",
             **summarize_zhuque_segment_labels(result),
         })
@@ -542,6 +568,13 @@ class OptimizationService:
             prefer_reduced=has_reduced_text,
         )
         await self._flush_pending_zhuque_trace_broadcasts()
+        if not segments_to_reduce:
+            diagnosis = (
+                "朱雀全文风险率超过阈值，但本轮 segment_labels 没有命中任何可降重正文段落；"
+                "为避免把全文误当作高 AI 段落处理，已停止本轮任务，不再 fallback 全选。"
+            )
+            self._finalize_zhuque_trace("failed", full_text_rate, diagnosis)
+            raise RuntimeError(diagnosis)
         last_zhuque_result = result
         stagnation_count = self._load_last_zhuque_stagnation_count()
         stubborn_segment_counts: Dict[int, int] = {}
@@ -598,6 +631,7 @@ class OptimizationService:
                     "rate": full_text_rate,
                     "threshold": threshold,
                     "remaining_uses": recheck.get("remaining_uses"),
+                    "detect_text_source": recheck.get("detect_text_source"),
                     "message": f"第 {round_number} 轮改写后全文复检",
                     **summarize_zhuque_segment_labels(recheck),
                 })
@@ -777,6 +811,18 @@ class OptimizationService:
                     prefer_reduced=True,
                 )
                 await self._flush_pending_zhuque_trace_broadcasts()
+                if not segments_to_reduce:
+                    diagnosis = (
+                        "朱雀复检风险率仍超过阈值，但最新 segment_labels 没有命中任何可降重正文段落；"
+                        "为避免误选全文，已停止后续降重。"
+                    )
+                    self._finalize_zhuque_trace(
+                        "failed",
+                        full_text_rate,
+                        diagnosis,
+                        stubborn_segment_indices=active_stubborn_indices,
+                    )
+                    raise ZhuquePlateauExit(diagnosis)
             except Exception as e:
                 if isinstance(e, ZhuquePlateauExit):
                     raise
@@ -1622,10 +1668,15 @@ class OptimizationService:
         prefer_reduced: bool = False,
         previous_detect_count_increment: bool = False,
     ) -> dict:
-        detect_text = self._join_segment_texts(segments, prefer_reduced=prefer_reduced)
+        detect_text, _spans, detect_text_source = self._build_zhuque_detect_text_and_spans(
+            segments,
+            prefer_reduced=prefer_reduced,
+        )
         try:
             result = await _zhuque_service_for_user_id(self.session_obj.user_id).detect(detect_text)
             result_success = bool(result.get("success"))
+            if isinstance(result, dict):
+                result["detect_text_source"] = detect_text_source
             detect_rate = self._get_zhuque_risk_rate(result) if result_success else None
             if result_success:
                 user = self.db.get(User, self.session_obj.user_id)
@@ -1633,9 +1684,10 @@ class OptimizationService:
                     user.zhuque_total_uses = int(user.zhuque_total_uses or 0) + 1
             label_meta = summarize_zhuque_segment_labels(result)
             logger.info(
-                "Zhuque full text detect session=%s source=%s prefer_reduced=%s success=%s rate=%s segment_labels=%s usable_positions=%s label_counts=%s position_format=%s",
+                "Zhuque full text detect session=%s source=%s detect_text_source=%s prefer_reduced=%s success=%s rate=%s segment_labels=%s usable_positions=%s label_counts=%s position_format=%s",
                 self.session_obj.session_id,
                 result.get("source"),
+                result.get("detect_text_source"),
                 prefer_reduced,
                 result_success,
                 detect_rate,
@@ -1682,6 +1734,43 @@ class OptimizationService:
         prefer_reduced: bool = False,
     ) -> str:
         return "\n\n".join(self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced) for seg in segments)
+
+    def _build_zhuque_detect_text_and_spans(
+        self,
+        segments: List[OptimizationSegment],
+        *,
+        prefer_reduced: bool = False,
+    ) -> Tuple[str, List[Tuple[OptimizationSegment, int, int]], str]:
+        original_text = self.session_obj.original_text or ""
+        if original_text.strip():
+            original_spans = self._build_original_text_segment_spans(segments, original_text)
+            if not prefer_reduced:
+                return original_text, original_spans, "session_original_text"
+            if len(original_spans) != len(segments):
+                return self._join_segment_texts(segments, prefer_reduced=True), self._build_joined_segment_spans(segments, prefer_reduced=True), "joined_reduced_segments_unmapped_original_text"
+            pieces: List[str] = []
+            spans: List[Tuple[OptimizationSegment, int, int]] = []
+            cursor = 0
+            previous_end = 0
+            for seg, start, end in original_spans:
+                if start < previous_end:
+                    return self._join_segment_texts(segments, prefer_reduced=True), self._build_joined_segment_spans(segments, prefer_reduced=True), "joined_reduced_segments_unmapped_original_text"
+                prefix = original_text[previous_end:start]
+                pieces.append(prefix)
+                cursor += len(prefix)
+                replacement = self._get_zhuque_segment_text(seg, prefer_reduced=True)
+                replacement_start = cursor
+                pieces.append(replacement)
+                cursor += len(replacement)
+                spans.append((seg, replacement_start, cursor))
+                previous_end = end
+            suffix = original_text[previous_end:]
+            pieces.append(suffix)
+            return "".join(pieces), spans, "session_original_layout_with_reduced_segments"
+
+        if not prefer_reduced:
+            return self._join_segment_texts(segments, prefer_reduced=False), self._build_joined_segment_spans(segments), "joined_segments_no_original_text"
+        return self._join_segment_texts(segments, prefer_reduced=True), self._build_joined_segment_spans(segments, prefer_reduced=True), "joined_reduced_segments"
 
     def _get_zhuque_risk_rate(self, result: dict) -> float:
         if not isinstance(result, dict) or result.get("success") is False:
@@ -1739,11 +1828,49 @@ class OptimizationService:
                 cursor += 2
         return spans
 
+    def _build_original_text_segment_spans(
+        self,
+        segments: List[OptimizationSegment],
+        original_text: str,
+    ) -> List[Tuple[OptimizationSegment, int, int]]:
+        spans: List[Tuple[OptimizationSegment, int, int]] = []
+        cursor = 0
+        for seg in segments:
+            text = seg.original_text or ""
+            if not text:
+                continue
+            start = original_text.find(text, cursor)
+            if start < 0:
+                normalized = text.strip()
+                if not normalized:
+                    continue
+                start = original_text.find(normalized, cursor)
+                text_for_span = normalized
+            else:
+                text_for_span = text
+            if start < 0:
+                return []
+            end = start + len(text_for_span)
+            spans.append((seg, start, end))
+            cursor = end
+        return spans
+
     def _normalize_zhuque_segment_line(self, text: str) -> str:
         return re.sub(r"\s+", " ", (text or "").strip())
 
+    def _normalize_zhuque_classification_text(self, text: str) -> str:
+        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = re.sub(r"^#{1,6}\s*", "", normalized).strip()
+        normalized = re.sub(r"^(?:>\s*)+", "", normalized).strip()
+        normalized = re.sub(r"^\*\*(.+?)\*\*", r"\1", normalized).strip()
+        normalized = re.sub(r"^__(.+?)__", r"\1", normalized).strip()
+        for marker in ("**", "__", "*", "_"):
+            if normalized.startswith(marker) and normalized.endswith(marker) and len(normalized) > 2 * len(marker):
+                normalized = normalized[len(marker):-len(marker)].strip()
+        return normalized
+
     def _is_zhuque_reference_heading(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text).strip("：: ")
+        normalized = self._normalize_zhuque_classification_text(text).strip("：: ")
         return normalized.lower() in {
             "参考文献",
             "references",
@@ -1752,20 +1879,35 @@ class OptimizationService:
             "works cited",
         }
 
+    def _is_zhuque_toc_heading(self, text: str) -> bool:
+        normalized = self._normalize_zhuque_classification_text(text).strip("：: ")
+        compact = re.sub(r"\s+", "", normalized).lower()
+        return compact == "目录" or normalized.lower() in {"contents", "table of contents"}
+
+    def _is_zhuque_toc_item(self, text: str) -> bool:
+        normalized = self._normalize_zhuque_classification_text(text)
+        if not normalized:
+            return False
+        if re.match(r"^\[[^\]]+\]\(#_?toc", normalized, re.IGNORECASE):
+            return True
+        if re.match(r"^\d+(?:\.\d+)*\s+.{1,80}\s+\d+$", normalized):
+            return True
+        return False
+
     def _is_zhuque_abstract_heading(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text).strip("：: ")
+        normalized = self._normalize_zhuque_classification_text(text).strip("：: ")
         return normalized.lower() in {"摘要", "abstract"}
 
     def _is_zhuque_ack_heading(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text).strip("：: ")
+        normalized = self._normalize_zhuque_classification_text(text).strip("：: ")
         return normalized.lower() in {"致谢", "acknowledgements", "acknowledgments", "thanks"}
 
     def _is_zhuque_keywords_line(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = self._normalize_zhuque_classification_text(text)
         return bool(re.match(r"^(关键词|关键字|keywords?)\s*[:：]", normalized, re.IGNORECASE))
 
     def _is_zhuque_section_heading(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text).strip()
+        normalized = self._normalize_zhuque_classification_text(text).strip()
         length = count_text_length(normalized)
         if not normalized or length > 80:
             return False
@@ -1783,11 +1925,11 @@ class OptimizationService:
         )
 
     def _is_zhuque_caption(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = self._normalize_zhuque_classification_text(text)
         return bool(re.match(r"^(图|表)\s*\d+|^(figure|fig\.|table)\s*\d+", normalized, re.IGNORECASE))
 
     def _is_zhuque_reference_item(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = self._normalize_zhuque_classification_text(text)
         if not normalized:
             return False
         if re.match(r"^\[\d+\]", normalized):
@@ -1799,7 +1941,7 @@ class OptimizationService:
         return False
 
     def _is_zhuque_formula_or_metric(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = self._normalize_zhuque_classification_text(text)
         if not normalized:
             return False
         natural_chars = len(re.findall(r"[\u4e00-\u9fffA-Za-z]", normalized))
@@ -1814,7 +1956,7 @@ class OptimizationService:
         return natural_chars <= 6 and (digit_chars + symbol_chars) >= 4
 
     def _is_zhuque_meta_line(self, text: str) -> bool:
-        normalized = self._normalize_zhuque_segment_line(text)
+        normalized = self._normalize_zhuque_classification_text(text)
         if not normalized:
             return False
         if re.search(r"@|邮箱|通讯作者|基金项目|作者简介|单位[:：]|学院|大学|实验室", normalized, re.IGNORECASE):
@@ -1827,104 +1969,26 @@ class OptimizationService:
         *,
         prefer_reduced: bool = False,
     ) -> List[Dict[str, object]]:
+        texts = [self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced) for seg in segments]
+        legacy_decisions = TextRuleSemanticClassifier(source=SEMANTIC_SOURCE_LEGACY_TEXT_RULE).classify_segments(texts)
         classifications: List[Dict[str, object]] = []
-        current_section = "BODY"
-        reference_zone = False
-        skip_short_chars = max(0, int(getattr(settings, "ZHUQUE_REDUCE_SKIP_SHORT_CHARS", 80) or 80))
-
-        for seg in segments:
-            text = self._get_zhuque_segment_text(seg, prefer_reduced=prefer_reduced)
-            normalized = self._normalize_zhuque_segment_line(text)
-            length = count_text_length(normalized)
-            type_code = ZHUQUE_SEGMENT_TYPE_BODY
-            action = ZHUQUE_SEGMENT_ACTION_REDUCE
-            confidence = 0.75
-            reason = "body_candidate"
-
-            if self._is_zhuque_reference_heading(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_REFERENCE_HEADING
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.98
-                reason = "reference_heading"
-                current_section = "REFERENCES"
-                reference_zone = True
-            elif reference_zone and self._is_zhuque_reference_item(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_REFERENCE_ITEM
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.9
-                reason = "reference_zone_item"
-            elif reference_zone:
-                type_code = ZHUQUE_SEGMENT_TYPE_REFERENCE_ITEM
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.72
-                reason = "reference_zone_continuation"
-            elif self._is_zhuque_abstract_heading(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_ABSTRACT_HEADING
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.98
-                reason = "abstract_heading"
-                current_section = "ABSTRACT"
-                reference_zone = False
-            elif self._is_zhuque_ack_heading(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_ACK_HEADING
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.98
-                reason = "ack_heading"
-                current_section = "ACK"
-                reference_zone = False
-            elif self._is_zhuque_keywords_line(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_KEYWORDS
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.92
-                reason = "keywords_line"
-                reference_zone = False
-            elif self._is_zhuque_section_heading(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_SECTION_HEADING
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.86
-                reason = "section_heading"
-                current_section = "BODY"
-                reference_zone = False
-            elif self._is_zhuque_caption(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_CAPTION
-                action = ZHUQUE_SEGMENT_ACTION_LOW_PRIORITY if length >= 120 else ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.82
-                reason = "caption"
-                reference_zone = False
-            elif self._is_zhuque_formula_or_metric(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_FORMULA
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.84
-                reason = "formula_or_metric"
-                reference_zone = False
-            elif self._is_zhuque_meta_line(normalized):
-                type_code = ZHUQUE_SEGMENT_TYPE_META
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.78
-                reason = "metadata_line"
-                reference_zone = False
-            elif length < skip_short_chars:
-                type_code = ZHUQUE_SEGMENT_TYPE_SHORT_TEXT
-                action = ZHUQUE_SEGMENT_ACTION_SKIP
-                confidence = 0.7
-                reason = "short_text"
-                reference_zone = False
-            elif current_section == "ABSTRACT":
-                type_code = ZHUQUE_SEGMENT_TYPE_ABSTRACT_BODY
-                reason = "abstract_body"
-            elif current_section == "ACK":
-                type_code = ZHUQUE_SEGMENT_TYPE_ACK_BODY
-                reason = "ack_body"
-
+        for seg, text, legacy_decision in zip(segments, texts, legacy_decisions):
+            stored_decision = semantic_decision_from_segment(seg, fallback_source=SEMANTIC_SOURCE_LEGACY_TEXT_RULE)
+            decision = stored_decision if getattr(seg, "semantic_type", None) else legacy_decision
+            action = ZHUQUE_SEGMENT_ACTION_REDUCE if decision.reduce_allowed else ZHUQUE_SEGMENT_ACTION_SKIP
+            if decision.semantic_type == SEMANTIC_TYPE_CAPTION and decision.length >= 120:
+                action = ZHUQUE_SEGMENT_ACTION_LOW_PRIORITY
             classifications.append({
                 "segment": seg,
                 "segment_index": seg.segment_index,
-                "type_code": type_code,
-                "section": current_section,
+                "type_code": decision.semantic_type,
+                "semantic_type": decision.semantic_type,
+                "semantic_source": decision.semantic_source,
+                "section": decision.section,
                 "action": action,
-                "confidence": confidence,
-                "reason": reason,
-                "length": length,
+                "confidence": decision.semantic_confidence,
+                "reason": decision.semantic_reason,
+                "length": decision.length or count_text_length(text),
             })
         return classifications
 
@@ -1956,19 +2020,60 @@ class OptimizationService:
         if not selected:
             fallback_pool = [
                 item for item in classifications
-                if item.get("type_code") not in {
-                    ZHUQUE_SEGMENT_TYPE_REFERENCE_HEADING,
-                    ZHUQUE_SEGMENT_TYPE_REFERENCE_ITEM,
-                    ZHUQUE_SEGMENT_TYPE_FORMULA,
-                    ZHUQUE_SEGMENT_TYPE_META,
-                    ZHUQUE_SEGMENT_TYPE_KEYWORDS,
-                    ZHUQUE_SEGMENT_TYPE_KEYWORDS_HEADING,
-                }
+                if item.get("type_code") not in PROTECTED_SEMANTIC_TYPES
             ]
             fallback_pool.sort(key=lambda item: -int(item.get("length") or 0))
             selected = [item["segment"] for item in fallback_pool[:3]]
         selected.sort(key=lambda seg: seg.segment_index)
         return selected, classifications
+
+    def _latest_zhuque_stubborn_segment_indices(self) -> List[int]:
+        trace = self._load_zhuque_trace()
+        events = trace.get("events") or []
+        for event in reversed(events):
+            if not isinstance(event, dict):
+                continue
+            indices = event.get("stubborn_segment_indices")
+            if not isinstance(indices, list):
+                continue
+            normalized: List[int] = []
+            for index in indices:
+                try:
+                    normalized.append(int(index))
+                except (TypeError, ValueError):
+                    continue
+            if normalized:
+                return normalized
+        return []
+
+    def _select_zhuque_stubborn_fallback_segments(
+        self,
+        segments: List[OptimizationSegment],
+        classifications: List[Dict[str, object]],
+    ) -> Tuple[List[OptimizationSegment], List[Dict[str, object]]]:
+        stubborn_indices = set(self._latest_zhuque_stubborn_segment_indices())
+        if not stubborn_indices:
+            return [], []
+        classification_by_index = {
+            int(item.get("segment_index")): item
+            for item in classifications
+            if item.get("segment_index") is not None
+        }
+        selected: List[OptimizationSegment] = []
+        selected_items: List[Dict[str, object]] = []
+        for seg in segments:
+            index = int(seg.segment_index)
+            if index not in stubborn_indices:
+                continue
+            classification = classification_by_index.get(index)
+            if classification and classification.get("type_code") in PROTECTED_SEMANTIC_TYPES:
+                already_reduced = bool((seg.zhuque_reduce_attempt or 0) > 0 or (seg.zhuque_reduced_text or "").strip())
+                if not (classification.get("type_code") == SEMANTIC_TYPE_SHORT_TEXT and already_reduced):
+                    continue
+            selected.append(seg)
+            if classification:
+                selected_items.append(classification)
+        return selected, selected_items
 
     def _select_zhuque_reduce_segments(
         self,
@@ -1978,20 +2083,63 @@ class OptimizationService:
         prefer_reduced: bool = False,
     ) -> List[OptimizationSegment]:
         labels = result.get("segment_labels") or []
-        high_ai_spans: List[Tuple[int, int]] = []
+        high_ai_spans: List[Tuple[int, int, int, Optional[float]]] = []
+        usable_position_count = 0
+        ignored_high_ai_span_count = 0
 
         for item in labels:
-            if not isinstance(item, dict) or item.get("label") not in (0, 2):
+            if not isinstance(item, dict):
                 continue
             parsed_position = parse_zhuque_segment_position(item.get("position"))
             if parsed_position:
-                high_ai_spans.append(parsed_position)
+                usable_position_count += 1
+            label = normalize_zhuque_segment_label(item.get("label"))
+            if label not in (0, 2):
+                continue
+            try:
+                confidence = float(item.get("conf"))
+            except (TypeError, ValueError):
+                confidence = None
+            if confidence is not None and confidence <= 0.2:
+                ignored_high_ai_span_count += 1
+                continue
+            if parsed_position:
+                span_start, span_end = parsed_position
+                high_ai_spans.append((span_start, span_end, label, confidence))
 
         if not high_ai_spans:
+            if usable_position_count > 0:
+                _detect_text, _segment_spans, detect_text_source = self._build_zhuque_detect_text_and_spans(
+                    segments,
+                    prefer_reduced=prefer_reduced,
+                )
+                classification_event = self._append_zhuque_trace_event({
+                    "type": "segment_classification",
+                    "label_source": "segment_labels",
+                    "source": "reduced" if prefer_reduced else "original",
+                    "position_format": "start_length",
+                    "detect_text_source": detect_text_source,
+                    "segment_label_count": len(labels) if isinstance(labels, list) else 0,
+                    "usable_position_count": usable_position_count,
+                    "high_ai_span_count": 0,
+                    "ignored_high_ai_span_count": ignored_high_ai_span_count,
+                    "fallback_classifier_used": False,
+                    "selected_count": 0,
+                    "selected_segment_indices": [],
+                    "message": "朱雀已返回段落定位，但没有高置信 AI/疑似 AI 段落命中；未 fallback 全选",
+                })
+                self._pending_zhuque_trace_broadcasts.append(classification_event)
+                return []
             selected, classifications = self._select_zhuque_fallback_reduce_segments(
                 segments,
                 prefer_reduced=prefer_reduced,
             )
+            stubborn_selected, stubborn_items = self._select_zhuque_stubborn_fallback_segments(
+                segments,
+                classifications,
+            )
+            if stubborn_selected:
+                selected = stubborn_selected
             classification_event = self._append_zhuque_trace_event({
                 "type": "segment_classification",
                 "label_source": "fallback_classifier",
@@ -2001,6 +2149,17 @@ class OptimizationService:
                 "selected_segment_indices": [seg.segment_index for seg in selected],
                 "type_counts": self._summarize_zhuque_classification_counts(classifications, "type_code"),
                 "action_counts": self._summarize_zhuque_classification_counts(classifications, "action"),
+                "stubborn_fallback_used": bool(stubborn_selected),
+                "stubborn_segment_indices": [seg.segment_index for seg in stubborn_selected],
+                "stubborn_selected_summary": [
+                    {
+                        "segment_index": item.get("segment_index"),
+                        "type_code": item.get("type_code"),
+                        "reason": item.get("reason"),
+                        "length": item.get("length"),
+                    }
+                    for item in stubborn_items
+                ],
                 "skipped_summary": [
                     {
                         "segment_index": item.get("segment_index"),
@@ -2011,34 +2170,97 @@ class OptimizationService:
                     for item in classifications
                     if item.get("action") != ZHUQUE_SEGMENT_ACTION_REDUCE
                 ][:20],
-                "message": f"朱雀未返回可靠段落定位，fallback 分类选中 {len(selected)} 段",
+                "message": (
+                    f"朱雀未返回可靠段落定位，按历史顽固段索引继续选中 {len(selected)} 段"
+                    if stubborn_selected
+                    else f"朱雀未返回可靠段落定位，fallback 分类选中 {len(selected)} 段"
+                ),
             })
             self._pending_zhuque_trace_broadcasts.append(classification_event)
             return selected
 
         selected: List[OptimizationSegment] = []
-        for seg, seg_start, seg_end in self._build_joined_segment_spans(
+        _detect_text, segment_spans, detect_text_source = self._build_zhuque_detect_text_and_spans(
             segments,
             prefer_reduced=prefer_reduced,
-        ):
-            if any(seg_start < span_end and span_start < seg_end for span_start, span_end in high_ai_spans):
+        )
+        min_overlap_ratio = 0.5
+        min_overlap_chars = 120
+        for seg, seg_start, seg_end in segment_spans:
+            seg_len = max(1, seg_end - seg_start)
+            matched = False
+            for span_start, span_end, _label, _confidence in high_ai_spans:
+                overlap = max(0, min(seg_end, span_end) - max(seg_start, span_start))
+                if overlap <= 0:
+                    continue
+                if overlap / seg_len >= min_overlap_ratio or overlap >= min_overlap_chars:
+                    matched = True
+                    break
+            if matched:
                 selected.append(seg)
 
-        unmatched_positions = bool(high_ai_spans and not selected)
-        selected_for_return = selected or list(segments)
+        pre_filter_segments = list(selected)
+        pre_filter_selected_count = len(pre_filter_segments)
+        classifications = self._classify_zhuque_fallback_segments(
+            segments,
+            prefer_reduced=prefer_reduced,
+        )
+        reducible_indices = {
+            int(item.get("segment_index"))
+            for item in classifications
+            if item.get("action") in (ZHUQUE_SEGMENT_ACTION_REDUCE, ZHUQUE_SEGMENT_ACTION_LOW_PRIORITY)
+        }
+        selected = [seg for seg in selected if int(seg.segment_index) in reducible_indices]
+
+        unmatched_positions = bool(high_ai_spans and pre_filter_selected_count == 0)
+        selected_for_return = selected
+        classifier_filtered_count = max(0, pre_filter_selected_count - len(selected_for_return))
+        filtered_semantic_summary: Dict[str, int] = {}
+        protected_samples: List[Dict[str, object]] = []
+        selected_indices = {int(seg.segment_index) for seg in selected_for_return}
+        pre_filter_indices = {int(seg.segment_index) for seg in pre_filter_segments}
+        for item in classifications:
+            raw_index = item.get("segment_index")
+            index = int(raw_index) if raw_index is not None else -1
+            if index not in pre_filter_indices or index in selected_indices:
+                continue
+            semantic_type = str(item.get("type_code") or item.get("semantic_type") or "UNKNOWN")
+            filtered_semantic_summary[semantic_type] = filtered_semantic_summary.get(semantic_type, 0) + 1
+            if len(protected_samples) < 20:
+                protected_samples.append({
+                    "segment_index": index,
+                    "semantic_type": semantic_type,
+                    "semantic_source": item.get("semantic_source"),
+                    "reason": item.get("reason"),
+                })
         selection_event = self._append_zhuque_trace_event({
             "type": "segment_classification",
             "label_source": "segment_labels",
             "source": "reduced" if prefer_reduced else "original",
             "position_format": "start_length",
+            "detect_text_source": detect_text_source,
             "segment_label_count": len(labels) if isinstance(labels, list) else 0,
             "high_ai_span_count": len(high_ai_spans),
+            "min_overlap_ratio": min_overlap_ratio,
+            "min_overlap_chars": min_overlap_chars,
+            "pre_filter_selected_count": pre_filter_selected_count,
+            "classifier_filtered_count": classifier_filtered_count,
+            "fallback_classifier_used": False,
             "selected_count": len(selected_for_return),
             "selected_segment_indices": [seg.segment_index for seg in selected_for_return],
+            "filtered_semantic_summary": filtered_semantic_summary,
+            "protected_samples": protected_samples,
+            "parse_engine": getattr(self.session_obj, "parse_engine", None),
+            "parse_fallback_used": bool(getattr(self.session_obj, "parse_fallback_used", False)),
             "unmatched_positions": unmatched_positions,
+            "filtered_all_matched_segments": bool(pre_filter_selected_count and not selected_for_return),
+            "type_counts": self._summarize_zhuque_classification_counts(classifications, "type_code"),
+            "action_counts": self._summarize_zhuque_classification_counts(classifications, "action"),
             "message": (
-                "朱雀段落定位未匹配到本地段落，安全回退为全段处理"
+                "朱雀段落定位未匹配到本地段落，未 fallback 全选"
                 if unmatched_positions
+                else "朱雀段落定位命中的段落均被正文保护规则过滤，未 fallback 全选"
+                if pre_filter_selected_count and not selected_for_return
                 else f"朱雀段落定位选中 {len(selected_for_return)} 段"
             ),
         })
@@ -3221,6 +3443,8 @@ class OptimizationService:
         if event_type == "detect":
             return "全文检测"
         if event_type == "segment_classification":
+            if event.get("label_source") == "segment_labels":
+                return "朱雀段落定位"
             return "fallback 段落识别"
         if event_type == "batch_plan":
             return f"第 {round_number} 轮批量规划" if round_number is not None else "批量规划"
