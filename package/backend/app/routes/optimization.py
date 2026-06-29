@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, BackgroundTasks, Request, UploadFile
 from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import func, and_, case
+from starlette.concurrency import run_in_threadpool
 from typing import List, Optional
 import base64
 import importlib.util
@@ -184,7 +185,14 @@ async def parse_optimization_document(
     filename, extension = _validate_document_upload(file)
     content = await _read_document_upload_with_limit(file)
 
-    parsed_document = document_structure_service.parse_uploaded_document(content, extension)
+    # DOCX/PDF parsing can invoke Docling or MarkItDown and may be CPU/IO heavy.
+    # Run it off the async event loop so Zhuque login/readiness/status endpoints
+    # remain responsive while an upload is being parsed.
+    parsed_document = await run_in_threadpool(
+        document_structure_service.parse_uploaded_document,
+        content,
+        extension,
+    )
     text = normalize_parsed_document_text(parsed_document.text)
     if not text:
         raise HTTPException(status_code=400, detail="未能从文件中解析出有效文本")

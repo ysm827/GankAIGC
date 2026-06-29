@@ -8,7 +8,8 @@ rewriting.
 
 from __future__ import annotations
 
-import concurrent.futures
+import multiprocessing as mp
+import queue
 import importlib
 import json
 import os
@@ -271,6 +272,81 @@ class TextRuleSemanticClassifier:
         )
 
 
+
+def convert_pdf_with_docling_worker(
+    content: bytes,
+    do_ocr: bool,
+    do_table_structure: bool,
+    output_queue,
+) -> None:
+    """Run Docling PDF conversion in an isolated process.
+
+    Docling can load heavy ML/runtime components. Keeping it in a child process
+    lets the parent enforce a real timeout and fall back without wedging the API
+    worker that also serves Zhuque login/status calls.
+    """
+    temp_path = None
+    try:
+        document_converter = importlib.import_module("docling.document_converter")
+        base_models = importlib.import_module("docling.datamodel.base_models")
+        pipeline_options_module = importlib.import_module("docling.datamodel.pipeline_options")
+
+        DocumentConverter = getattr(document_converter, "DocumentConverter")
+        PdfFormatOption = getattr(document_converter, "PdfFormatOption")
+        InputFormat = getattr(base_models, "InputFormat")
+        PdfPipelineOptions = getattr(pipeline_options_module, "PdfPipelineOptions")
+
+        opts = PdfPipelineOptions(
+            do_ocr=bool(do_ocr),
+            do_table_structure=bool(do_table_structure),
+        )
+        converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+            temp_file.write(content)
+            temp_path = temp_file.name
+        result = converter.convert(temp_path)
+        doc = getattr(result, "document", None)
+        if doc is None:
+            raise RuntimeError("Docling conversion did not return a document")
+
+        raw_segments = docling_document_to_raw_segments(doc)
+        if raw_segments:
+            parsed = build_parsed_document_from_raw_segments(
+                raw_segments,
+                parser="docling",
+                document_format="pdf",
+                fallback_source=SEMANTIC_SOURCE_DOCLING,
+                warnings=[],
+                parse_engine="docling",
+                trace={"engine": "docling", "item_count": len(raw_segments), "isolated_process": True},
+            )
+        else:
+            export = getattr(doc, "export_to_markdown", None) or getattr(doc, "export_to_text", None)
+            if not callable(export):
+                raise RuntimeError("Docling returned no text items")
+            text = export()
+            if not text:
+                raise RuntimeError("Docling returned empty text")
+            parsed = build_parsed_document_from_text(
+                normalize_parsed_document_text(str(text)),
+                parser="docling",
+                document_format="pdf",
+                semantic_source=SEMANTIC_SOURCE_DOCLING,
+                warnings=[],
+                parse_engine="docling",
+                trace={"engine": "docling", "fallback_export": True, "isolated_process": True},
+            )
+        output_queue.put({"ok": True, "parsed": parsed})
+    except BaseException as exc:  # child process must report all conversion failures
+        output_queue.put({"ok": False, "error_type": type(exc).__name__, "error": str(exc)})
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
 class DocumentStructureService:
     def parse_uploaded_document(self, content: bytes, extension: str) -> ParsedDocument:
         extension = extension.lower()
@@ -383,73 +459,44 @@ class DocumentStructureService:
 
     def _parse_pdf_with_docling(self, content: bytes) -> ParsedDocument:
         timeout = max(1, int(getattr(settings, "PDF_STRUCTURE_TIMEOUT_SECONDS", 120) or 120))
+        do_ocr = bool(getattr(settings, "PDF_DO_OCR", False))
+        do_table_structure = bool(getattr(settings, "PDF_DO_TABLE_STRUCTURE", True))
+        ctx = mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
+        output_queue = ctx.Queue(maxsize=1)
+        process = ctx.Process(
+            target=convert_pdf_with_docling_worker,
+            args=(content, do_ocr, do_table_structure, output_queue),
+            daemon=True,
+        )
+        process.start()
+        try:
+            # Read while the child is alive; waiting for process.join() before
+            # consuming a large Queue payload can deadlock on the pipe buffer.
+            result = output_queue.get(timeout=timeout)
+        except queue.Empty as exc:
+            process.terminate()
+            process.join(5)
+            if process.is_alive():
+                process.kill()
+                process.join(5)
+            exitcode = process.exitcode
+            if exitcode is not None:
+                raise RuntimeError(f"Docling 子进程未返回解析结果，exitcode={exitcode}") from exc
+            raise TimeoutError(f"Docling PDF 解析超过 {timeout} 秒") from exc
+        finally:
+            process.join(5)
+            if process.is_alive():
+                process.terminate()
+                process.join(5)
 
-        def convert() -> ParsedDocument:
-            document_converter = importlib.import_module("docling.document_converter")
-            base_models = importlib.import_module("docling.datamodel.base_models")
-            pipeline_options_module = importlib.import_module("docling.datamodel.pipeline_options")
-
-            DocumentConverter = getattr(document_converter, "DocumentConverter")
-            PdfFormatOption = getattr(document_converter, "PdfFormatOption")
-            InputFormat = getattr(base_models, "InputFormat")
-            PdfPipelineOptions = getattr(pipeline_options_module, "PdfPipelineOptions")
-
-            opts = PdfPipelineOptions(
-                do_ocr=bool(getattr(settings, "PDF_DO_OCR", False)),
-                do_table_structure=bool(getattr(settings, "PDF_DO_TABLE_STRUCTURE", True)),
-            )
-            converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
-            temp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
-                    temp_file.write(content)
-                    temp_path = temp_file.name
-                result = converter.convert(temp_path)
-            finally:
-                if temp_path:
-                    try:
-                        os.unlink(temp_path)
-                    except OSError:
-                        pass
-
-            doc = getattr(result, "document", None)
-            if doc is None:
-                raise RuntimeError("Docling conversion did not return a document")
-            raw_segments = docling_document_to_raw_segments(doc)
-            if not raw_segments:
-                # Last-resort Docling export path; still classifies via text rules.
-                export = getattr(doc, "export_to_markdown", None) or getattr(doc, "export_to_text", None)
-                if callable(export):
-                    text = export()
-                    if text:
-                        return build_parsed_document_from_text(
-                            normalize_parsed_document_text(str(text)),
-                            parser="docling",
-                            document_format="pdf",
-                            semantic_source=SEMANTIC_SOURCE_DOCLING,
-                            warnings=[],
-                            parse_engine="docling",
-                            trace={"engine": "docling", "fallback_export": True},
-                        )
-                raise RuntimeError("Docling returned no text items")
-
-            return build_parsed_document_from_raw_segments(
-                raw_segments,
-                parser="docling",
-                document_format="pdf",
-                fallback_source=SEMANTIC_SOURCE_DOCLING,
-                warnings=[],
-                parse_engine="docling",
-                trace={"engine": "docling", "item_count": len(raw_segments)},
-            )
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(convert)
-            try:
-                return future.result(timeout=timeout)
-            except concurrent.futures.TimeoutError as exc:
-                future.cancel()
-                raise TimeoutError(f"Docling PDF 解析超过 {timeout} 秒") from exc
+        if result.get("ok"):
+            parsed = result.get("parsed")
+            if isinstance(parsed, ParsedDocument):
+                return parsed
+            raise RuntimeError("Docling 子进程返回了无效解析结果")
+        error_type = result.get("error_type") or "RuntimeError"
+        error = result.get("error") or "Docling conversion failed"
+        raise RuntimeError(f"{error_type}: {error}")
 
 
 # Public singleton; callers can monkeypatch module functions or this object in tests.
