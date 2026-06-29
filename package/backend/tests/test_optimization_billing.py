@@ -235,6 +235,53 @@ def test_parse_pdf_document_upload_defaults_to_docling(client, monkeypatch):
     assert payload["segments"][0]["page_number"] == 1
 
 
+def test_parse_pdf_docling_merges_same_page_body_lines():
+    from app.services import document_structure_service as structure_module
+
+    raw_segments = [
+        (
+            "1 Introduction",
+            structure_module.SegmentSemanticDecision(
+                structure_module.SEMANTIC_TYPE_SECTION_HEADING,
+                structure_module.SEMANTIC_SOURCE_DOCLING,
+                0.9,
+                False,
+                "docling_section_header",
+            ),
+            1,
+            '{"l": 1}',
+        ),
+        ("To popularize Chinese culture in digital media, various aspects need to be considered. The", None, 1, '{"line": 1}'),
+        ("influence of gender-switching videos in the Chinese digital media environment is growing,", None, 1, '{"line": 2}'),
+        ("indicating the potential for increased popularity of pop or queer culture [1]. Additionally, the", None, 1, '{"line": 3}'),
+        ("construction of digital identities by transnational bloggers on Chinese social media platforms", None, 1, '{"line": 4}'),
+        ("2 Methods", structure_module.SegmentSemanticDecision(
+            structure_module.SEMANTIC_TYPE_SECTION_HEADING,
+            structure_module.SEMANTIC_SOURCE_DOCLING,
+            0.9,
+            False,
+            "docling_section_header",
+        ), 1, '{"l": 2}'),
+    ]
+
+    merged = structure_module.merge_pdf_line_segments(raw_segments)
+    parsed = structure_module.build_parsed_document_from_raw_segments(
+        merged,
+        parser="docling",
+        document_format="pdf",
+        fallback_source=structure_module.SEMANTIC_SOURCE_DOCLING,
+        warnings=[],
+        parse_engine="docling",
+        trace={"engine": "docling"},
+    )
+
+    assert len(parsed.segments) == 3
+    assert parsed.segments[1].semantic_type == "BODY"
+    assert "The\n\ninfluence" not in parsed.text
+    assert "The influence of gender-switching videos" in parsed.segments[1].text
+    assert parsed.segments[1].bbox_json is None
+
+
 def test_parse_pdf_document_upload_falls_back_to_markitdown(client, monkeypatch):
     from app.services import document_structure_service as structure_module
 

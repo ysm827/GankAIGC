@@ -710,7 +710,81 @@ def docling_document_to_raw_segments(doc: Any) -> List[Tuple[str, Optional[Segme
         decision = docling_label_to_decision(getattr(item, "label", None), text)
         page_no, bbox_json = extract_provenance(item)
         raw_segments.append((text, decision, page_no, bbox_json))
-    return raw_segments
+    return merge_pdf_line_segments(raw_segments)
+
+
+def merge_pdf_line_segments(
+    raw_segments: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]],
+) -> List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]]:
+    """Merge Docling text-line items into paragraph-like body segments.
+
+    Docling may expose each rendered PDF line as a text item. If we pass those
+    through directly, the UI receives `line\n\nline\n\nline` and Zhuque segment
+    mapping treats each visual line as a paragraph. Keep explicit structural
+    items separate, but coalesce adjacent same-page body candidates.
+    """
+    merged: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]] = []
+    buffer: List[str] = []
+    buffer_page: Optional[int] = None
+
+    def flush_buffer() -> None:
+        nonlocal buffer, buffer_page
+        if not buffer:
+            return
+        text = join_pdf_body_lines(buffer)
+        if text:
+            merged.append((text, None, buffer_page, None))
+        buffer = []
+        buffer_page = None
+
+    for text, decision, page_no, bbox_json in raw_segments:
+        if is_docling_body_line_candidate(text, decision):
+            if buffer and buffer_page != page_no:
+                flush_buffer()
+            buffer.append(text)
+            buffer_page = page_no
+            continue
+
+        flush_buffer()
+        merged.append((text, decision, page_no, bbox_json))
+
+    flush_buffer()
+    return merged
+
+
+def is_docling_body_line_candidate(text: str, decision: Optional[SegmentSemanticDecision]) -> bool:
+    if not text:
+        return False
+    if decision and decision.semantic_type not in REDUCE_ALLOWED_TYPES:
+        return False
+    normalized = normalize_classification_text(text)
+    if is_reference_heading(normalized) or is_toc_heading(normalized) or is_abstract_heading(normalized) or is_ack_heading(normalized):
+        return False
+    if is_section_heading(normalized) or is_caption(normalized) or is_formula_or_metric(normalized):
+        return False
+    return True
+
+
+def join_pdf_body_lines(lines: List[str]) -> str:
+    joined = ""
+    for line in lines:
+        current = normalize_segment_line(line)
+        if not current:
+            continue
+        if not joined:
+            joined = current
+            continue
+        if should_join_pdf_line_without_space(joined, current):
+            joined = f"{joined}{current}"
+        else:
+            joined = f"{joined} {current}"
+    return normalize_segment_line(joined)
+
+
+def should_join_pdf_line_without_space(previous: str, current: str) -> bool:
+    if not previous or not current:
+        return False
+    return bool(re.search(r"[\u4e00-\u9fff]$", previous) and re.match(r"^[\u4e00-\u9fff]", current))
 
 
 def decode_markdown_upload(content: bytes) -> Tuple[str, List[str]]:
