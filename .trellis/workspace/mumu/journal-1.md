@@ -247,3 +247,36 @@ Implemented Zhuque fallback segment classification, guarded batch polish/enhance
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Structure-aware Zhuque filtering
+
+**Date**: 2026-06-29
+**Task**: Structure-aware Zhuque filtering
+**Branch**: `main`
+
+### Summary
+
+Implemented Docling-first PDF and python-docx DOCX structure parsing, semantic rewrite gating for Zhuque segment labels, compact audit trace, CPU-only Docling dependency pins, tests, frontend parse payload flow, and static bundle sync.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4dc67b7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
