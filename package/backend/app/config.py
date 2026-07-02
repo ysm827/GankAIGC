@@ -145,7 +145,7 @@ class Settings(BaseSettings):
     ZHUQUE_DETECT_THRESHOLD: float = 20.0
     ZHUQUE_MAX_REDUCE_ROUNDS: int = 5
     ZHUQUE_FREE_USES_PER_USER: int = 20
-    ZHUQUE_DETECT_TIMEOUT: int = 60
+    ZHUQUE_DETECT_TIMEOUT: int = 180
     ZHUQUE_DETECT_INTERVAL: float = 2.0
     ZHUQUE_REDUCE_BATCH_ENABLED: bool = True
     ZHUQUE_REDUCE_BATCH_SIZE: int = 3
@@ -155,12 +155,18 @@ class Settings(BaseSettings):
     ZHUQUE_REDUCE_SKIP_SHORT_CHARS: int = 80
 
     # 文档结构解析配置
-    PDF_STRUCTURE_ENGINE: str = "docling"
+    PDF_STRUCTURE_ENGINE: str = "mineru"
     PDF_STRUCTURE_FALLBACK_ENGINE: str = "markitdown"
-    PDF_DO_OCR: bool = False
-    PDF_DO_TABLE_STRUCTURE: bool = True
-    PDF_STRUCTURE_TIMEOUT_SECONDS: int = 120
     DOCX_STRUCTURE_ENGINE: str = "python_docx"
+    MINERU_BASE_URL: str = "https://mineru.net"
+    MINERU_API_TOKEN: Optional[str] = None
+    MINERU_MODEL_VERSION: str = "vlm"
+    MINERU_ENABLE_FORMULA: bool = True
+    MINERU_ENABLE_TABLE: bool = True
+    MINERU_IS_OCR: bool = False
+    MINERU_LANGUAGE: str = "ch"
+    MINERU_TIMEOUT_SECONDS: int = 300
+    MINERU_POLL_INTERVAL_SECONDS: float = 2.0
     
     # 流式输出配置
     USE_STREAMING: bool = False  # 默认使用非流式模式，避免被API阻止

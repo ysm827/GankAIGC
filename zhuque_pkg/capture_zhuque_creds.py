@@ -301,6 +301,34 @@ try {
 """
 
 
+def _decode_powershell_bytes(raw: bytes | None) -> str:
+    """Decode PowerShell output from Windows code pages without crashing sync.
+
+    WSL invokes Windows ``powershell.exe`` across the console boundary. Depending
+    on the host code page, Chinese error text can come back as GBK/GB18030 bytes
+    instead of UTF-8. ``subprocess.run(..., text=True)`` then raises
+    ``UnicodeDecodeError`` before we can parse the JSON payload, killing the
+    long-lived Zhuque sync bridge. Decode manually and fall back conservatively.
+    """
+    if not raw:
+        return ""
+
+    encodings = ["utf-8-sig"]
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or raw.count(b"\x00") > max(2, len(raw) // 8):
+        encodings.extend(["utf-16", "utf-16-le", "utf-16-be"])
+    encodings.extend(["gb18030", "cp936", "latin-1"])
+
+    for encoding in encodings:
+        try:
+            text = raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        if "\x00" in text and encoding not in {"utf-16", "utf-16-le", "utf-16-be"}:
+            continue
+        return text
+    return raw.decode("utf-8", errors="replace")
+
+
 def _powershell_json(script: str, timeout: float = 8.0) -> dict:
     try:
         with tempfile.NamedTemporaryFile("w", suffix=".ps1", encoding="utf-8", delete=False) as script_file:
@@ -309,7 +337,7 @@ def _powershell_json(script: str, timeout: float = 8.0) -> dict:
         completed = subprocess.run(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
             capture_output=True,
-            text=True,
+            text=False,
             timeout=timeout,
             check=False,
         )
@@ -322,9 +350,9 @@ def _powershell_json(script: str, timeout: float = 8.0) -> dict:
             except OSError:
                 pass
 
-    output = (completed.stdout or "").strip()
+    output = _decode_powershell_bytes(completed.stdout).strip()
     if not output:
-        return {"ok": False, "error": (completed.stderr or "PowerShell 未返回数据").strip()}
+        return {"ok": False, "error": (_decode_powershell_bytes(completed.stderr) or "PowerShell 未返回数据").strip()}
     # Keep the last JSON-looking line; PowerShell can emit incidental progress/noise.
     for line in reversed(output.splitlines()):
         line = line.strip()

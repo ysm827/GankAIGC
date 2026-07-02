@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -20,7 +19,7 @@ from app.utils.auth import (
     verify_password,
     verify_user_token,
 )
-from app.utils.time import utcnow
+from app.utils.time import to_china_naive, utcnow
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -54,7 +53,7 @@ async def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> U
     if not settings.REGISTRATION_ENABLED:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前已关闭新用户注册")
 
-    now = datetime.now(timezone.utc)
+    now = utcnow()
     invite = (
         db.query(RegistrationInvite)
         .filter(
@@ -63,9 +62,7 @@ async def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> U
         )
         .first()
     )
-    expires_at = invite.expires_at if invite else None
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    expires_at = to_china_naive(invite.expires_at if invite else None)
     if not invite or (expires_at and expires_at < now):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邀请码无效")
 

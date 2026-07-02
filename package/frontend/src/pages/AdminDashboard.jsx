@@ -46,7 +46,7 @@ import AdminOperationsPanel from '../components/AdminOperationsPanel';
 import BrandLogo from '../components/BrandLogo';
 import BeerIcon from '../components/BeerIcon';
 import MarkdownPreview, { DEFAULT_ANNOUNCEMENT_MARKDOWN } from '../components/MarkdownPreview';
-import { formatChinaDateTime } from '../utils/dateTime';
+import { formatChinaDate, formatChinaDateTime, parseBackendDate } from '../utils/dateTime';
 
 const DEFAULT_ADMIN_TAB = 'dashboard';
 const ADMIN_TAB_IDS = ['dashboard', 'operations', 'sessions', 'accounts', 'announcements', 'config', 'audit', 'adminProfile'];
@@ -1629,15 +1629,14 @@ const AdminDashboard = () => {
     if (auditDateRange === 'all') {
       return true;
     }
-    const createdAt = log?.created_at ? new Date(log.created_at).getTime() : 0;
+    const createdAt = parseBackendDate(log?.created_at);
     if (!createdAt) {
       return false;
     }
-    const now = Date.now();
     if (auditDateRange === 'today') {
-      return new Date(createdAt).toDateString() === new Date(now).toDateString();
+      return formatChinaDate(createdAt) === formatChinaDate(new Date());
     }
-    return now - createdAt <= 7 * 24 * 60 * 60 * 1000;
+    return Date.now() - createdAt.getTime() <= 7 * 24 * 60 * 60 * 1000;
   };
   const filteredAuditLogs = auditLogs.filter((log) => {
     const severity = getAuditSeverity(log.action).label;
@@ -1649,15 +1648,7 @@ const AdminDashboard = () => {
   });
   const selectedAuditLog = filteredAuditLogs.find((log) => log.id === selectedAuditLogId) || filteredAuditLogs[0] || null;
   const topbarVersionLabel = updateStatus?.current_version || CURRENT_APP_VERSION;
-  const adminTopbarStatusTime = new Date().toLocaleString('zh-CN', {
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).replace(/\//g, '-');
+  const adminTopbarStatusTime = formatChinaDateTime(new Date()).replace(/\//g, '-');
   const sidebarVariantClass = [
     'aurora-admin-sidebar--plain',
     sidebarCollapsed ? 'aurora-admin-sidebar--collapsed' : '',

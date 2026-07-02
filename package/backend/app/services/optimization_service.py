@@ -526,6 +526,7 @@ class OptimizationService:
         result = await self._detect_full_text_once(segments, prefer_reduced=has_reduced_text)
         if not result.get("success"):
             message = result.get("message") or "朱雀检测返回失败"
+            manual_verification_meta = self._zhuque_manual_verification_meta(result)
             await self._emit_zhuque_trace_event({
                 "type": "detect",
                 "round": existing_rounds,
@@ -536,6 +537,7 @@ class OptimizationService:
                 "detect_text_source": result.get("detect_text_source"),
                 "status": "error",
                 "message": f"初始全文检测失败：{message}",
+                **manual_verification_meta,
                 **summarize_zhuque_segment_labels(result),
             })
             self._finalize_zhuque_trace("failed", None, f"初始朱雀检测失败：{message}")
@@ -1715,6 +1717,7 @@ class OptimizationService:
                 "rate": detect_rate,
                 "success": result_success,
                 "message": result.get("message"),
+                **self._zhuque_manual_verification_meta(result),
                 **label_meta,
             })
             return result
@@ -1726,6 +1729,18 @@ class OptimizationService:
                 seg.status = "failed"
             self.db.commit()
             raise RuntimeError(f"全文: {e}") from e
+
+    def _zhuque_manual_verification_meta(self, result: dict) -> dict:
+        if not isinstance(result, dict):
+            return {}
+        keys = (
+            "error_code",
+            "manual_verification_required",
+            "manual_verification_mode",
+            "manual_verification_action",
+            "manual_verification_label",
+        )
+        return {key: result[key] for key in keys if key in result}
 
     def _join_segment_texts(
         self,
@@ -3543,7 +3558,7 @@ class OptimizationService:
             seq = len(events) + 1
         normalized["seq"] = seq
         normalized.setdefault("id", f"zq-{self.session_obj.session_id}-{seq}")
-        normalized.setdefault("created_at", f"{utcnow().isoformat()}Z")
+        normalized.setdefault("created_at", utcnow().isoformat())
         normalized.setdefault("phase", self._infer_zhuque_event_phase(normalized))
         normalized.setdefault("status", self._infer_zhuque_event_status(normalized))
         normalized.setdefault("title", self._build_zhuque_event_title(normalized))

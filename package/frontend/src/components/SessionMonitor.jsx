@@ -16,7 +16,7 @@ import {
   User,
   Eye,
 } from 'lucide-react';
-import { formatChinaDateTime } from '../utils/dateTime';
+import { formatChinaDateTime, parseBackendDate } from '../utils/dateTime';
 
 const getSessionUserLabel = (session) => (
   session.user_display_name || session.nickname || session.username || (session.user_id ? `用户 #${session.user_id}` : '未知用户')
@@ -146,7 +146,7 @@ const getSessionDurationLabel = (session) => {
     const seconds = Number(session.duration_seconds) || 0;
     return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
   }
-  const createdAt = session.created_at ? new Date(session.created_at).getTime() : Date.now();
+  const createdAt = parseBackendDate(session.created_at)?.getTime() || Date.now();
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
   return `${String(Math.floor(elapsedSeconds / 60)).padStart(2, '0')}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
 };

@@ -11,6 +11,29 @@ import BrandLogo from '../components/BrandLogo';
 import { formatChinaDate } from '../utils/dateTime';
 
 const STREAM_FLUSH_INTERVAL_MS = 100;
+const ZHUQUE_MANUAL_VERIFICATION_TEXT_MARKERS = [
+  'zhuque_captcha_required',
+  'manual_verification_required',
+  '腾讯验证码',
+  '验证码',
+  'captcha',
+  'tcaptcha',
+  'Verification Code',
+  'Choose all similar',
+  '朱雀真实页面检测失败',
+  '朱雀真实页面检测超时',
+  '找不到文本输入框',
+  '找不到检测按钮',
+];
+
+const messageNeedsZhuqueManualVerification = (message) => {
+  const text = String(message || '');
+  if (!text) {
+    return false;
+  }
+  const lowerText = text.toLowerCase();
+  return ZHUQUE_MANUAL_VERIFICATION_TEXT_MARKERS.some((marker) => lowerText.includes(marker.toLowerCase()));
+};
 
 const SessionDetailPage = () => {
   const { sessionId } = useParams();
@@ -24,6 +47,8 @@ const SessionDetailPage = () => {
   const [resultViewMode, setResultViewMode] = useState('enhanced');
   const [zhuqueLiveEvents, setZhuqueLiveEvents] = useState([]);
   const [collapsedZhuqueEventKeys, setCollapsedZhuqueEventKeys] = useState(() => new Set());
+  const [isOpeningZhuqueVerification, setIsOpeningZhuqueVerification] = useState(false);
+  const [isRetryingZhuqueAfterVerification, setIsRetryingZhuqueAfterVerification] = useState(false);
   const pendingContentUpdatesRef = useRef([]);
   const pendingZhuqueEventsRef = useRef([]);
   const streamFlushTimerRef = useRef(null);
@@ -247,6 +272,54 @@ const SessionDetailPage = () => {
     }
   };
 
+  const handleOpenZhuqueVerificationWindow = async () => {
+    if (isOpeningZhuqueVerification) {
+      return;
+    }
+
+    try {
+      setIsOpeningZhuqueVerification(true);
+      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true, mode: 'local_window' });
+      const payload = response.data || {};
+      const message = payload.message || '已请求打开朱雀验证窗口，请在真实浏览器完成腾讯验证码。';
+      if (payload.command) {
+        console.info('Zhuque verification command:', payload.command);
+      }
+      if (payload.status === 'manual_required' || payload.status === 'missing_script' || payload.status === 'error') {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '打开朱雀验证窗口失败，请稍后再试');
+    } finally {
+      setIsOpeningZhuqueVerification(false);
+    }
+  };
+
+  const handleRetryZhuqueAfterManualVerification = async () => {
+    if (isRetryingZhuqueAfterVerification) {
+      return;
+    }
+    if (!['failed', 'stopped'].includes(session?.status)) {
+      toast.error('当前任务状态不可继续处理');
+      return;
+    }
+
+    try {
+      setIsRetryingZhuqueAfterVerification(true);
+      const response = await optimizationAPI.retryFailedSegments(sessionId, {
+        billing_mode: session?.billing_mode || 'keep',
+      });
+      toast.success(response.data?.message || '已重新排队继续朱雀检测降重');
+      await loadSessionDetail();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '继续处理失败，请确认验证码已完成后再试');
+    } finally {
+      setIsRetryingZhuqueAfterVerification(false);
+    }
+  };
+
   const sortedSegments = useMemo(() => [...segments].sort((a, b) => a.segment_index - b.segment_index), [segments]);
 
   const getFinalText = useCallback(() => {
@@ -457,6 +530,36 @@ const SessionDetailPage = () => {
     return merged;
   };
 
+  const getZhuqueManualVerificationState = (report, events = [], errorMessage = '') => {
+    const candidates = [
+      report?.result,
+      ...(events || []),
+    ].filter(item => item && typeof item === 'object');
+    const matched = candidates.find(item => (
+      item.manual_verification_required === true
+      || item.error_code === 'zhuque_captcha_required'
+      || messageNeedsZhuqueManualVerification(item.message)
+      || messageNeedsZhuqueManualVerification(item.summary)
+    ));
+    if (matched) {
+      return {
+        label: matched.manual_verification_label || '打开朱雀验证窗口',
+        message: matched.message || matched.summary || '朱雀触发腾讯验证码，需要在真实浏览器完成验证。',
+        mode: matched.manual_verification_mode || 'local_window',
+        action: matched.manual_verification_action || 'open_zhuque_local_window',
+      };
+    }
+    if (messageNeedsZhuqueManualVerification(errorMessage)) {
+      return {
+        label: '打开朱雀验证窗口',
+        message: errorMessage,
+        mode: 'local_window',
+        action: 'open_zhuque_local_window',
+      };
+    }
+    return null;
+  };
+
   const getAgentEventTitle = (event) => {
     if (event?.title) {
       return event.title;
@@ -597,6 +700,11 @@ const SessionDetailPage = () => {
   const zhuqueAgentTrace = useMemo(() => parseZhuqueAgentTrace(session?.zhuque_agent_trace), [session?.zhuque_agent_trace]);
   const zhuqueTraceEvents = useMemo(() => zhuqueAgentTrace?.events || [], [zhuqueAgentTrace]);
   const zhuqueTimelineEvents = useMemo(() => mergeZhuqueEvents(zhuqueTraceEvents, zhuqueLiveEvents), [zhuqueTraceEvents, zhuqueLiveEvents]);
+  const zhuqueManualVerification = useMemo(
+    () => getZhuqueManualVerificationState(zhuqueReport, zhuqueTimelineEvents, session?.error_message),
+    [session?.error_message, zhuqueReport, zhuqueTimelineEvents],
+  );
+  const canRetryZhuqueAfterManualVerification = ['failed', 'stopped'].includes(session?.status);
   const reflectionDrawerIndex = useMemo(() => zhuqueTimelineEvents.findIndex((event) => event.type === 'reflection'), [zhuqueTimelineEvents]);
   const reflectionRollbackEvent = useMemo(() => reflectionDrawerIndex >= 0
     ? [...zhuqueTimelineEvents.slice(0, reflectionDrawerIndex + 1)].reverse().find((event) => event.rollback_applied)
@@ -743,6 +851,43 @@ const SessionDetailPage = () => {
                   <p className="mt-1 text-sm leading-6">
                     {session.error_message || '任务处理失败，请检查 API 配置或稍后继续处理。'}
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {zhuqueManualVerification && (
+            <div className="gank-liquid-section px-5 py-4 text-slate-800">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">朱雀需要人工验证码</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      {zhuqueManualVerification.message}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      完成验证后回到本页点击“验证完成，继续处理”，系统会沿用当前会话继续排队。
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="apple-action-pill"
+                    onClick={handleOpenZhuqueVerificationWindow}
+                    disabled={isOpeningZhuqueVerification || zhuqueManualVerification.mode !== 'local_window'}
+                  >
+                    {isOpeningZhuqueVerification ? '正在打开…' : zhuqueManualVerification.label}
+                  </button>
+                  <button
+                    type="button"
+                    className="apple-ghost-pill"
+                    onClick={handleRetryZhuqueAfterManualVerification}
+                    disabled={!canRetryZhuqueAfterManualVerification || isRetryingZhuqueAfterVerification}
+                  >
+                    {isRetryingZhuqueAfterVerification ? '正在继续…' : '验证完成，继续处理'}
+                  </button>
                 </div>
               </div>
             </div>

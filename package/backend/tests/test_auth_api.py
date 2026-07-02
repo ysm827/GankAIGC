@@ -8,7 +8,8 @@ from starlette.requests import Request
 import app.config as config_module
 from app.main import _get_rate_limit_key
 from app.utils.crypto import decrypt_secret, encrypt_secret
-from app.utils.auth import create_access_token
+from app.utils.auth import create_access_token, verify_token
+from app.utils.time import utc_naive_now, utcnow
 
 
 def _admin_auth_headers(client):
@@ -24,6 +25,18 @@ def _admin_auth_headers(client):
 def test_auth_endpoints_require_non_default_runtime_secrets(client):
     response = client.get("/health")
     assert response.status_code == 200
+
+
+def test_project_business_time_uses_china_timezone_but_jwt_uses_utc():
+    business_now = utcnow()
+    token_now = utc_naive_now()
+
+    # 中国业务时间写入数据库，避免后台/历史列表直查时少 8 小时。
+    assert 7.5 * 3600 <= (business_now - token_now).total_seconds() <= 8.5 * 3600
+
+    token = create_access_token({"sub": "time-check", "role": "admin"}, expires_delta=timedelta(minutes=5))
+    payload = verify_token(token)
+    assert payload
 
 
 def test_register_requires_valid_invite(client):

@@ -12,12 +12,15 @@ FROM ${DOCKER_IMAGE_PREFIX}library/python:3.11-slim AS app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
 
 WORKDIR /app/package
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
     && mkdir -p /app/config \
     && rm -rf /var/lib/apt/lists/*
 

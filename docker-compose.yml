@@ -14,6 +14,7 @@ services:
       SERVER_PORT: 9800
       APP_ENV: production
       AUTO_OPEN_BROWSER: "false"
+      TZ: ${TZ:-Asia/Shanghai}
       GANKAIGC_ENV_FILE: /app/config/.env.docker
       DATABASE_URL: postgresql://ai_polish:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}@postgres:5432/ai_polish
       INLINE_TASK_WORKER_ENABLED: "false"
@@ -44,6 +45,7 @@ services:
     environment:
       APP_ENV: production
       AUTO_OPEN_BROWSER: "false"
+      TZ: ${TZ:-Asia/Shanghai}
       GANKAIGC_ENV_FILE: /app/config/.env.docker
       GANKAIGC_HOST_PROJECT_DIR: ${GANKAIGC_HOST_PROJECT_DIR:-${PWD:-.}}
       DATABASE_URL: postgresql://ai_polish:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}@postgres:5432/ai_polish
@@ -63,10 +65,13 @@ services:
 
   postgres:
     image: ${DOCKER_IMAGE_PREFIX:-docker.m.daocloud.io/}library/postgres:16-alpine
+    command: ["postgres", "-c", "timezone=${TZ:-Asia/Shanghai}"]
     environment:
       POSTGRES_DB: ai_polish
       POSTGRES_USER: ai_polish
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}
+      TZ: ${TZ:-Asia/Shanghai}
+      PGTZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -86,6 +91,8 @@ services:
       POSTGRES_DB: ai_polish
       POSTGRES_USER: ai_polish
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}
+      TZ: ${TZ:-Asia/Shanghai}
+      PGTZ: ${TZ:-Asia/Shanghai}
       BACKUP_DIR: /backups
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}

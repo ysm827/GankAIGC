@@ -557,6 +557,41 @@ def test_zhuque_capture_uses_windows_powershell_bridge(monkeypatch):
     assert bridge_calls == [{"trigger_login_when_missing": True}]
 
 
+def test_zhuque_capture_powershell_json_decodes_windows_codepage(monkeypatch):
+    import importlib.util
+    import subprocess
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_powershell_decode", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    payload = '{"ok":false,"error":"中文错误"}\n'.encode("gb18030")
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(args[0], 0, stdout=payload, stderr=b"")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module._powershell_json("Write-Output '{}'")
+
+    assert result == {"ok": False, "error": "中文错误"}
+    assert calls and calls[0]["text"] is False
+
+
+def test_zhuque_local_window_and_retry_reset_cached_user_service():
+    route_source = (Path(__file__).resolve().parents[1] / "app" / "routes" / "optimization.py").read_text(encoding="utf-8")
+
+    local_window_branch = route_source.split('if mode == "local_window":', 1)[1].split("payload = await zhuque_remote_login_service.start", 1)[0]
+    retry_block = route_source.split("async def retry_session", 1)[1].split("db.commit()", 1)[0]
+
+    assert 'getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)' in local_window_branch
+    assert 'if session.processing_mode == "ai_detect_reduce":' in retry_block
+    assert 'getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)' in retry_block
+
+
 def test_zhuque_capture_restarts_stale_windows_debug_profile(monkeypatch):
     import importlib.util
 
@@ -1391,6 +1426,35 @@ def test_zhuque_api_missing_access_token_uses_anonymous_fp_before_page_fallback(
     assert calls == []
 
 
+def test_zhuque_api_page_injection_uses_raw_local_storage(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "top-level-token",
+                "localStorage": {
+                    "aiGenAccessToken": json.dumps({"value": "storage-token"}, ensure_ascii=False),
+                    "fp": "captured-fp",
+                    "language": "en",
+                },
+                "userName": "tester",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    api = ZhuqueAPI(credentials_file=creds_file)
+    creds = api.load_credentials(refresh=True)
+    local_storage = api._page_local_storage_from_credentials(creds)
+
+    assert json.loads(local_storage["aiGenAccessToken"])["value"] == "storage-token"
+    assert local_storage["fp"] == "captured-fp"
+    assert local_storage["language"] == "en"
+
+
 def test_zhuque_api_treats_websocket_label_one_as_human():
     from app.services.zhuque_api import parse_zhuque_websocket_result
 
@@ -1500,12 +1564,214 @@ def test_zhuque_api_page_payload_merge_prefers_segment_labels_over_card_summary(
     assert result["source"] == "page_fallback"
 
 
+def test_zhuque_api_page_observed_payload_does_not_require_vue_dom_state():
+    from app.services.zhuque_api import _normalize_zhuque_observed_page_result
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {
+                "confidence": 64.5,
+                "labels_ratio": {"0": 0.645, "1": 0.2, "2": 0.155},
+                "segment_labels": [
+                    {
+                        "text": "朱雀命中段落",
+                        "label": 0,
+                        "conf": 0.99,
+                        "position": [0, 6],
+                    }
+                ],
+            }
+        ],
+        page_state={
+            "button_text": "Detect now(19 left)",
+            "alert": "",
+            "alert_title": "",
+        },
+        text_length=805,
+    )
+
+    assert result is not None
+    assert result["success"] is True
+    assert result["rate"] == 64.5
+    assert result["remaining_uses"] == 19
+    assert result["page_result_payload_count"] == 1
+    assert result["page_result_has_segment_labels"] is True
+    assert result["segment_labels"][0]["position_end"] == 6
+
+
+def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
+    from app.services.zhuque_api import (
+        _extract_zhuque_terminal_payload,
+        _normalize_zhuque_observed_page_result,
+    )
+
+    assert _extract_zhuque_terminal_payload({"segment_labels": []}) is None
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {"segment_labels": []},
+            {"segment_labels": [], "remainingUses": 20},
+        ],
+        page_state={
+            "button_text": "Detect now(20 left)",
+            "alert": "",
+            "alert_title": "",
+        },
+        text_length=871,
+    )
+
+    assert result is None
+
+
+def test_zhuque_api_detects_real_page_captcha_challenge():
+    from app.services.zhuque_api import _captcha_required_zhuque_result, _zhuque_page_captcha_detected
+
+    assert _zhuque_page_captcha_detected(
+        {
+            "captcha_visible": True,
+            "captcha_text": "Refreshing too often Verification Code will refresh in 2 sec.",
+            "captcha_iframe_src": "https://captcha.gtimg.com/static/template/drag_ele.html",
+            "button_text": "Detecting",
+        }
+    )
+    assert _zhuque_page_captcha_detected(
+        {
+            "captcha_visible": False,
+            "captcha_text": "Choose all similar images",
+            "button_text": "Detecting",
+        }
+    )
+    assert not _zhuque_page_captcha_detected(
+        {
+            "captcha_visible": False,
+            "captcha_text": "",
+            "button_text": "Detect now(20 left)",
+        }
+    )
+    result = _captcha_required_zhuque_result("朱雀触发腾讯验证码", 871)
+    assert result["success"] is False
+    assert result["error_code"] == "zhuque_captcha_required"
+    assert result["source"] == "page_fallback"
+    assert result["manual_verification_required"] is True
+    assert result["manual_verification_mode"] == "local_window"
+    assert result["manual_verification_action"] == "open_zhuque_local_window"
+    assert result["manual_verification_label"] == "打开朱雀验证窗口"
+
+
 def test_zhuque_api_ignores_non_terminal_websocket_frames():
     from app.services.zhuque_api import parse_zhuque_websocket_result
 
     assert parse_zhuque_websocket_result("not-json", text_length=1000) is None
     assert parse_zhuque_websocket_result('{"status":"waiting","remaining":0}', text_length=1000) is None
     assert parse_zhuque_websocket_result('{"code":"1","msg":"OK"}', text_length=1000) is None
+
+
+def test_zhuque_api_valid_token_uses_real_page_instead_of_ws_bypass(monkeypatch, tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "token",
+                "localStorage": {"aiGenAccessToken": "token"},
+                "userName": "tester",
+                "remainingUses": 20,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    api = ZhuqueAPI(credentials_file=creds_file)
+    page_fallback_calls = []
+
+    async def fake_connect(headers):
+        raise AssertionError("detect() must not use the obsolete WebSocket CAPTCHA bypass")
+
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        page_fallback_calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
+        return {
+            "success": True,
+            "rate": 0.0,
+            "risk_rate": 0.0,
+            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+            "remaining_uses": 19,
+            "text_length": len(text),
+            "source": "page_fallback",
+        }
+
+    monkeypatch.setattr(api, "_connect", fake_connect)
+    monkeypatch.setattr(api, "_detect_with_page", fake_detect_with_page)
+
+    result = asyncio.run(api.detect("汉" * 500, timeout=60.0))
+
+    assert result["success"] is True
+    assert result["source"] == "page_fallback"
+    assert result["remaining_uses"] == 19
+    assert page_fallback_calls
+    assert page_fallback_calls[0]["anonymous"] is False
+    assert "验证码绕过已失效" in page_fallback_calls[0]["reason"]
+
+
+def test_zhuque_api_short_text_returns_failure_without_page(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
+
+    result = asyncio.run(api.detect("太短"))
+
+    assert result["success"] is False
+    assert "文本长度不足" in result["message"]
+    assert result["text_length"] == 2
+
+
+def test_zhuque_api_page_fallback_retries_timeout(monkeypatch, tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "token",
+                "localStorage": {"aiGenAccessToken": "token"},
+                "userName": "tester",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    api = ZhuqueAPI(credentials_file=creds_file)
+    calls = []
+
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
+        if len(calls) == 1:
+            return {
+                "success": False,
+                "message": "朱雀真实页面检测超时 (60.0s)",
+                "remaining_uses": -1,
+                "text_length": len(text),
+                "source": "page_fallback",
+            }
+        return {
+            "success": True,
+            "rate": 0.0,
+            "risk_rate": 0.0,
+            "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+            "remaining_uses": 18,
+            "text_length": len(text),
+            "source": "page_fallback",
+        }
+
+    monkeypatch.setattr(api, "_detect_with_page", fake_detect_with_page)
+
+    result = asyncio.run(api.detect("汉" * 500, timeout=60.0))
+
+    assert result["success"] is True
+    assert result["remaining_uses"] == 18
+    assert len(calls) == 2
+    assert calls[0]["anonymous"] is False
+    assert api._last_detect_failed is False
 
 
 def test_zhuque_api_missing_credentials_attempts_anonymous_page_fallback(monkeypatch, tmp_path):
@@ -2061,6 +2327,7 @@ def test_zhuque_service_starts_with_wechat_credentials(monkeypatch):
             "page_found": True,
             "has_token": True,
             "remaining_uses": 5,
+            "peek_remaining_uses": 5,
             "credential_file": "/tmp/creds_latest.json",
             "message": "朱雀微信凭证已就绪，检测将走无头 API",
         }
@@ -2497,6 +2764,225 @@ def test_zhuque_service_detect_persists_anonymous_remaining_uses(tmp_path):
     assert "免费次数" in session_status["message"]
 
 
+def test_zhuque_service_detect_timeout_keeps_cached_credentials_state(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    creds_file = tmp_path / "user_9" / "creds_latest.json"
+    creds_file.parent.mkdir(parents=True)
+
+    class TimeoutDetectAPI:
+        def __init__(self):
+            self.credentials_file = creds_file
+            self.forget_calls = 0
+
+        def credential_status(self):
+            return {
+                "has_token": True,
+                "remaining_uses": 5,
+                "button_enabled": True,
+                "credential_file": str(creds_file),
+            }
+
+        async def detect(self, text, timeout=60.0):
+            return {
+                "success": False,
+                "message": f"检测超时 ({timeout}s), 请检查朱雀凭证或网络状态",
+                "remaining_uses": -1,
+                "text_length": len(text),
+            }
+
+        def forget_credentials_cache(self):
+            self.forget_calls += 1
+
+    async def run_detect(service):
+        consumer_task = asyncio.create_task(service._consumer())
+        try:
+            return await asyncio.wait_for(service.detect("汉" * 500), timeout=1.0)
+        finally:
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
+
+    fake_api = TimeoutDetectAPI()
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_9")
+    service.api = fake_api
+    service._ready = True
+    service._last_remaining_uses = 5
+
+    result = asyncio.run(run_detect(service))
+
+    assert result["success"] is False
+    assert fake_api.forget_calls == 0
+    assert service.is_ready is True
+    assert service.cached_remaining_uses() == 5
+
+
+def test_zhuque_service_detect_auth_failure_resets_cached_credentials_state(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    creds_file = tmp_path / "user_9" / "creds_latest.json"
+    creds_file.parent.mkdir(parents=True)
+
+    class AuthFailureDetectAPI:
+        def __init__(self):
+            self.credentials_file = creds_file
+            self.forget_calls = 0
+
+        def credential_status(self):
+            return {
+                "has_token": True,
+                "remaining_uses": 5,
+                "button_enabled": True,
+                "credential_file": str(creds_file),
+            }
+
+        async def detect(self, text, timeout=60.0):
+            return {
+                "success": False,
+                "message": "登录已过期，请重新微信扫码登录",
+                "remaining_uses": -1,
+                "text_length": len(text),
+            }
+
+        def forget_credentials_cache(self):
+            self.forget_calls += 1
+
+    async def run_detect(service):
+        consumer_task = asyncio.create_task(service._consumer())
+        try:
+            return await asyncio.wait_for(service.detect("汉" * 500), timeout=1.0)
+        finally:
+            consumer_task.cancel()
+            try:
+                await consumer_task
+            except asyncio.CancelledError:
+                pass
+
+    fake_api = AuthFailureDetectAPI()
+    service = ZhuqueService(credentials_file=creds_file, owner_label="user_9")
+    service.api = fake_api
+    service._ready = True
+    service._last_remaining_uses = 5
+
+    result = asyncio.run(run_detect(service))
+
+    assert result["success"] is False
+    assert fake_api.forget_calls == 1
+    assert service.is_ready is False
+    assert service.cached_remaining_uses() is None
+
+
+def test_zhuque_service_consumer_survives_cancelled_detect_future(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    creds_file = tmp_path / "user_10" / "creds_latest.json"
+    creds_file.parent.mkdir(parents=True)
+
+    class SlowThenFastAPI:
+        def __init__(self):
+            self.credentials_file = creds_file
+            self.calls = 0
+
+        def credential_status(self):
+            return {
+                "has_token": True,
+                "remaining_uses": 5,
+                "button_enabled": True,
+                "credential_file": str(creds_file),
+            }
+
+        async def detect(self, text, timeout=60.0):
+            self.calls += 1
+            if self.calls == 1:
+                await asyncio.sleep(0.05)
+            return {
+                "success": True,
+                "rate": 0.0,
+                "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+                "remaining_uses": max(5 - self.calls, 0),
+                "text_length": len(text),
+            }
+
+    async def run_flow():
+        fake_api = SlowThenFastAPI()
+        service = ZhuqueService(credentials_file=creds_file, owner_label="user_10")
+        service.api = fake_api
+        service._ready = True
+        service._consumer_task = asyncio.create_task(service._consumer())
+        try:
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(service.detect("汉" * 500), timeout=0.01)
+            result = await asyncio.wait_for(service.detect("汉" * 500), timeout=1.0)
+            return fake_api, service, result
+        finally:
+            if service._consumer_task:
+                service._consumer_task.cancel()
+                try:
+                    await service._consumer_task
+                except asyncio.CancelledError:
+                    pass
+
+    fake_api, service, result = asyncio.run(run_flow())
+
+    assert fake_api.calls == 2
+    assert result["success"] is True
+    assert service.cached_remaining_uses() == 3
+
+
+def test_zhuque_service_detect_restarts_dead_consumer_task(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    creds_file = tmp_path / "user_11" / "creds_latest.json"
+    creds_file.parent.mkdir(parents=True)
+
+    class ImmediateAPI:
+        credentials_file = creds_file
+
+        def credential_status(self):
+            return {
+                "has_token": True,
+                "remaining_uses": 5,
+                "button_enabled": True,
+                "credential_file": str(creds_file),
+            }
+
+        async def detect(self, text, timeout=60.0):
+            return {
+                "success": True,
+                "rate": 0.0,
+                "labels_ratio": {"0": 0.0, "1": 1.0, "2": 0.0},
+                "remaining_uses": 4,
+                "text_length": len(text),
+            }
+
+    async def run_flow():
+        async def already_done():
+            return None
+
+        service = ZhuqueService(credentials_file=creds_file, owner_label="user_11")
+        service.api = ImmediateAPI()
+        service._ready = True
+        service._consumer_task = asyncio.create_task(already_done())
+        await service._consumer_task
+        try:
+            result = await asyncio.wait_for(service.detect("汉" * 500), timeout=1.0)
+            return service, result
+        finally:
+            if service._consumer_task:
+                service._consumer_task.cancel()
+                try:
+                    await service._consumer_task
+                except asyncio.CancelledError:
+                    pass
+
+    service, result = asyncio.run(run_flow())
+
+    assert result["success"] is True
+    assert service.cached_remaining_uses() == 4
+
+
 def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):
     from app.services.zhuque_service import ZhuqueService
     import app.services.zhuque_service as zhuque_service_module
@@ -2536,6 +3022,50 @@ def test_zhuque_service_readiness_uses_live_quota_probe(monkeypatch):
         assert fake_api.peek_calls == 1
         assert result["remaining_uses"] == 16
         assert result["ready"] is True
+    finally:
+        if service._consumer_task:
+            service._consumer_task.cancel()
+        service._ready = False
+        service.api = None
+        service._consumer_task = None
+        service._last_remaining_uses = None
+        service._last_remaining_checked_at = 0
+
+
+def test_zhuque_service_readiness_blocks_logged_in_when_forced_live_probe_unusable(monkeypatch):
+    from app.services.zhuque_service import ZhuqueService
+    import app.services.zhuque_service as zhuque_service_module
+
+    fake_api = StatusOnlyZhuqueAPI(
+        {
+            "ready": True,
+            "connected": True,
+            "page_found": True,
+            "has_token": True,
+            "remaining_uses": 20,
+            "button_enabled": True,
+            "peek_remaining_uses": None,
+            "peek_button_enabled": False,
+            "credential_file": "/tmp/creds_latest.json",
+            "message": "朱雀微信凭证已就绪，检测将走无头 API",
+        }
+    )
+    service = ZhuqueService()
+    service.api = None
+    service._ready = False
+    service._consumer_task = None
+    service._last_remaining_uses = None
+    service._last_remaining_checked_at = 0
+    monkeypatch.setattr(zhuque_service_module, "ZhuqueAPI", lambda *args, **kwargs: fake_api)
+
+    try:
+        result = asyncio.run(service.readiness("汉" * 500))
+
+        assert fake_api.peek_calls == [{"timeout": 2.5, "allow_anonymous": False}]
+        assert result["remaining_uses"] == -1
+        assert result["button_enabled"] is False
+        assert result["ready"] is False
+        assert "暂未探测到朱雀剩余次数" in result["message"]
     finally:
         if service._consumer_task:
             service._consumer_task.cancel()
@@ -3107,6 +3637,72 @@ def test_ai_detect_reduce_does_not_complete_on_invalid_zhuque_zero_payload(monke
         assert segment.zhuque_detect_rate is None
         assert segment.zhuque_reduce_attempt == 0
         assert transactions == []
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_captcha_failure_records_manual_verification_metadata(monkeypatch):
+    import app.services.optimization_service as optimization_service_module
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    fake_zhuque = FakeZhuqueService([
+        {
+            "success": False,
+            "message": "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
+            "error_code": "zhuque_captcha_required",
+            "manual_verification_required": True,
+            "manual_verification_mode": "local_window",
+            "manual_verification_action": "open_zhuque_local_window",
+            "manual_verification_label": "打开朱雀验证窗口",
+            "labels_ratio": {},
+            "remaining_uses": 9,
+        }
+    ])
+    monkeypatch.setattr(optimization_service_module, "zhuque_service", fake_zhuque)
+    monkeypatch.setattr(OptimizationService, "_init_ai_services", lambda self: _install_fake_ai_services(self, FakeAIService()))
+    monkeypatch.setattr(optimization_service_module.settings, "ZHUQUE_DETECT_INTERVAL", 0, raising=False)
+
+    db = SessionLocal()
+    try:
+        session = OptimizationSession(
+            user_id=user_id,
+            session_id="zhuque-captcha-manual-verification",
+            original_text="原始文本",
+            current_stage="ai_detect_reduce",
+            status="queued",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+        )
+        db.add(session)
+        db.flush()
+        segment = OptimizationSegment(
+            session_id=session.id,
+            segment_index=0,
+            stage="ai_detect_reduce",
+            original_text="这是一段用于触发朱雀全文检测的长文本。" * 40,
+            status="pending",
+        )
+        db.add(segment)
+        db.commit()
+
+        service = OptimizationService(db, session)
+        with pytest.raises(RuntimeError, match="腾讯验证码"):
+            asyncio.run(service.start_optimization())
+
+        db.refresh(session)
+        db.refresh(segment)
+        result = json.loads(segment.zhuque_detect_result)
+        trace = json.loads(session.zhuque_agent_trace)
+        detect_event = next(event for event in trace["events"] if event["type"] == "detect")
+
+        assert session.status == "failed"
+        assert result["error_code"] == "zhuque_captcha_required"
+        assert result["manual_verification_required"] is True
+        assert result["manual_verification_mode"] == "local_window"
+        assert detect_event["error_code"] == "zhuque_captcha_required"
+        assert detect_event["manual_verification_required"] is True
+        assert detect_event["manual_verification_action"] == "open_zhuque_local_window"
     finally:
         db.close()
 

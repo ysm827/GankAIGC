@@ -186,12 +186,14 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Detection is a Zhuque-side quota operation and must not create GankAIGC beer transactions.
 - Login/setup from the workspace button defaults to remote QR mode for VPS deployments: the backend opens Tencent Zhuque in headless Chromium, extracts/screenshots the WeChat QR area, returns `qr_image_data` to the frontend modal, polls until login succeeds, then writes credentials under the current user's isolated directory. The old `zhuque_pkg/capture_zhuque_creds.py --sync-session` real-window flow is retained only behind `mode="local_window"` for local development or explicit troubleshooting.
 - Zhuque credentials are per GankAIGC user, not global. The default path is `zhuque_pkg/users/user_<id>/creds_latest.json` with sibling `browser_state.json`, `session_status.json`, and `qrcode_latest.png`. `ZHUQUE_USER_DATA_DIR` may override the root directory. `OptimizationService`, readiness, preflight, status, and detect calls must use `zhuque_service.for_user(user.id)` / `zhuque_service.for_user(session.user_id)`. The `mode="local_window"` compatibility launcher must pass `ZHUQUE_CAPTURE_DIR=<that user dir>` so even local-window sync cannot write the legacy global credential file. Never use the legacy repo-level `zhuque_pkg/creds_latest.json` for authenticated user tasks unless explicitly running the compatibility service without a user.
-- Clicking GankAIGC's already-logged-in button must not pre-delete credentials or auto-logout the page. In remote QR mode it opens a new per-user QR/login session; in `local_window` mode only a real logout observed inside the Tencent Zhuque page counts as logout. After a per-user `creds_latest.json` exists, detection must go directly through the Zhuque WebSocket API using that user's credentials. Do not resurrect global local page-control/CDP detection logic.
+- Clicking GankAIGC's already-logged-in button must not pre-delete credentials or auto-logout the page. In remote QR mode it opens a new per-user QR/login session; in `local_window` mode only a real logout observed inside the Tencent Zhuque page counts as logout. After a per-user `creds_latest.json` exists, detection must use that user's isolated `ZhuqueAPI` instance. Current text detection must not rely on the obsolete WebSocket CAPTCHA shortcut (`code=21` / `msg=diff`); use a persistent Playwright real-page session that injects the captured per-user `localStorage`, captures terminal Zhuque WebSocket/HTTP result payloads from the page, and keeps anonymous and logged-in browser contexts separated. The real-page detector must cache and reuse the same Playwright page inside a credential/mode-stable context, clearing the previous input before each detect; closing and recreating a page for every detect loses the browser continuity that reduces Tencent CAPTCHA/rate-limit challenges. Refresh/close the cached page only when credentials are reset, the anonymous/logged-in mode changes, the page is closed, or the browser/context crashes. Do not resurrect global local page-control/CDP detection logic.
 - Zhuque remaining-use values are not guaranteed to exist in `quotaText`; current live pages can expose quota via `availableUses`, `remainingUses`, `remaining_uses`, button text such as `Detect now(18 left)`, Chinese quota copy, or Vue page state such as `aiGenTxtRemainingCount`. Backend code must normalize all numeric sources and must also preserve real-page `button_enabled` when the numeric count is hidden. `creds_latest.json` captures quota at login time and is stale after detections; `ZhuqueService.readiness()` and `start()` must refresh quota through `ZhuqueAPI.peek_quota_status()` / `peek_remaining_uses()` when a token exists or when anonymous free detection is requested. The peek/probe must not click the Detect button or consume a detection use. Throttle passive workspace probes (current guard: `ZHUQUE_QUOTA_REFRESH_INTERVAL_SECONDS`) and force-refresh preflight/start paths with valid real text. A displayed `-1` means unknown, not zero; `remaining_uses < 0` must never be shown as a numeric quota, but it may still be ready when the live Zhuque page exposes a clickable detection button (`button_enabled=true`). Explicit `remaining_uses == 0` remains a hard block.
 - Anonymous/free quota page probes must also return the real `localStorage.fp` as `fp`/`anonymous_fp`/`has_anonymous_fp`. `refresh_free_quota()` must persist logged-out `session_status.json` when a fresh anonymous fp is present even if `remaining_uses=-1`, because the next refresh/start should use `{"fp": "<persisted>"}` for the no-consume WebSocket quota peek instead of opening a new anonymous page and losing the just-issued fp. Successful anonymous `ZhuqueService.detect()` calls must also persist the detection fp and returned/deduced `remaining_uses` to the current user's logged-out `session_status.json`; otherwise the next workspace refresh may bounce back to a different legacy anonymous identity.
 - Anonymous/free quota page probes must initialize Playwright with an existing token-free Zhuque anonymous identity before navigation. Priority is: current user's token-free sibling `browser_state.json` -> current user's logged-out `session_status.json.anonymous_fp` / logged-out `creds_latest.json` -> legacy repo-level `zhuque_pkg/browser_state.json` only when the current user has no anonymous fp. Any `browser_state.json` candidate must be sanitized to `cookies: []` and only `localStorage.fp`/`language`; ignore it entirely if the top-level payload, localStorage, or cookies contain access/auth token material. Never seed cookies or tokens into anonymous page probes.
 - During real-page logout sync, Zhuque can briefly hide the anonymous quota while the page rerenders. If the current logged-out auth snapshot has no quota, the capture script may preserve the last known non-negative quota in non-secret `session_status.json` so the workspace does not flash an unknown/free placeholder. This preserved value is UI state only: do not write it into `creds_latest.json`, do not treat it as a logged-in token, and prefer a newly parsed logged-out page quota or live `button_enabled` state as soon as it appears.
 - Workspace passive Zhuque polling must stay fast and must not block the UI on WebSocket close/connect hangs. `ZhuqueService.readiness(text=None)` should reuse a recent live quota cache or a non-negative quota from `creds_latest.json` / `session_status.json` without a live `peek_remaining_uses()` call; unknown quota should remain `-1` instead of probing from the status panel. Preflight/start paths with valid real text (`text is not None` and length is valid) must force a live no-consume quota/page-state probe. `POST /zhuque/free-quota/refresh` is an explicit user action: if the live anonymous probe parses a non-negative number, return it; if the number is hidden but the real Zhuque detect button is clickable, return `ready=true`, `button_enabled=true`, `remaining_uses=-1`, and copy that says the remaining count will sync after detection; if neither number nor clickable button is available, return `ready=false`, `button_enabled=false`, `remaining_uses=-1`, and an actionable message instead of preserving a previous `16 次` cache.
+- Real-page detection must keep the previous traffic-payload terminal-result normalization: if the page observes a terminal Zhuque payload in WebSocket frames or `/user/detect/result`, return it without requiring the old `.ai-detection-result.__vue__.type/rate` DOM shape. This prevents a false timeout after Zhuque has already consumed a detection use. Empty transient payloads such as `{"segment_labels":[]}` are not terminal results and must not be normalized into `"朱雀检测响应缺少有效检测分数"`; keep polling until a payload contains `confidence`/`rate`/`labels_ratio` or non-empty `segment_labels`, or until timeout.
+- Real-page detection must fail fast when Tencent CAPTCHA UI is visible (`tcaptcha`, `captcha.gtimg.com`, `Verification Code`, `Choose all similar`, or Chinese captcha copy). In headless mode there is no human to solve the challenge, so the pipeline must return an actionable Zhuque failure instead of waiting for the full detect timeout or retrying the same blocked click three times. CAPTCHA failures must carry compact action metadata: `error_code="zhuque_captcha_required"`, `manual_verification_required=true`, `manual_verification_mode="local_window"`, and `manual_verification_action="open_zhuque_local_window"`. `_detect_full_text_once()` must persist these fields in `zhuque_detect_result` and include them in compact trace/SSE metadata so the detail page can open the explicit real-browser verification path.
 - `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. On WSL, a Windows-installed Chrome/Edge/Brave under `/mnt/c/.../*.exe` counts as controllable: the capture script must launch it as a small app window with a dedicated `--remote-debugging-port` and connect via Chrome DevTools Protocol so the visible QR window appears on the user's Windows desktop while GankAIGC can still sync cookies/localStorage. It must not return `started` if the real-page sync window cannot open; otherwise users see a false positive while no login/logout state can be synced.
 - If WSL cannot reach the Windows Chrome CDP port directly but Windows itself can access `http://127.0.0.1:<ZHUQUE_CDP_PORT>`, `capture_zhuque_creds.py --sync-session` must switch to the Windows PowerShell CDP bridge instead of falling back to Playwright's Chromium. The bridge reads the real Windows Chrome page state, cookies, and localStorage from the Windows side and writes repo-level `creds_latest.json` plus non-secret `session_status.json`.
 - Windows Chrome may ignore a new `--remote-debugging-port` launch when the dedicated GankAIGC profile is already open without CDP. The capture script may stop only Chrome processes whose command line references the dedicated `ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR`/`GankAIGC\ZhuqueChromeProfile` profile or the configured debug port, then relaunch with CDP. It must never kill the user's normal Chrome profile.
@@ -206,7 +208,7 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Zhuque `segment_labels[].position` is relative to the joined text using `"\n\n"` separators and live Zhuque payloads use `[start, length]`, not `[start, end]`. Only labels `0` (AI) and `2` (suspicious) select segments for rewrite. If usable positions are absent, run the fallback segment classifier instead of trusting stale/guessed positions.
 - When Zhuque positions are absent, the safe fallback must first run the Zhuque fallback segment classifier instead of blindly rewriting every segment. The classifier may skip heading rows, references, formulas/metric-only lines, metadata, and very short fragments, but it must not skip section bodies: `ABSTRACT_HEADING` / `ACK_HEADING` / `SECTION_HEADING` are skipped while `ABSTRACT_BODY`, `ACK_BODY`, conclusion/discussion content, `BODY`, and conservative `UNKNOWN` candidates remain reducible. `REFERENCE_HEADING` enters reference-zone handling and reference items remain skipped. Classification trace must be compact metadata only: type codes, actions, reasons, lengths, selected indices, and counts; never full text.
 - Zhuque batch reduce may group selected segments for the existing `polish` and `enhance` stages, but it must preserve the two-stage contract unless an explicit single-pass feature flag is introduced later. Batch prompts must require JSON array output keyed by segment id, independent per-segment rewriting, no merge/split/continuation, and preservation of numbers, citations, terminology, research objects, conditions, and conclusions. JSON/ID/empty-text structural failures fall back to the old single-segment path. Length violations are not batch failures; they continue through the service-side ±10% length repair contract. Batch trace/logs must include batch id, stage, selected indices, durations, validation status, fallback counts, and estimated saved calls without storing full text.
-- Retry after failure must detect `zhuque_reduced_text` first when present and continue from `max(zhuque_reduce_attempt) + 1`; it must not restart from original text.
+- Retry after failure must detect `zhuque_reduced_text` first when present and continue from `max(zhuque_reduce_attempt) + 1`; it must not restart from original text. When queuing the retry, clear only the stale `zhuque_agent_trace.final` diagnosis while preserving prior compact `events`, so the detail page does not keep showing the previous failed final diagnosis during the new queued/processing attempt.
 - Export and session detail final text must prefer `zhuque_reduced_text`, then `enhanced_text`, then `polished_text`, then `original_text`.
 - `POST /api/optimization/sessions/{session_id}/export` also supports `export_format="aigc_report_docx"` and `export_format="aigc_report_md"` for completed `ai_detect_reduce` sessions. The report must not replace the final-text export; it is a separate AIGC report artifact. It must include a summary and a per-segment table with segment index, length, risk/AI rate, AI-label rate, suspicious-label rate, human-label rate, and status. If Zhuque `segment_labels[].position` exists, map positions back to final exported segment text using the same `"\n\n"` separator convention; if positions are absent, fall back to the full-text risk/labels ratio for each segment and mark it as fallback-derived.
 - Zhuque reduce output length is a hard service-side contract, not prompt-only guidance. For each rewritten segment, compare the final reduced text against `original_text` with `count_text_length`; accepted output must stay within ±10%. Retry may still start detection/rewrite from latest `zhuque_reduced_text`, but the length baseline remains the original segment to avoid carrying forward already-bloated text. If polish/enhance output exceeds the bound, run one `enhance_text` length-repair call using a "Zhuque length correction" prompt, still preserving facts, terminology, data, citations, and conclusions. If the repair still fails, fall back to the length-compliant polished result, original segment, or original round input; do not blindly truncate text.
@@ -279,12 +281,14 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Good: a completed `ai_detect_reduce` export with `aigc_report_docx`/`aigc_report_md` returns a separate "AIGC检测报告" filename, includes each final segment's text and per-segment AI rate, and still lets normal `docx`/`md` export return only the final paper text.
 - Base: full text risk rate is below threshold; all segments keep original text, detect count is 1, and no beer transaction exists.
 - Bad: retrying a failed `ai_detect_reduce` session with 0 beers pre-holds `optimization_start` or redetects original text; both violate the contract.
+- Bad: retrying a failed `ai_detect_reduce` session leaves the old `zhuque_agent_trace.final.diagnosis` in place, causing the detail page to show the previous failure as the current attempt's diagnosis.
 - Bad: AIGC report export uses `labels_ratio[1]` as AI, writes the report over the final paper export, omits segment rows, or reports raw `-1` remaining uses as a negative quota.
 - Bad: `byok` start with no provider config calls Zhuque readiness first; this leaks setup order and can produce confusing Zhuque errors before the API config error.
 
 ### 6. Tests Required
 
 - Billing: start and retry do not pre-hold platform credit for `ai_detect_reduce`; actual reduce charges `zhuque_reduce`.
+- Retry trace: retrying a failed/stopped `ai_detect_reduce` session removes stale `zhuque_agent_trace.final` but preserves existing compact trace `events`.
 - Pipeline: low-risk skip, high-risk selective rewrite by `segment_labels`, suspicious-label rewrite, no-label fallback, max-round failure, retry from latest reduced text, cumulative retry rounds, and length repair for bloated reduce output.
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
 - Remote QR login: default `browser/start` returns `login_mode="remote_wechat_qr"`, `session_id`, and per-user `credential_file`; `login-status` returns QR image and terminal logged-in/error/expired states; `cancel` closes the session; tests must prove user A/B paths are isolated.
@@ -295,6 +299,7 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - AIGC report export: `aigc_report_docx` and `aigc_report_md` return distinct filenames, MIME types, and per-segment AI-rate rows mapped from `segment_labels[].position`; non-Zhuque sessions and missing report metadata return HTTP 400.
 - Readiness/preflight: actionable response fields, 350-char blocking, no session/transaction on failure, `byok` config checked before Zhuque readiness.
 - Remaining-use parsing: numeric API fields, `quotaText`, English button text (`left`), credential `remainingUses`, and live `peek_remaining_uses()` fallback. Tests must prove stale credential quota is replaced by live peek quota in readiness, and that repeated passive readiness calls are throttled instead of opening a WebSocket on every poll. Tests must also prove `remaining_uses=-1`/unknown copy is not parsed as `1`, unknown logged-out quota blocks readiness/start, and forced refresh clears stale in-memory quota instead of reusing it.
+- Detection transport: tests must prove valid logged-in credentials go through real-page detection instead of the obsolete WebSocket CAPTCHA bypass, timeout/reset page failures retry, repeated detects reuse one cached Playwright page while removing stale listeners, empty `segment_labels` payloads are ignored as non-terminal, visible Tencent CAPTCHA state is detected as a fast actionable failure, and page localStorage injection reads the original captured `raw.localStorage` rather than only the normalized `access_token`.
 - Logged-out quota smoothing: tests must prove `_logged_out_status_with_previous_quota()` preserves a previous non-negative quota when the logged-out page snapshot temporarily lacks quota text, while still returning `connected=false` and `has_token=false`.
 - Remaining-use responsiveness: tests must prove `readiness(text=None)` reuses recent live cache or known credential/session quota without a live peek, unknown quota returns `-1` without blocking the status panel, and valid-text preflight forces a bounded live peek.
 - Trace: schema/migration includes `zhuque_agent_trace`; high-risk flow records detect + reduce + reflection + prompt_evolution events; repeated-stagnation reduce events include `rewrite_mode`; detail response includes trace.
@@ -465,12 +470,9 @@ response = await client.post(
 ### 2. Signatures
 
 - Config keys:
-  - `PDF_STRUCTURE_ENGINE=docling|markitdown` with default `docling`.
-  - `PDF_STRUCTURE_FALLBACK_ENGINE=markitdown`.
-  - `PDF_DO_OCR=false` by default.
-  - `PDF_DO_TABLE_STRUCTURE=true` by default.
-  - `PDF_STRUCTURE_TIMEOUT_SECONDS=120`.
   - `DOCX_STRUCTURE_ENGINE=python_docx`.
+  - `PDF_STRUCTURE_ENGINE=mineru` by default, with `PDF_STRUCTURE_FALLBACK_ENGINE=markitdown`.
+  - MinerU settings are `MINERU_BASE_URL`, `MINERU_API_TOKEN`, `MINERU_MODEL_VERSION`, `MINERU_ENABLE_FORMULA`, `MINERU_ENABLE_TABLE`, `MINERU_IS_OCR`, `MINERU_LANGUAGE`, `MINERU_TIMEOUT_SECONDS`, and `MINERU_POLL_INTERVAL_SECONDS`.
 - API response from `POST /api/optimization/parse-document` includes:
   - `text`, `parser`, `segments`, `structure_summary`, `document_format`, `parse_engine`, `parse_fallback_used`, `parse_trace`.
   - Each segment includes `text`, `semantic_type`, `semantic_source`, `semantic_confidence`, `reduce_allowed`, `semantic_reason`, `char_start`, `char_end`, optional `page_number`, optional `bbox_json`.
@@ -479,14 +481,20 @@ response = await client.post(
   - `optimization_sessions.document_format`, `parse_engine`, `parse_fallback_used`, `parse_trace`.
   - `optimization_segments.semantic_type`, `semantic_source`, `semantic_confidence`, `reduce_allowed`, `semantic_reason`, `char_start`, `char_end`, `page_number`, `bbox_json`.
 - Dependency contract:
-  - `docling>=2.0.0,<3.0.0` is a real product dependency.
-  - `torch==2.12.1+cpu` and `torchvision==0.27.1+cpu` must stay pinned with the PyTorch CPU wheel index before/with Docling installation.
+  - MinerU integration uses the existing runtime `httpx` dependency; no local ML parser dependency is required.
+  - `markitdown[docx,pdf]` and `python-docx` remain document parsing dependencies for fallback/DOCX paths.
+  - `docling`, `torch`, and `torchvision` are not product dependencies after the Docling removal. Do not re-add them unless a new approved parser task explicitly restores them.
   - Alembic revision identifiers must be no longer than 32 characters because the project stores versions in a `varchar(32)` column.
 
 ### 3. Contracts
 
 - Zhuque detection must still receive the complete joined document text. Do not remove abstract, TOC, references, acknowledgements, headings, or other protected content before the Zhuque full-text check.
-- PDF parsing defaults to Docling. Missing Docling, timeout, exception, or empty extracted text must fall back to MarkItDown and set `parse_fallback_used=true` plus a compact fallback reason in `parse_trace`.
+- PDF parsing defaults to MinerU precise API v4 when `PDF_STRUCTURE_ENGINE=mineru` and `MINERU_API_TOKEN` is configured. The client must use the official upload-url -> PUT file -> poll extract-result -> download `full_zip_url` -> read `*_content_list.json` flow.
+- MinerU extract-result polling is a batch endpoint: `data.extract_result` may be either a single object or a single-item array for this product's one-file upload. Accept only those explicit shapes; reject zero/multi-item arrays with a clear type/count error instead of silently falling back.
+- MinerU `content_list.json` items are mapped into the existing segment contract: `text_level > 0` headings are protected, normal text goes through text rules, tables/equations/captions/reference lists/header/footer/meta items are protected, and `page_idx`/`bbox` are preserved as `page_number`/compact `bbox_json`.
+- Real MinerU v4 evidence from `IJOSSER-7-9-28-33.pdf` shows references can arrive as top-level `{"type": "ref_text", "text": ...}` items, not only `{"type": "list", "sub_type": "ref_text", "list_items": [...]}`. Both observed shapes must map to protected `REFERENCE_ITEM`; do not rely on `full.md` fallback to recover references that were dropped by mapper logic.
+- MinerU missing token, timeout, failed state, invalid zip, missing `content_list.json`, or empty parsed text must visibly fallback to MarkItDown with `parse_fallback_used=true`, warning text mentioning MinerU, and compact trace fields `fallback_from`, `fallback_reason`, and `fallback_message`.
+- MarkItDown PDF fallback text can emit rendered soft-wrapped lines. The parser must merge single-newline body lines into paragraph-like segments while preserving blank-line paragraph boundaries and protected structural lines.
 - DOCX parsing uses `python-docx` paragraph styles before text rules:
   - `Title` -> `TITLE`.
   - `Heading 1` through `Heading 4` -> `SECTION_HEADING` unless text rules identify a more specific protected semantic type.
@@ -501,33 +509,37 @@ response = await client.post(
 
 ### 4. Validation & Error Matrix
 
-- PDF Docling succeeds -> `parse_engine="docling"`, `parse_fallback_used=false`, segments carry Docling/text-rule semantic metadata.
-- PDF Docling import/convert/timeout/empty fails -> fallback to MarkItDown, `parse_engine="markitdown"`, `parse_fallback_used=true`, and no request failure solely because Docling failed.
+- PDF MinerU succeeds -> `parse_engine="mineru"`, `parse_fallback_used=false`, segments carry MinerU/text-rule semantic metadata and compact parse trace.
+- PDF MinerU fails -> `parse_engine="markitdown"`, `parse_fallback_used=true`, warning mentions MinerU and MarkItDown fallback, segments carry text-rule semantic metadata.
+- PDF with `PDF_STRUCTURE_ENGINE=markitdown` -> MarkItDown succeeds with `parse_fallback_used=false`. MarkItDown extraction errors should return the existing PDF parse failure.
 - DOCX with Word styles -> styled headings/TOC/header/footer are protected even when the raw text could look like ordinary short paragraphs.
 - Manual text or legacy sessions without stored semantic fields -> classify with reusable text-rule semantics at runtime; historical sessions must still process.
 - Zhuque label maps to `ABSTRACT_BODY`/`TOC_ITEM`/`REFERENCE_ITEM` only -> selected count is zero and no full-document fallback rewrite occurs.
 - Zhuque label maps to `BODY` with sufficient confidence/overlap -> only that body segment is charged and rewritten.
 - User edits upload text after parse -> start payload must not include stale `document_parse`; backend uses fallback text parsing/classification.
-- Installing dependencies on WSL/Docker Desktop -> must use CPU-only PyTorch wheels; default CUDA torch wheels are forbidden for this project because they can consume excessive bandwidth/disk/IO and destabilize Docker Desktop WSL bootstrap.
 - Migration upgrade -> revision id length must fit `varchar(32)`; long natural-language revision ids are forbidden.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: a PDF upload parses through Docling into title/heading/body segments; Zhuque reports high AI over the whole document, but only `BODY`/`MIXED_HEADING_BODY` Zhuque-hit segments run polish/enhance.
+- Good: a PDF upload parses through MinerU into paragraph/structure-aware segments; Zhuque reports high AI over the whole document, but only `BODY`/`MIXED_HEADING_BODY` Zhuque-hit segments run polish/enhance.
+- Good: MinerU is unavailable or unconfigured; the UI explicitly shows MarkItDown fallback and lower structure precision instead of hiding the downgrade.
 - Good: a DOCX `Heading 2` paragraph and `TOC 1` entries are protected from rewrite while following body paragraphs remain eligible.
-- Good: Docling throws on one PDF; MarkItDown fallback still returns text and semantic text-rule segments, with `fallback_reason` in `parse_trace`.
 - Base: pasted plain text has no structure metadata; start creates fallback parsed segments and applies text-rule semantics.
 - Bad: joining the whole paper as one paragraph before Zhuque selection, then treating one full-text Zhuque hit as permission to rewrite the entire paper.
 - Bad: filtering out abstract/references before Zhuque detection and then presenting the result as the full-text Zhuque rate.
 - Bad: using `a.xxx || b.xxx` style speculative field fallback for unknown Zhuque or parser payloads instead of tracing the real field contract.
-- Bad: adding `docling` without CPU-only torch pins, causing pip to pull GPU/CUDA wheels in WSL.
+- Bad: reintroducing Docling/Torch dependency pins without an explicit parser migration task.
 
 ### 6. Tests Required
 
 - Parse API tests:
   - DOCX style classification for title/headings/TOC/header-footer/body.
-  - PDF Docling success path by monkeypatching Docling conversion.
-  - PDF MarkItDown fallback on Docling exception/empty output.
+  - PDF MinerU mocked success maps `content_list.json` into protected and reducible semantic segments.
+  - PDF MinerU regression covers top-level `type="ref_text"` reference items, preserving `[1]...` references while still dropping headers and isolated page numbers.
+  - PDF MinerU mocked failure falls back to MarkItDown with `parse_fallback_used=true` and warning/trace.
+  - MinerU service protocol test covers v4 upload URL, PUT upload, poll result, ZIP download, and `*_content_list.json` extraction without real network.
+  - PDF MarkItDown explicit mode returns `parse_engine="markitdown"` and `parse_fallback_used=false`.
+  - PDF soft-wrap line merge preserves paragraph-like body segments.
   - Manual/plain text fallback classification.
 - Zhuque integration tests:
   - `segment_labels` AI/suspicious mapping plus semantic gate selects only body segments.
@@ -541,8 +553,8 @@ response = await client.post(
 - Frontend/build tests:
   - upload stores `documentParse`, manual edit clears it, start sends `document_parse`, and production static bundle is rebuilt/synced.
 - Dependency smoke:
-  - `python -m pip check`.
-  - a real Docling import or small smoke parse in the active venv when changing dependency pins.
+  - `python -m pip check` when dependency manifests change.
+  - No `docling`, `torch`, or `torchvision` parser dependency remains in runtime manifests unless intentionally restored by a future task.
 
 ### 7. Wrong vs Correct
 
@@ -565,18 +577,15 @@ selected = [seg for seg in label_hits if semantic_decision(seg).reduce_allowed]
 
 #### Wrong
 
-```python
-# Pulls default torch wheels; on WSL this may fetch large CUDA packages and destabilize Docker Desktop.
-pip install docling
+```text
+pip install docling torch torchvision
 ```
 
 #### Correct
 
-```bash
-python -m pip install --cache-dir /tmp/pip-cache \
-  --index-url https://download.pytorch.org/whl/cpu \
-  'torch==2.12.1+cpu' 'torchvision==0.27.1+cpu'
-python -m pip install --cache-dir /tmp/pip-cache \
-  -i https://pypi.tuna.tsinghua.edu.cn/simple \
-  'docling>=2.0.0,<3.0.0'
+```text
+# Current product parser chain uses MinerU API plus lightweight local fallback.
+httpx[socks]==0.27.0
+markitdown[docx,pdf]>=0.1.3,<1.0.0
+python-docx>=1.1.0
 ```

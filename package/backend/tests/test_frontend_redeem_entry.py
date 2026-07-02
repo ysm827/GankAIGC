@@ -30,12 +30,15 @@ def test_user_menu_exposes_explicit_redeem_entry():
     assert "#FFCC4D" in beer_asset
 
 
-def test_credit_transactions_render_backend_utc_as_china_time():
+def test_credit_transactions_render_backend_china_time_without_utc_shift():
     date_utils = (FRONTEND_SRC / "utils" / "dateTime.js").read_text(encoding="utf-8")
     credits_page = (FRONTEND_SRC / "pages" / "CreditsPage.jsx").read_text(encoding="utf-8")
 
     assert "Asia/Shanghai" in date_utils
     assert "endsWith('Z')" in date_utils
+    assert "CHINA_TIME_ZONE_OFFSET = '+08:00'" in date_utils
+    assert "`${normalized}${CHINA_TIME_ZONE_OFFSET}`" in date_utils
+    assert "`${normalized}Z`" not in date_utils
     assert "formatChinaDateTime" in credits_page
     assert "formatChinaDateTime(transaction.created_at)" in credits_page
     assert "new Date(transaction.created_at).toLocaleString()" not in credits_page
@@ -60,7 +63,9 @@ def test_served_static_bundle_includes_china_time_formatter():
     static_bundle = _read_static_js_assets()
 
     assert "Asia/Shanghai" in static_bundle
+    assert "+08:00" in static_bundle
     assert "hour12" in static_bundle
+    assert "`${normalized}Z`" not in static_bundle
 
 
 def test_frontend_uses_brand_logo_as_favicon():
@@ -1294,6 +1299,14 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert "disabled={isStartingZhuqueLogin}" in workspace
     assert "disabled={isStartingZhuqueLogin || zhuqueConnected}" not in workspace
     assert "startZhuqueLogin({ syncSession: true, mode: 'remote_qr' })" in workspace
+    assert "startZhuqueLogin({ syncSession: true, mode: 'local_window' })" in workspace
+    assert "getZhuqueManualCheckInfo" in workspace
+    assert "zhuqueManualVerificationOpenedSessionRef" in workspace
+    assert "onOpenZhuqueVerification={handleOpenZhuqueVerificationWindow}" in workspace
+    assert "打开验证" in workspace
+    assert "腾讯验证码" in workspace
+    assert "朱雀真实页面检测失败" in workspace
+    assert "正在打开真实浏览器窗口" in workspace
     assert "setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS)" in workspace
     assert "response.data?.switch_account" not in workspace
     assert "params: { sync_session: syncSession, mode }" in api
@@ -1399,6 +1412,9 @@ def test_workspace_supports_word_pdf_and_markdown_document_upload():
     assert "setText(parsed.text || '')" in workspace
     assert "getDocumentTitleFromFilename" in workspace
     assert "application/pdf" in workspace
+    assert "已使用 MinerU 高精度解析" in workspace
+    assert "已回退 MarkItDown" in workspace
+    assert "结构识别精度会降低" in workspace
 
 
 def test_session_detail_shows_zhuque_agent_trace():
@@ -1441,6 +1457,23 @@ def test_session_detail_shows_zhuque_agent_trace():
     assert "custom-scrollbar" in session_detail
     assert "plateau_exit" in session_detail
     assert "卡点退出" in session_detail
+
+
+def test_session_detail_exposes_zhuque_captcha_manual_verification_action():
+    session_detail = (FRONTEND_SRC / "pages" / "SessionDetailPage.jsx").read_text(encoding="utf-8")
+
+    assert "manual_verification_required" in session_detail
+    assert "zhuque_captcha_required" in session_detail
+    assert "open_zhuque_local_window" in session_detail
+    assert "startZhuqueLogin({ syncSession: true, mode: 'local_window' })" in session_detail
+    assert "messageNeedsZhuqueManualVerification" in session_detail
+    assert "session?.error_message" in session_detail
+    assert "腾讯验证码" in session_detail
+    assert "朱雀真实页面检测失败" in session_detail
+    assert "打开朱雀验证窗口" in session_detail
+    assert "朱雀需要人工验证码" in session_detail
+    assert "验证完成，继续处理" in session_detail
+    assert "retryFailedSegments(sessionId" in session_detail
 
 
 def test_api_config_guide_lists_current_model_recommendations():

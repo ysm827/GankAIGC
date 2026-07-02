@@ -19,6 +19,7 @@ from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from ..models.stylespec import StyleSpec
 from ..models.validation import ValidationReport
+from app.utils.time import utcnow
 from .compiler import (
     CompileOptions,
     CompilePhase,
@@ -54,7 +55,7 @@ class JobProgress:
     progress: float
     message: str
     detail: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -108,7 +109,7 @@ class JobManager:
     ) -> Job:
         """Create a new job and return it."""
         job_id = str(uuid.uuid4())
-        now = datetime.now()
+        now = utcnow()
 
         job = Job(
             job_id=job_id,
@@ -171,7 +172,7 @@ class JobManager:
         async with self._semaphore:
             async with self._job_locks[job_id]:
                 job.status = JobStatus.RUNNING
-                job.updated_at = datetime.now()
+                job.updated_at = utcnow()
 
                 try:
                     if job.job_type == JobType.FORMAT:
@@ -190,7 +191,7 @@ class JobManager:
                     print(f"[WORD-FORMATTER] 异常信息: {e}", flush=True)
                     print(f"[WORD-FORMATTER] 堆栈跟踪:\n{traceback.format_exc()}", flush=True)
 
-                job.updated_at = datetime.now()
+                job.updated_at = utcnow()
                 print(f"[WORD-FORMATTER] ========== 任务执行结束 ==========\n", flush=True)
                 return job
 
@@ -205,7 +206,7 @@ class JobManager:
             )
             job.current_progress = progress
             job.progress_history.append(progress)
-            job.updated_at = datetime.now()
+            job.updated_at = utcnow()
 
         options = job.options or CompileOptions()
 
@@ -244,7 +245,7 @@ class JobManager:
             )
             job.current_progress = progress
             job.progress_history.append(progress)
-            job.updated_at = datetime.now()
+            job.updated_at = utcnow()
 
         config = job.preprocess_config or PreprocessConfig()
         preprocessor = ArticlePreprocessor(ai_service, config)
@@ -282,7 +283,7 @@ class JobManager:
 
         if job.status in {JobStatus.PENDING, JobStatus.RUNNING}:
             job.status = JobStatus.CANCELLED
-            job.updated_at = datetime.now()
+            job.updated_at = utcnow()
             return True
 
         return False
@@ -377,7 +378,7 @@ class JobManager:
 
     async def cleanup_old_jobs(self) -> int:
         """Remove jobs older than retention period. Returns count removed."""
-        now = datetime.now()
+        now = utcnow()
         cutoff = now - self._job_retention
         to_remove = [
             jid for jid, job in self._jobs.items()

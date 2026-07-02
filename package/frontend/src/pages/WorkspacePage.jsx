@@ -12,7 +12,7 @@ import { optimizationAPI, projectAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import UserMenu from '../components/UserMenu';
 import MarkdownPreview from '../components/MarkdownPreview';
-import { formatChinaDate } from '../utils/dateTime';
+import { formatChinaDate, parseBackendDate } from '../utils/dateTime';
 
 const CREDIT_UNIT_CHARACTERS = 1000;
 const PROCESSING_MODE_STAGE_MULTIPLIERS = {
@@ -243,22 +243,9 @@ const formatSessionWordCount = (count) => {
   return `字数 ${numeric.toLocaleString('zh-CN')}`;
 };
 
-const parseSessionDate = (value) => {
-  if (!value) {
-    return null;
-  }
-  const normalized = String(value).trim().replace(' ', 'T');
-  if (!normalized) {
-    return null;
-  }
-  const hasExplicitTimezone = normalized.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(normalized);
-  const date = new Date(hasExplicitTimezone ? normalized : `${normalized}Z`);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
 const formatSessionDuration = (session) => {
-  const startDate = parseSessionDate(session.started_at || session.created_at);
-  const endDate = parseSessionDate(session.finished_at || session.completed_at || session.updated_at);
+  const startDate = parseBackendDate(session.started_at || session.created_at);
+  const endDate = parseBackendDate(session.finished_at || session.completed_at || session.updated_at);
   if (!startDate || !endDate || endDate < startDate) {
     return '耗时 --';
   }
@@ -277,8 +264,89 @@ const formatSessionDuration = (session) => {
   return `耗时 ${seconds}秒`;
 };
 
+const ZHUQUE_MANUAL_CHECK_MESSAGE_MARKERS = [
+  'zhuque_captcha_required',
+  'manual_verification_required',
+  '腾讯验证码',
+  '验证码',
+  'captcha',
+  'tcaptcha',
+  'Verification Code',
+  'Choose all similar',
+  '朱雀真实页面检测失败',
+  '朱雀真实页面检测超时',
+  '找不到文本输入框',
+  '找不到检测按钮',
+];
+
+const messageNeedsZhuqueManualCheck = (message) => {
+  const text = String(message || '');
+  if (!text) {
+    return false;
+  }
+  const lowerText = text.toLowerCase();
+  return ZHUQUE_MANUAL_CHECK_MESSAGE_MARKERS.some((marker) => lowerText.includes(marker.toLowerCase()));
+};
+
+const parseZhuqueTraceForManualCheck = (rawTrace) => {
+  if (!rawTrace) {
+    return null;
+  }
+  let trace = rawTrace;
+  if (typeof rawTrace === 'string') {
+    try {
+      trace = JSON.parse(rawTrace);
+    } catch {
+      return messageNeedsZhuqueManualCheck(rawTrace)
+        ? { message: rawTrace, label: '打开朱雀窗口' }
+        : null;
+    }
+  }
+  if (!trace || typeof trace !== 'object') {
+    return null;
+  }
+  const events = Array.isArray(trace.events) ? trace.events : [];
+  const matchedEvent = events.find((event) => (
+    event
+    && typeof event === 'object'
+    && (
+      event.manual_verification_required === true
+      || event.error_code === 'zhuque_captcha_required'
+      || messageNeedsZhuqueManualCheck(event.message)
+      || messageNeedsZhuqueManualCheck(event.summary)
+    )
+  ));
+  if (matchedEvent) {
+    return {
+      message: matchedEvent.message || matchedEvent.summary || '朱雀检测需要在真实浏览器确认页面状态。',
+      label: matchedEvent.manual_verification_label || '打开朱雀窗口',
+    };
+  }
+  const finalDiagnosis = trace.final?.diagnosis;
+  return messageNeedsZhuqueManualCheck(finalDiagnosis)
+    ? { message: finalDiagnosis, label: '打开朱雀窗口' }
+    : null;
+};
+
+const getZhuqueManualCheckInfo = (session) => {
+  if (!session || session.processing_mode !== 'ai_detect_reduce') {
+    return null;
+  }
+  const traceInfo = parseZhuqueTraceForManualCheck(session.zhuque_agent_trace);
+  if (traceInfo) {
+    return traceInfo;
+  }
+  if (messageNeedsZhuqueManualCheck(session.error_message)) {
+    return {
+      message: session.error_message,
+      label: '打开朱雀窗口',
+    };
+  }
+  return null;
+};
+
 // 会话列表项组件 - 使用 memo 避免不必要重渲染
-const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSessionId, onToggleProjectMenu, onView, onDelete, onRetry, onMoveToProject }) => {
+const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSessionId, onToggleProjectMenu, onView, onDelete, onRetry, onMoveToProject, onOpenZhuqueVerification }) => {
   const handleDelete = useCallback((e) => {
     e.stopPropagation();
     onDelete(session);
@@ -290,6 +358,11 @@ const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSes
       onRetry(session);
     }
   }, [session, onRetry]);
+
+  const handleOpenZhuqueVerification = useCallback((e) => {
+    e.stopPropagation();
+    onOpenZhuqueVerification(session);
+  }, [session, onOpenZhuqueVerification]);
 
   const handleView = useCallback(() => {
     onView(session.session_id);
@@ -313,6 +386,7 @@ const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSes
   const projectActionLabel = session.project_id ? '移动项目' : '归入项目';
   const targetProjects = projects.filter((project) => project.id !== session.project_id);
   const hasMoveTargets = targetProjects.length > 0 || Boolean(session.project_id);
+  const zhuqueManualCheckInfo = getZhuqueManualCheckInfo(session);
 
   return (
     <article
@@ -410,12 +484,24 @@ const SessionItem = memo(({ session, activeSession, projects, openProjectMenuSes
         {session.status === 'failed' && (
           <div className="mt-2 flex items-start justify-between gap-2 rounded-xl bg-rose-50 px-2.5 py-2 text-[12px] text-rose-700">
             <span className="line-clamp-2">{session.error_message || '网络超时，请稍后继续处理'}</span>
-            <button
-              onClick={handleRetry}
-              className="shrink-0 rounded-full bg-white px-2 py-1 font-semibold text-rose-600 shadow-sm hover:bg-rose-100"
-            >
-              继续
-            </button>
+            <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
+              {zhuqueManualCheckInfo && (
+                <button
+                  type="button"
+                  onClick={handleOpenZhuqueVerification}
+                  className="rounded-full bg-amber-50 px-2 py-1 font-semibold text-amber-700 shadow-sm hover:bg-amber-100"
+                >
+                  打开验证
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="rounded-full bg-white px-2 py-1 font-semibold text-rose-600 shadow-sm hover:bg-rose-100"
+              >
+                继续
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -478,8 +564,14 @@ const WorkspacePage = () => {
   const hasAutoRefreshedZhuqueQuotaRef = useRef(false);
   const zhuqueLastKnownLoggedOutRemainingRef = useRef(undefined);
   const zhuqueLoginSessionIdRef = useRef('');
+  const sessionsRef = useRef([]);
+  const zhuqueManualVerificationOpenedSessionRef = useRef(new Set());
   const documentFileInputRef = useRef(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   const rememberZhuqueLoggedOutRemaining = useCallback((value) => {
     const remaining = parseZhuqueRemainingUses(value);
@@ -796,14 +888,50 @@ const WorkspacePage = () => {
     }
   }, [clearZhuqueLoggedOutRemaining, isStartingZhuqueLogin, mergeZhuqueReadiness]);
 
+  const handleOpenZhuqueVerificationWindow = useCallback(async (session, { auto = false } = {}) => {
+    if (isStartingZhuqueLogin) {
+      return;
+    }
+
+    try {
+      setIsStartingZhuqueLogin(true);
+      setShowZhuqueLoginModal(false);
+      if (auto) {
+        toast('朱雀检测失败，需要人工确认，正在打开真实浏览器窗口…');
+      }
+      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true, mode: 'local_window' });
+      const payload = response.data || {};
+      const message = payload.message || '已请求打开朱雀验证窗口，请在真实浏览器完成页面验证。';
+      if (payload.command) {
+        console.info('Zhuque verification command:', payload.command);
+      }
+      setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
+      await loadZhuqueStatusPanel();
+      if (payload.status === 'manual_required' || payload.status === 'missing_script' || payload.status === 'error') {
+        toast.error(message);
+      } else {
+        toast.success(message);
+      }
+    } catch (error) {
+      const manualInfo = getZhuqueManualCheckInfo(session);
+      toast.error(error.response?.data?.detail || manualInfo?.message || '打开朱雀验证窗口失败，请稍后再试');
+    } finally {
+      setIsStartingZhuqueLogin(false);
+    }
+  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel]);
+
   const updateSessionProgress = useCallback(async (sessionId) => {
     try {
       const response = await optimizationAPI.getSessionProgress(sessionId);
       const progress = response.data;
+      let mergedSessionForManualCheck = null;
 
       // 更新会话列表中的进度 - 只在数据有变化时更新
       setSessions(prev => {
         const target = prev.find(s => s.session_id === sessionId);
+        if (target) {
+          mergedSessionForManualCheck = { ...target, ...progress };
+        }
         if (target && target.progress === progress.progress && target.status === progress.status) {
           return prev; // 无变化，不触发重渲染
         }
@@ -820,13 +948,27 @@ const WorkspacePage = () => {
         if (progress.status === 'completed') {
           toast.success('优化完成!');
         } else {
-          toast.error(`优化失败: ${progress.error_message}`);
+          const latestSession = mergedSessionForManualCheck
+            || sessionsRef.current.find(s => s.session_id === sessionId)
+            || progress;
+          const zhuqueManualCheckInfo = getZhuqueManualCheckInfo(latestSession);
+          const failureMessage = progress.error_message || zhuqueManualCheckInfo?.message || '网络超时，请稍后继续处理';
+          toast.error(`优化失败: ${failureMessage}`);
+          if (
+            zhuqueManualCheckInfo
+            && !zhuqueManualVerificationOpenedSessionRef.current.has(sessionId)
+          ) {
+            zhuqueManualVerificationOpenedSessionRef.current.add(sessionId);
+            await handleOpenZhuqueVerificationWindow(latestSession, { auto: true });
+          }
         }
+      } else {
+        zhuqueManualVerificationOpenedSessionRef.current.delete(sessionId);
       }
     } catch (error) {
       console.error('更新进度失败:', error);
     }
-  }, [loadSessions]);
+  }, [handleOpenZhuqueVerificationWindow, loadSessions]);
 
   // 初始加载 - 只在组件挂载时执行一次
   useEffect(() => {
@@ -1166,7 +1308,13 @@ const WorkspacePage = () => {
       const warningText = Array.isArray(parsed.warnings) && parsed.warnings.length
         ? `；${parsed.warnings.join('；')}`
         : '';
-      toast.success(`文件解析完成，已导入 ${parsed.char_count ?? 0} 字符${warningText}`);
+      if (parsed.parse_fallback_used) {
+        toast.success(`文件解析完成，但 MinerU 失败，已回退 MarkItDown，结构识别精度会降低；已导入 ${parsed.char_count ?? 0} 字符${warningText}`);
+      } else if ((parsed.parse_engine || parsed.parser) === 'mineru') {
+        toast.success(`文件解析完成，已使用 MinerU 高精度解析；已导入 ${parsed.char_count ?? 0} 字符${warningText}`);
+      } else {
+        toast.success(`文件解析完成，已导入 ${parsed.char_count ?? 0} 字符${warningText}`);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || '文件解析失败');
     } finally {
@@ -1702,6 +1850,15 @@ const WorkspacePage = () => {
                       placeholder="请输入或粘贴论文内容，支持中英文..."
                       className="aurora-textarea"
                     />
+                    {documentParse?.parse_fallback_used ? (
+                      <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-[13px] leading-6 text-amber-800">
+                        MinerU 解析失败，当前文件已回退 MarkItDown；标题、表格、公式等结构识别精度会降低。
+                      </p>
+                    ) : documentParse?.parse_engine === 'mineru' ? (
+                      <p className="mt-3 rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-[13px] leading-6 text-blue-700">
+                        已使用 MinerU 高精度解析，标题、表格、公式等结构已参与保护。
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1920,6 +2077,7 @@ const WorkspacePage = () => {
                     onDelete={handleDeleteSession}
                     onRetry={handleRetrySegment}
                     onMoveToProject={handleMoveSessionToProject}
+                    onOpenZhuqueVerification={handleOpenZhuqueVerificationWindow}
                   />
                 ))
               )}

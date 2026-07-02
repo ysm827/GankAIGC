@@ -223,6 +223,9 @@ async def startup_event():
 
 async def shutdown_event():
     """关闭时清理资源"""
+    from app.services.zhuque_service import zhuque_service
+
+    await zhuque_service.close()
     if settings.WORD_FORMATTER_ENABLED:
         from app.word_formatter.services import get_job_manager
 

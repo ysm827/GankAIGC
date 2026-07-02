@@ -44,7 +44,7 @@ from app.utils.auth import (
 )
 from app.utils.url_security import validate_model_base_url
 from app.utils.time import utcnow
-from datetime import datetime, timedelta
+from datetime import timedelta
 import asyncio
 from app.config import settings
 from sse_starlette.sse import EventSourceResponse
@@ -95,7 +95,7 @@ def _clean_export_filename_part(value: str, fallback: str) -> str:
 
 
 def _build_export_filename(session: OptimizationSession, extension: str) -> str:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     project_title = session.project.title if session.project and session.project.title else ""
     project_part = _clean_export_filename_part(project_title, "未归档")
 
@@ -107,7 +107,7 @@ def _build_export_filename(session: OptimizationSession, extension: str) -> str:
 
 
 def _build_aigc_report_filename(session: OptimizationSession, extension: str) -> str:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     project_title = session.project.title if session.project and session.project.title else ""
     project_part = _clean_export_filename_part(project_title, "未归档")
 
@@ -185,13 +185,14 @@ async def parse_optimization_document(
     filename, extension = _validate_document_upload(file)
     content = await _read_document_upload_with_limit(file)
 
-    # DOCX/PDF parsing can invoke Docling or MarkItDown and may be CPU/IO heavy.
+    # DOCX/PDF parsing can invoke MinerU/MarkItDown/python-docx and may be CPU/IO heavy.
     # Run it off the async event loop so Zhuque login/readiness/status endpoints
     # remain responsive while an upload is being parsed.
     parsed_document = await run_in_threadpool(
         document_structure_service.parse_uploaded_document,
         content,
         extension,
+        filename,
     )
     text = normalize_parsed_document_text(parsed_document.text)
     if not text:
@@ -398,7 +399,7 @@ def _build_aigc_report_payload(session: OptimizationSession, segments: List[Opti
         "session_id": session.session_id,
         "project_title": session.project.title if session.project and session.project.title else "未归档",
         "task_title": session.task_title or "",
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         "threshold": threshold,
         "final_risk_rate": final_risk_rate,
         "ai_rate": _zhuque_ratio_from_result(zhuque_result, "0"),
@@ -620,6 +621,20 @@ def _apply_retry_billing_mode(
             )
             session.charge_status = "held"
             session.charged_credits = 0 if user.is_unlimited else required_credits
+
+
+def _clear_retry_zhuque_trace_final(session: OptimizationSession) -> None:
+    """Clear stale Zhuque final diagnosis when a failed/stopped session is queued again."""
+    if session.processing_mode != "ai_detect_reduce" or not session.zhuque_agent_trace:
+        return
+    try:
+        trace = json.loads(session.zhuque_agent_trace)
+    except (TypeError, json.JSONDecodeError):
+        return
+    if not isinstance(trace, dict) or "final" not in trace:
+        return
+    trace.pop("final", None)
+    session.zhuque_agent_trace = json.dumps(trace, ensure_ascii=False)
 
 
 def _validate_request_model_base_url(config, label: str) -> str:
@@ -1129,6 +1144,10 @@ async def start_zhuque_browser(
     本地开发；公网/VPS 默认不要依赖服务端桌面。
     """
     if mode == "local_window":
+        # The visible verifier writes credentials asynchronously; force the
+        # next detect/retry to rebuild the real-page context from disk instead
+        # of reusing a stale CAPTCHA-blocked page or cached credential payload.
+        getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
         try:
             return _start_zhuque_wechat_capture(sync_session=sync_session, user=user)
         except TypeError:
@@ -1729,6 +1748,12 @@ async def retry_session(
     session.finished_at = None
     session.worker_id = None
     session.error_message = f"[重试中] 上次失败原因: {old_error}"
+    _clear_retry_zhuque_trace_final(session)
+    if session.processing_mode == "ai_detect_reduce":
+        # Manual Zhuque verification updates per-user credential files outside
+        # the retry request. Drop cached auth/page state so the retry observes
+        # the freshly synchronized browser state.
+        getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
     db.commit()
 
     if settings.INLINE_TASK_WORKER_ENABLED:

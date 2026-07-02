@@ -59,7 +59,7 @@ from app.utils.auth import (
     verify_token,
 )
 from app.utils.url_security import validate_model_base_url
-from app.utils.time import utcnow
+from app.utils.time import to_china_naive, utcnow
 from app.utils.avatar_upload import save_avatar_upload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -751,7 +751,8 @@ async def create_registration_invite(
     if existing_invite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邀请码已存在")
 
-    invite = RegistrationInvite(code=code, is_active=True, expires_at=payload.expires_at)
+    expires_at = to_china_naive(payload.expires_at)
+    invite = RegistrationInvite(code=code, is_active=True, expires_at=expires_at)
     db.add(invite)
     db.flush()
     write_admin_audit_log(
@@ -780,10 +781,11 @@ async def batch_create_registration_invites(
 ) -> List[Dict[str, Any]]:
     reserved_codes: set[str] = set()
     invites: List[RegistrationInvite] = []
+    expires_at = to_china_naive(payload.expires_at)
     for _ in range(payload.quantity):
         code = _generate_unique_invite_code(db, reserved_codes)
         reserved_codes.add(code)
-        invite = RegistrationInvite(code=code, is_active=True, expires_at=payload.expires_at)
+        invite = RegistrationInvite(code=code, is_active=True, expires_at=expires_at)
         db.add(invite)
         invites.append(invite)
 
@@ -795,7 +797,7 @@ async def batch_create_registration_invites(
         target_type="registration_invite",
         detail={
             "quantity": payload.quantity,
-            "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+            "expires_at": expires_at.isoformat() if expires_at else None,
         },
     )
     db.commit()
@@ -1006,6 +1008,7 @@ async def batch_create_credit_codes(
 ) -> List[CreditCode]:
     reserved_codes: set[str] = set()
     credit_codes: List[CreditCode] = []
+    expires_at = to_china_naive(payload.expires_at)
     for _ in range(payload.quantity):
         code = _generate_unique_credit_code(db, reserved_codes)
         reserved_codes.add(code)
@@ -1013,7 +1016,7 @@ async def batch_create_credit_codes(
             code=code,
             credit_amount=payload.credit_amount,
             is_active=True,
-            expires_at=payload.expires_at,
+            expires_at=expires_at,
         )
         db.add(credit_code)
         credit_codes.append(credit_code)
@@ -1027,7 +1030,7 @@ async def batch_create_credit_codes(
         detail={
             "quantity": payload.quantity,
             "credit_amount": payload.credit_amount,
-            "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+            "expires_at": expires_at.isoformat() if expires_at else None,
         },
     )
     db.commit()
@@ -1086,11 +1089,12 @@ async def create_credit_code(
     if existing_code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="兑换码已存在")
 
+    expires_at = to_china_naive(payload.expires_at)
     credit_code = CreditCode(
         code=code,
         credit_amount=payload.credit_amount,
         is_active=True,
-        expires_at=payload.expires_at,
+        expires_at=expires_at,
     )
     db.add(credit_code)
     db.flush()

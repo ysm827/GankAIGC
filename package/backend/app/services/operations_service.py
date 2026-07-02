@@ -31,6 +31,7 @@ from app.services.ai_service import (
     create_async_openai_client,
     normalize_api_format,
 )
+from app.utils.time import utcnow
 from app.utils.url_security import validate_model_base_url
 
 
@@ -73,12 +74,10 @@ _CPU_SNAPSHOT: Optional[Tuple[float, int, int]] = None
 _NETWORK_SNAPSHOT: Optional[Tuple[float, int, int]] = None
 
 
-def _utc_iso(value: Optional[datetime]) -> Optional[str]:
+def _datetime_iso(value: Optional[datetime]) -> Optional[str]:
     if not value:
         return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
+    return value.isoformat()
 
 
 def _format_bytes(size: int) -> str:
@@ -518,9 +517,9 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
     stale_seconds = None
     if last_heartbeat:
         heartbeat = last_heartbeat
-        if heartbeat.tzinfo is None:
-            heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-        stale_seconds = max(0, int((datetime.now(timezone.utc) - heartbeat.astimezone(timezone.utc)).total_seconds()))
+        if heartbeat.tzinfo is not None:
+            heartbeat = heartbeat.replace(tzinfo=None)
+        stale_seconds = max(0, int((utcnow() - heartbeat).total_seconds()))
 
     inline_enabled = settings.INLINE_TASK_WORKER_ENABLED
     likely_running = inline_enabled or processing_count > 0
@@ -543,7 +542,7 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
         "unavailable_count": unavailable_count,
         "worker_count": 1 if likely_running else 0,
         "last_worker_id": latest_processing.worker_id if latest_processing else None,
-        "last_heartbeat_at": _utc_iso(last_heartbeat),
+        "last_heartbeat_at": _datetime_iso(last_heartbeat),
         "heartbeat_age_seconds": stale_seconds,
         "message": "inline worker 已启用" if inline_enabled else "独立 worker 模式，按任务心跳判断运行状态",
     }
@@ -702,7 +701,7 @@ def get_operations_events(
                 "text": f"数据库连接正常，平均延迟 {database_status.get('average_latency_ms') or '--'} ms",
                 "badge": "数据库",
                 "tone": "success",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utcnow().isoformat(),
             }
         )
     else:
@@ -711,7 +710,7 @@ def get_operations_events(
                 "text": f"数据库异常：{database_status.get('message') or '连接失败'}",
                 "badge": "异常",
                 "tone": "warn",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utcnow().isoformat(),
             }
         )
 
@@ -752,7 +751,7 @@ def get_operations_events(
                 "text": f"会话 {session.session_id} · {session.current_stage or '未知阶段'}",
                 "badge": badge,
                 "tone": tone,
-                "timestamp": _utc_iso(session.updated_at or session.created_at),
+                "timestamp": _datetime_iso(session.updated_at or session.created_at),
             }
         )
 
@@ -830,7 +829,7 @@ def get_onboarding_status(db: Session, backup_status: Optional[Dict[str, Any]] =
 
 
 async def get_operations_status(db: Session) -> Dict[str, Any]:
-    collected_at = datetime.now(timezone.utc).isoformat()
+    collected_at = utcnow().isoformat()
     can_run_update, disabled_reason = update_service.can_run_vps_update()
     backup_status = get_backup_status()
     database_status = get_database_status()

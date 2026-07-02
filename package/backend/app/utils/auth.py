@@ -7,7 +7,7 @@ from passlib.context import CryptContext
 from app.config import settings
 from app.database import get_db
 from app.models.models import User
-from app.utils.time import utcnow
+from app.utils.time import utc_naive_now, utcnow
 from sqlalchemy.orm import Session
 
 
@@ -33,9 +33,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """创建访问令牌"""
     to_encode = data.copy()
     if expires_delta:
-        expire = utcnow() + expires_delta
+        expire = utc_naive_now() + expires_delta
     else:
-        expire = utcnow() + timedelta(minutes=settings.USER_ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utc_naive_now() + timedelta(minutes=settings.USER_ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt

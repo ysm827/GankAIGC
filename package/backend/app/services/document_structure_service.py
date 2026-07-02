@@ -8,22 +8,20 @@ rewriting.
 
 from __future__ import annotations
 
-import multiprocessing as mp
-import queue
-import importlib
 import json
 import os
 import re
 import tempfile
+from html import unescape
 from dataclasses import asdict, dataclass, field
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fastapi import HTTPException
 
 from app.config import settings
 from app.services.ai_service import count_text_length, split_text_into_segments
+from app.services.mineru_service import MinerUError, MinerUParseResult, mineru_service
 
 
 SEMANTIC_TYPE_TITLE = "TITLE"
@@ -50,7 +48,7 @@ SEMANTIC_TYPE_UNKNOWN_PROTECTED = "UNKNOWN_PROTECTED"
 
 SEMANTIC_SOURCE_TEXT_RULE = "text_rule"
 SEMANTIC_SOURCE_DOCX_STYLE = "docx_style"
-SEMANTIC_SOURCE_DOCLING = "docling"
+SEMANTIC_SOURCE_MINERU = "mineru"
 SEMANTIC_SOURCE_MARKITDOWN_TEXT_RULE = "markitdown_text_rule"
 SEMANTIC_SOURCE_MANUAL_TEXT_RULE = "manual_text_rule"
 SEMANTIC_SOURCE_LEGACY_TEXT_RULE = "legacy_text_rule"
@@ -191,10 +189,18 @@ class TextRuleSemanticClassifier:
             semantic_type = SEMANTIC_TYPE_REFERENCE_ITEM
             confidence = 0.9
             reason = "reference_zone_item"
+        elif reference_zone and is_repeating_pdf_artifact(classification_text):
+            semantic_type = SEMANTIC_TYPE_HEADER_FOOTER
+            confidence = 0.88
+            reason = "reference_zone_repeating_artifact"
         elif reference_zone:
             semantic_type = SEMANTIC_TYPE_REFERENCE_ITEM
             confidence = 0.72
             reason = "reference_zone_continuation"
+        elif is_standalone_reference_item(classification_text):
+            semantic_type = SEMANTIC_TYPE_REFERENCE_ITEM
+            confidence = 0.86
+            reason = "standalone_reference_item"
         elif current_section == "TOC" and is_toc_item(classification_text):
             semantic_type = SEMANTIC_TYPE_TOC_ITEM
             confidence = 0.9
@@ -273,82 +279,8 @@ class TextRuleSemanticClassifier:
 
 
 
-def convert_pdf_with_docling_worker(
-    content: bytes,
-    do_ocr: bool,
-    do_table_structure: bool,
-    output_queue,
-) -> None:
-    """Run Docling PDF conversion in an isolated process.
-
-    Docling can load heavy ML/runtime components. Keeping it in a child process
-    lets the parent enforce a real timeout and fall back without wedging the API
-    worker that also serves Zhuque login/status calls.
-    """
-    temp_path = None
-    try:
-        document_converter = importlib.import_module("docling.document_converter")
-        base_models = importlib.import_module("docling.datamodel.base_models")
-        pipeline_options_module = importlib.import_module("docling.datamodel.pipeline_options")
-
-        DocumentConverter = getattr(document_converter, "DocumentConverter")
-        PdfFormatOption = getattr(document_converter, "PdfFormatOption")
-        InputFormat = getattr(base_models, "InputFormat")
-        PdfPipelineOptions = getattr(pipeline_options_module, "PdfPipelineOptions")
-
-        opts = PdfPipelineOptions(
-            do_ocr=bool(do_ocr),
-            do_table_structure=bool(do_table_structure),
-        )
-        converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
-            temp_file.write(content)
-            temp_path = temp_file.name
-        result = converter.convert(temp_path)
-        doc = getattr(result, "document", None)
-        if doc is None:
-            raise RuntimeError("Docling conversion did not return a document")
-
-        raw_segments = docling_document_to_raw_segments(doc)
-        if raw_segments:
-            parsed = build_parsed_document_from_raw_segments(
-                raw_segments,
-                parser="docling",
-                document_format="pdf",
-                fallback_source=SEMANTIC_SOURCE_DOCLING,
-                warnings=[],
-                parse_engine="docling",
-                trace={"engine": "docling", "item_count": len(raw_segments), "isolated_process": True},
-            )
-        else:
-            export = getattr(doc, "export_to_markdown", None) or getattr(doc, "export_to_text", None)
-            if not callable(export):
-                raise RuntimeError("Docling returned no text items")
-            text = export()
-            if not text:
-                raise RuntimeError("Docling returned empty text")
-            parsed = build_parsed_document_from_text(
-                normalize_parsed_document_text(str(text)),
-                parser="docling",
-                document_format="pdf",
-                semantic_source=SEMANTIC_SOURCE_DOCLING,
-                warnings=[],
-                parse_engine="docling",
-                trace={"engine": "docling", "fallback_export": True, "isolated_process": True},
-            )
-        output_queue.put({"ok": True, "parsed": parsed})
-    except BaseException as exc:  # child process must report all conversion failures
-        output_queue.put({"ok": False, "error_type": type(exc).__name__, "error": str(exc)})
-    finally:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-
-
 class DocumentStructureService:
-    def parse_uploaded_document(self, content: bytes, extension: str) -> ParsedDocument:
+    def parse_uploaded_document(self, content: bytes, extension: str, filename: str = "") -> ParsedDocument:
         extension = extension.lower()
         if extension in {".md", ".markdown"}:
             text, warnings = decode_markdown_upload(content)
@@ -365,7 +297,7 @@ class DocumentStructureService:
         if extension == ".docx":
             return self._parse_docx(content)
         if extension == ".pdf":
-            return self._parse_pdf(content)
+            return self._parse_pdf(content, filename or "paper.pdf")
         raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown) 文件")
 
     def classify_manual_text(self, text: str) -> ParsedDocument:
@@ -436,70 +368,33 @@ class DocumentStructureService:
         fallback.warnings.append("Word 样式解析未提取到有效文本，已回退 MarkItDown")
         return fallback
 
-    def _parse_pdf(self, content: bytes) -> ParsedDocument:
-        engine = str(getattr(settings, "PDF_STRUCTURE_ENGINE", "docling") or "docling").lower()
+    def _parse_pdf(self, content: bytes, filename: str) -> ParsedDocument:
+        engine = (settings.PDF_STRUCTURE_ENGINE or "mineru").strip().lower()
         if engine == "markitdown":
             return parse_document_with_markitdown(content, ".pdf")
+        if engine != "mineru":
+            fallback = parse_document_with_markitdown(content, ".pdf")
+            fallback.warnings.append(f"PDF 结构解析引擎 {engine} 不受支持，已使用 MarkItDown")
+            fallback.parse_trace = {**fallback.parse_trace, "requested_engine": engine, "fallback_reason": "unsupported_engine"}
+            return fallback
 
         try:
-            parsed = self._parse_pdf_with_docling(content)
+            mineru_result = mineru_service.parse_pdf(filename, content)
+            parsed = build_parsed_document_from_mineru_result(mineru_result)
             if parsed.text.strip():
                 return parsed
-            fallback = parse_document_with_markitdown(content, ".pdf")
-            fallback.warnings.append("Docling 未提取到有效文本，已回退 MarkItDown")
-            fallback.parse_fallback_used = True
-            fallback.parse_trace.update({"fallback_reason": "docling_empty_text"})
-            return fallback
+            raise MinerUError("MinerU 未提取到有效文本")
         except Exception as exc:
             fallback = parse_document_with_markitdown(content, ".pdf")
-            fallback.warnings.append(f"Docling 解析失败，已回退 MarkItDown：{exc}")
             fallback.parse_fallback_used = True
-            fallback.parse_trace.update({"fallback_reason": type(exc).__name__, "fallback_message": str(exc)[:200]})
+            fallback.warnings.append(f"MinerU 解析失败，已回退 MarkItDown：{exc}")
+            fallback.parse_trace = {
+                **fallback.parse_trace,
+                "fallback_from": "mineru",
+                "fallback_reason": type(exc).__name__,
+                "fallback_message": str(exc)[:200],
+            }
             return fallback
-
-    def _parse_pdf_with_docling(self, content: bytes) -> ParsedDocument:
-        timeout = max(1, int(getattr(settings, "PDF_STRUCTURE_TIMEOUT_SECONDS", 120) or 120))
-        do_ocr = bool(getattr(settings, "PDF_DO_OCR", False))
-        do_table_structure = bool(getattr(settings, "PDF_DO_TABLE_STRUCTURE", True))
-        # This method is called from a Starlette worker thread. Forking a
-        # multi-threaded Python process can deadlock in native libraries loaded
-        # by Docling/PyTorch, so prefer spawn even on Linux.
-        ctx = mp.get_context("spawn")
-        output_queue = ctx.Queue(maxsize=1)
-        process = ctx.Process(
-            target=convert_pdf_with_docling_worker,
-            args=(content, do_ocr, do_table_structure, output_queue),
-            daemon=True,
-        )
-        process.start()
-        try:
-            # Read while the child is alive; waiting for process.join() before
-            # consuming a large Queue payload can deadlock on the pipe buffer.
-            result = output_queue.get(timeout=timeout)
-        except queue.Empty as exc:
-            process.terminate()
-            process.join(5)
-            if process.is_alive():
-                process.kill()
-                process.join(5)
-            exitcode = process.exitcode
-            if exitcode is not None:
-                raise RuntimeError(f"Docling 子进程未返回解析结果，exitcode={exitcode}") from exc
-            raise TimeoutError(f"Docling PDF 解析超过 {timeout} 秒") from exc
-        finally:
-            process.join(5)
-            if process.is_alive():
-                process.terminate()
-                process.join(5)
-
-        if result.get("ok"):
-            parsed = result.get("parsed")
-            if isinstance(parsed, ParsedDocument):
-                return parsed
-            raise RuntimeError("Docling 子进程返回了无效解析结果")
-        error_type = result.get("error_type") or "RuntimeError"
-        error = result.get("error") or "Docling conversion failed"
-        raise RuntimeError(f"{error_type}: {error}")
 
 
 # Public singleton; callers can monkeypatch module functions or this object in tests.
@@ -525,13 +420,25 @@ def normalize_classification_text(text: str) -> str:
 def is_reference_heading(text: str) -> bool:
     normalized = normalize_classification_text(text).strip("：: ")
     compact = re.sub(r"\s+", "", normalized).lower()
-    return compact in {"参考文献", "参考资料", "主要参考文献"} or normalized.lower() in {
+    if compact in {"参考文献", "参考资料", "主要参考文献"} or normalized.lower() in {
         "references",
+        "reference",
         "bibliography",
         "bibliographical references",
         "参考书目",
         "works cited",
-    }
+    }:
+        return True
+    heading_pattern = (
+        r"^(?:"
+        r"\d+(?:\.\d+)*[、.]?|"
+        r"[一二三四五六七八九十]+[、.]|"
+        r"第[一二三四五六七八九十\d]+[章节]|"
+        r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|"
+        r"[IVXLCDM]+[.]?"
+        r")\s*(?:参考文献|参考资料|主要参考文献|references?|bibliography|works cited)$"
+    )
+    return bool(re.match(heading_pattern, normalized, re.IGNORECASE))
 
 
 def is_toc_heading(text: str) -> bool:
@@ -625,6 +532,18 @@ def is_reference_item(text: str) -> bool:
     return False
 
 
+def is_standalone_reference_item(text: str) -> bool:
+    normalized = normalize_classification_text(text)
+    if not normalized:
+        return False
+    if has_reference_item_prefix(normalized):
+        return bool(re.search(r"\b\d{4}\b|\[J\]|\[D\]|\[M\]|\[N\]|doi|https?://", normalized, re.IGNORECASE))
+    return bool(
+        re.search(r"\(\d{4}[a-z]?\)|\b\d{4}\b", normalized)
+        and re.search(r"\bet al\.|[A-Z][a-z]+,\s*[A-Z]\.", normalized)
+    )
+
+
 def is_formula_or_metric(text: str) -> bool:
     normalized = normalize_classification_text(text)
     if not normalized:
@@ -650,6 +569,31 @@ def is_meta_line(text: str) -> bool:
     return False
 
 
+def is_repeating_pdf_artifact(text: str) -> bool:
+    normalized = normalize_classification_text(text).strip()
+    if not normalized:
+        return False
+    if is_isolated_page_number(normalized):
+        return True
+    if has_reference_item_prefix(normalized):
+        return False
+    if re.match(r"^doi\s*[:：]\s*\S+", normalized, re.IGNORECASE):
+        return count_text_length(normalized) <= 160
+    if re.search(r"\bISSN\b|\bVolume\b|\bIssue\b|Journal of", normalized, re.IGNORECASE):
+        return count_text_length(normalized) <= 160
+    return False
+
+
+def is_isolated_page_number(text: str) -> bool:
+    normalized = normalize_classification_text(text).strip()
+    return bool(re.match(r"^(?:\d{1,4}|[ivxlcdm]{1,8}|[IVXLCDM]{1,8})$", normalized))
+
+
+def has_reference_item_prefix(text: str) -> bool:
+    normalized = normalize_classification_text(text)
+    return bool(re.match(r"^(\[\d+\]|\d+[.．、])", normalized))
+
+
 def classify_docx_style(style_name: str) -> Optional[SegmentSemanticDecision]:
     normalized = (style_name or "").strip().lower()
     if not normalized:
@@ -664,65 +608,10 @@ def classify_docx_style(style_name: str) -> Optional[SegmentSemanticDecision]:
     return None
 
 
-def docling_label_to_decision(label: Any, text: str) -> Optional[SegmentSemanticDecision]:
-    label_value = str(getattr(label, "value", label) or "").lower()
-    length = count_text_length(text)
-    if label_value in {"section_header", "title", "heading"}:
-        semantic_type = SEMANTIC_TYPE_TITLE if label_value == "title" else SEMANTIC_TYPE_SECTION_HEADING
-        return SegmentSemanticDecision(semantic_type, SEMANTIC_SOURCE_DOCLING, 0.9, False, f"docling_{label_value}", length=length)
-    if label_value in {"table"}:
-        return SegmentSemanticDecision(SEMANTIC_TYPE_TABLE, SEMANTIC_SOURCE_DOCLING, 0.9, False, "docling_table", length=length)
-    if label_value in {"caption", "picture", "figure"}:
-        return SegmentSemanticDecision(SEMANTIC_TYPE_CAPTION, SEMANTIC_SOURCE_DOCLING, 0.82, False, f"docling_{label_value}", length=length)
-    if label_value in {"formula"}:
-        return SegmentSemanticDecision(SEMANTIC_TYPE_FORMULA, SEMANTIC_SOURCE_DOCLING, 0.9, False, "docling_formula", length=length)
-    if label_value in {"page_header", "page_footer", "footnote"}:
-        return SegmentSemanticDecision(SEMANTIC_TYPE_HEADER_FOOTER, SEMANTIC_SOURCE_DOCLING, 0.88, False, f"docling_{label_value}", length=length)
-    return None
-
-
-def extract_provenance(item: Any) -> Tuple[Optional[int], Optional[str]]:
-    prov = getattr(item, "prov", None) or []
-    if not prov:
-        return None, None
-    first = prov[0]
-    page_no = getattr(first, "page_no", None)
-    bbox = getattr(first, "bbox", None)
-    if bbox is None:
-        return page_no, None
-    bbox_payload: Dict[str, Any] = {}
-    for attr in ("l", "r", "t", "b", "coord_origin"):
-        value = getattr(bbox, attr, None)
-        if value is not None:
-            bbox_payload[attr] = str(value) if attr == "coord_origin" else value
-    return page_no, json.dumps(bbox_payload, ensure_ascii=False) if bbox_payload else None
-
-
-def docling_document_to_raw_segments(doc: Any) -> List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]]:
-    raw_segments: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]] = []
-    iterate_items = getattr(doc, "iterate_items", None)
-    if not callable(iterate_items):
-        return raw_segments
-    for item, _level in iterate_items():
-        text = normalize_segment_line(getattr(item, "text", "") or "")
-        if not text:
-            continue
-        decision = docling_label_to_decision(getattr(item, "label", None), text)
-        page_no, bbox_json = extract_provenance(item)
-        raw_segments.append((text, decision, page_no, bbox_json))
-    return merge_pdf_line_segments(raw_segments)
-
-
 def merge_pdf_line_segments(
     raw_segments: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]],
 ) -> List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]]:
-    """Merge Docling text-line items into paragraph-like body segments.
-
-    Docling may expose each rendered PDF line as a text item. If we pass those
-    through directly, the UI receives `line\n\nline\n\nline` and Zhuque segment
-    mapping treats each visual line as a paragraph. Keep explicit structural
-    items separate, but coalesce adjacent same-page body candidates.
-    """
+    """Merge PDF extractor text-line items into paragraph-like body segments."""
     merged: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]] = []
     buffer: List[str] = []
     buffer_page: Optional[int] = None
@@ -738,7 +627,7 @@ def merge_pdf_line_segments(
         buffer_page = None
 
     for text, decision, page_no, bbox_json in raw_segments:
-        if is_docling_body_line_candidate(text, decision):
+        if is_pdf_body_line_candidate(text, decision):
             if buffer and buffer_page != page_no:
                 flush_buffer()
             buffer.append(text)
@@ -752,7 +641,7 @@ def merge_pdf_line_segments(
     return merged
 
 
-def is_docling_body_line_candidate(text: str, decision: Optional[SegmentSemanticDecision]) -> bool:
+def is_pdf_body_line_candidate(text: str, decision: Optional[SegmentSemanticDecision]) -> bool:
     if not text:
         return False
     if decision and decision.semantic_type not in REDUCE_ALLOWED_TYPES:
@@ -785,6 +674,311 @@ def should_join_pdf_line_without_space(previous: str, current: str) -> bool:
     if not previous or not current:
         return False
     return bool(re.search(r"[\u4e00-\u9fff]$", previous) and re.match(r"^[\u4e00-\u9fff]", current))
+
+
+def build_parsed_document_from_mineru_result(result: MinerUParseResult) -> ParsedDocument:
+    raw_segments = cleanup_pdf_repeating_artifacts(
+        mineru_content_items_to_raw_segments(result.content_items)
+    )
+    parsed = build_parsed_document_from_raw_segments(
+        raw_segments,
+        parser="mineru",
+        document_format="pdf",
+        fallback_source=SEMANTIC_SOURCE_MINERU,
+        warnings=[],
+        parse_engine="mineru",
+        trace={
+            "engine": "mineru",
+            "api": "v4",
+            "batch_id": result.batch_id,
+            "trace_id": result.trace_id,
+            "model_version": result.model_version,
+            "content_item_count": len(result.content_items),
+            "content_list_name": result.content_list_name,
+        },
+    )
+    return parsed
+
+
+def mineru_content_items_to_raw_segments(
+    items: List[Dict[str, Any]],
+) -> List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]]:
+    raw_segments: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]] = []
+    for item in items:
+        item_type = str(item.get("type") or "").strip()
+        page_number = mineru_page_number(item)
+        bbox_json = mineru_bbox_json(item)
+
+        if item_type == "text":
+            text = normalize_segment_line(mineru_scalar_text(item, "text"))
+            if not text:
+                continue
+            text_level = mineru_text_level(item)
+            decision = None
+            if text_level > 0:
+                decision = mineru_semantic_decision(
+                    SEMANTIC_TYPE_SECTION_HEADING,
+                    text,
+                    "mineru_text_level_heading",
+                    confidence=0.94,
+                )
+            raw_segments.append((text, decision, page_number, bbox_json))
+            continue
+
+        if item_type == "table":
+            text = mineru_join_text_parts(
+                mineru_text_list(item, "table_caption")
+                + [strip_html_text(mineru_scalar_text(item, "table_body"))]
+                + mineru_text_list(item, "table_footnote")
+            )
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_TABLE, text, "mineru_table", confidence=0.96, section="TABLE"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type == "equation":
+            text = normalize_segment_line(mineru_scalar_text(item, "text"))
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_FORMULA, text, "mineru_equation", confidence=0.96, section="FORMULA"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type == "image":
+            text = mineru_join_text_parts(
+                mineru_text_list(item, "image_caption")
+                + mineru_text_list(item, "image_footnote")
+            )
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_CAPTION, text, "mineru_image_caption", confidence=0.9, section="CAPTION"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type == "chart":
+            text = mineru_join_text_parts(
+                mineru_text_list(item, "chart_caption")
+                + [mineru_scalar_text(item, "content")]
+                + mineru_text_list(item, "chart_footnote")
+            )
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_CAPTION, text, "mineru_chart_caption", confidence=0.9, section="CAPTION"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type == "list":
+            sub_type = str(item.get("sub_type") or "").strip()
+            for list_item_text in mineru_text_list(item, "list_items"):
+                text = normalize_segment_line(list_item_text)
+                if not text:
+                    continue
+                decision = None
+                if sub_type == "ref_text":
+                    decision = mineru_semantic_decision(
+                        SEMANTIC_TYPE_REFERENCE_ITEM,
+                        text,
+                        "mineru_reference_list_item",
+                        confidence=0.94,
+                        section="REFERENCES",
+                    )
+                raw_segments.append((text, decision, page_number, bbox_json))
+            continue
+
+        if item_type == "ref_text":
+            text = normalize_segment_line(mineru_scalar_text(item, "text"))
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(
+                        SEMANTIC_TYPE_REFERENCE_ITEM,
+                        text,
+                        "mineru_reference_text",
+                        confidence=0.94,
+                        section="REFERENCES",
+                    ),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type == "code":
+            text = mineru_join_text_parts(
+                mineru_text_list(item, "code_caption")
+                + [mineru_scalar_text(item, "code_body")]
+                + mineru_text_list(item, "code_footnote")
+            )
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_META, text, "mineru_code", confidence=0.88, section="META"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type in {"header", "footer", "page_number"}:
+            text = normalize_segment_line(mineru_scalar_text(item, "text"))
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(
+                        SEMANTIC_TYPE_HEADER_FOOTER,
+                        text,
+                        f"mineru_{item_type}",
+                        confidence=0.9,
+                        section="HEADER_FOOTER",
+                    ),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+        if item_type in {"aside_text", "page_footnote"}:
+            text = normalize_segment_line(mineru_scalar_text(item, "text"))
+            if text:
+                raw_segments.append((
+                    text,
+                    mineru_semantic_decision(SEMANTIC_TYPE_META, text, f"mineru_{item_type}", confidence=0.86, section="META"),
+                    page_number,
+                    bbox_json,
+                ))
+            continue
+
+    return raw_segments
+
+
+def cleanup_pdf_repeating_artifacts(
+    raw_segments: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]],
+) -> List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]]:
+    """Drop repeated PDF headers/footers and isolated page-number artifacts.
+
+    MinerU can expose visual headers/footers as ordinary text when the source
+    PDF embeds them in the text layer. Keeping every repeated journal header
+    inside References breaks the reference-zone classifier and pollutes the
+    textarea. We remove only high-confidence artifacts:
+    - isolated page numbers;
+    - same normalized short header/footer-ish line repeated on 2+ pages.
+    """
+    normalized_counts: Dict[str, int] = {}
+    page_sets: Dict[str, set[int]] = {}
+    for text, _decision, page_number, _bbox_json in raw_segments:
+        normalized = normalize_pdf_artifact_key(text)
+        if not normalized:
+            continue
+        normalized_counts[normalized] = normalized_counts.get(normalized, 0) + 1
+        if page_number is not None:
+            page_sets.setdefault(normalized, set()).add(page_number)
+
+    cleaned: List[Tuple[str, Optional[SegmentSemanticDecision], Optional[int], Optional[str]]] = []
+    for text, decision, page_number, bbox_json in raw_segments:
+        normalized = normalize_pdf_artifact_key(text)
+        if decision and decision.semantic_type == SEMANTIC_TYPE_HEADER_FOOTER:
+            continue
+        if normalized and is_isolated_page_number(text):
+            continue
+        if normalized and has_reference_item_prefix(text):
+            cleaned.append((text, decision, page_number, bbox_json))
+            continue
+        repeated_on_pages = len(page_sets.get(normalized, set())) >= 2
+        repeated_count = normalized_counts.get(normalized, 0) >= 2
+        if normalized and (repeated_on_pages or repeated_count) and is_repeating_pdf_artifact(text):
+            continue
+        cleaned.append((text, decision, page_number, bbox_json))
+    return cleaned
+
+
+def normalize_pdf_artifact_key(text: str) -> str:
+    normalized = normalize_classification_text(text)
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    return normalized
+
+
+def mineru_semantic_decision(
+    semantic_type: str,
+    text: str,
+    reason: str,
+    *,
+    confidence: float,
+    section: str = "BODY",
+) -> SegmentSemanticDecision:
+    return SegmentSemanticDecision(
+        semantic_type=semantic_type,
+        semantic_source=SEMANTIC_SOURCE_MINERU,
+        semantic_confidence=confidence,
+        reduce_allowed=semantic_type in REDUCE_ALLOWED_TYPES,
+        semantic_reason=reason,
+        section=section,
+        length=count_text_length(text),
+    )
+
+
+def mineru_scalar_text(item: Dict[str, Any], field_name: str) -> str:
+    value = item.get(field_name)
+    return value if isinstance(value, str) else ""
+
+
+def mineru_text_list(item: Dict[str, Any], field_name: str) -> List[str]:
+    value = item.get(field_name)
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [entry for entry in value if isinstance(entry, str)]
+    return []
+
+
+def mineru_join_text_parts(parts: List[str]) -> str:
+    normalized_parts = [normalize_segment_line(part) for part in parts if normalize_segment_line(part)]
+    return normalize_segment_line(" ".join(normalized_parts))
+
+
+def strip_html_text(text: str) -> str:
+    if not text:
+        return ""
+    without_tags = re.sub(r"<[^>]+>", " ", text)
+    return normalize_segment_line(unescape(without_tags))
+
+
+def mineru_text_level(item: Dict[str, Any]) -> int:
+    value = item.get("text_level", 0)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    return 0
+
+
+def mineru_page_number(item: Dict[str, Any]) -> Optional[int]:
+    value = item.get("page_idx")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value + 1
+    return None
+
+
+def mineru_bbox_json(item: Dict[str, Any]) -> str:
+    metadata: Dict[str, Any] = {"mineru_type": str(item.get("type") or "")}
+    if "bbox" in item:
+        metadata["bbox"] = item["bbox"]
+    if "text_level" in item:
+        metadata["text_level"] = item["text_level"]
+    if "sub_type" in item:
+        metadata["sub_type"] = item["sub_type"]
+    return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
 
 
 def decode_markdown_upload(content: bytes) -> Tuple[str, List[str]]:
@@ -874,7 +1068,7 @@ def build_parsed_document_from_text(
 def split_pdf_extracted_text_into_segments(text: str) -> List[str]:
     """Convert PDF extractor line text into paragraph-like segments.
 
-    MarkItDown and Docling's text-export fallback can emit rendered PDF lines
+    MarkItDown can emit rendered PDF lines
     separated by single newlines. Passing those lines into the generic splitter
     turns each visual line into a paragraph and the API later serializes it as
     `line\n\nline`. For PDFs, treat single newlines inside an extracted block as
@@ -945,6 +1139,12 @@ def merge_semantic_decisions(
     explicit_decision: Optional[SegmentSemanticDecision],
     fallback_decision: SegmentSemanticDecision,
 ) -> SegmentSemanticDecision:
+    if (
+        explicit_decision
+        and explicit_decision.semantic_source == SEMANTIC_SOURCE_MINERU
+        and explicit_decision.semantic_type != SEMANTIC_TYPE_SECTION_HEADING
+    ):
+        return explicit_decision
     # Text rules for front/back matter are more specific than generic DOCX/PDF
     # heading labels. This prevents a styled "摘要" heading from losing its
     # ABSTRACT section state and protects the following abstract body.

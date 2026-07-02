@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -106,9 +107,8 @@ class ZhuqueService:
         if not callable(peek_remaining):
             if allow_stale_fallback:
                 return self._last_remaining_uses if self._last_remaining_uses is not None else current_remaining
-            if current_remaining >= 0:
-                self._remember_remaining_uses(current_remaining)
-                return current_remaining
+            self._last_remaining_uses = None
+            self._last_remaining_checked_at = 0.0
             return -1
 
         self._last_remaining_checked_at = now
@@ -120,9 +120,6 @@ class ZhuqueService:
         if remembered >= 0:
             return remembered
         if not allow_stale_fallback:
-            if current_remaining >= 0:
-                self._remember_remaining_uses(current_remaining)
-                return current_remaining
             self._last_remaining_uses = None
             self._last_remaining_checked_at = 0.0
             return -1
@@ -196,16 +193,6 @@ class ZhuqueService:
                 self._last_remaining_checked_at = 0.0
                 return quota_status
             if not allow_stale_fallback:
-                if current_remaining >= 0:
-                    self._remember_remaining_uses(current_remaining)
-                    return {
-                        "remaining_uses": current_remaining,
-                        "button_enabled": current_remaining > 0,
-                        "page_found": True,
-                        "quota_text": f"剩余 {current_remaining} 次",
-                        "message": "使用当前朱雀剩余次数",
-                        "probe_state": {},
-                    }
                 self._last_remaining_uses = None
                 self._last_remaining_checked_at = 0.0
                 return quota_status
@@ -342,9 +329,49 @@ class ZhuqueService:
         self._last_remaining_uses = None
         self._last_remaining_checked_at = 0.0
 
+    def _should_reset_after_detect_failure(self, result: dict) -> bool:
+        """Return whether a failed Zhuque detect likely invalidated auth state."""
+        if not isinstance(result, dict) or result.get("success") is not False:
+            return False
+        message = str(result.get("message") or result.get("alert_text") or "").lower()
+        if not message:
+            return False
+        transient_markers = (
+            "超时",
+            "timeout",
+            "timed out",
+            "网络",
+            "network",
+            "验证码",
+            "captcha",
+            "diff",
+        )
+        if any(marker in message for marker in transient_markers):
+            return False
+        reset_markers = (
+            "登录已过期",
+            "重新微信扫码登录",
+            "重新扫码",
+            "未找到朱雀微信登录凭证",
+            "凭证缺少",
+            "凭证不可用",
+            "token",
+            "access_token",
+            "unauthorized",
+            "401",
+            "403",
+            "reauth",
+        )
+        return any(marker in message for marker in reset_markers)
+
+    def _ensure_consumer_task(self) -> None:
+        if self._consumer_task is None or self._consumer_task.done():
+            self._consumer_task = asyncio.create_task(self._consumer())
+
     async def start(self) -> None:
         """启动服务: 校验微信扫码凭证或匿名免费检测能力，启动消费循环。"""
         if self._ready:
+            self._ensure_consumer_task()
             return
         api = self._ensure_api()
         status = await api.status()
@@ -368,8 +395,7 @@ class ZhuqueService:
             raise RuntimeError("暂未探测到朱雀剩余次数，请先点击刷新次数或扫码登录后再开始检测")
         self._remember_remaining_uses(remaining_uses)
         self._ready = True
-        if self._consumer_task is None or self._consumer_task.done():
-            self._consumer_task = asyncio.create_task(self._consumer())
+        self._ensure_consumer_task()
         logger.info(
             "[ZhuqueService:%s] 无头 API 就绪 | logged_in=%s | remaining=%s | user=%s | Token: %s...",
             self.owner_label,
@@ -384,6 +410,8 @@ class ZhuqueService:
         while True:
             task_id, text, future = await self._queue.get()
             try:
+                if future.done():
+                    continue
                 before_remaining = self._last_remaining_uses
                 try:
                     credential_status = self.api.credential_status()
@@ -391,6 +419,8 @@ class ZhuqueService:
                     credential_status = {}
                 detection_used_anonymous = not bool(credential_status.get("has_token"))
                 result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
+                if self._should_reset_after_detect_failure(result):
+                    self.reset_credentials_state()
                 if (
                     result.get("success")
                     and self._coerce_remaining_uses(result.get("remaining_uses")) < 0
@@ -420,18 +450,42 @@ class ZhuqueService:
                         forget_cache = getattr(self.api, "forget_credentials_cache", None)
                         if callable(forget_cache):
                             forget_cache()
-                future.set_result(result)
+                if not future.done():
+                    future.set_result(result)
             except Exception as e:
-                future.set_exception(e)
+                logger.warning(
+                    "[ZhuqueService:%s] detect task %s failed: %s",
+                    self.owner_label,
+                    task_id,
+                    e,
+                )
+                if not future.done():
+                    future.set_exception(e)
+            finally:
+                self._queue.task_done()
 
     async def detect(self, text: str) -> dict:
         """入队检测, 返回结果。"""
         if not self._ready:
             await self.start()
+        else:
+            self._ensure_consumer_task()
         future: asyncio.Future = asyncio.Future()
         task_id = str(uuid4())
         await self._queue.put((task_id, text, future))
         return await future
+
+    async def close(self) -> None:
+        """Stop the consumer and close persistent Zhuque browser resources."""
+        if self._consumer_task is not None and not self._consumer_task.done():
+            self._consumer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._consumer_task
+        self._consumer_task = None
+        if self.api is not None:
+            close_api = getattr(self.api, "close", None)
+            if callable(close_api):
+                await close_api()
 
     async def readiness(self, text: Optional[str] = None) -> dict:
         """读取朱雀微信凭证状态，不发起检测，不消耗朱雀次数。"""
@@ -522,7 +576,7 @@ class ZhuqueService:
             self._remember_remaining_uses(credential_remaining_uses)
 
         can_use_quota = remaining_uses > 0 or (remaining_uses < 0 and button_enabled)
-        ready = text_length_ok and remaining_uses != 0 and (has_token or can_use_quota)
+        ready = text_length_ok and remaining_uses != 0 and can_use_quota
         actions = []
         if not has_token:
             if remaining_uses > 0:
@@ -712,6 +766,10 @@ class ZhuqueServiceManager:
 
     async def refresh_free_quota(self, timeout: float = 5.0) -> dict:
         return await self._legacy_service.refresh_free_quota(timeout=timeout)
+
+    async def close(self) -> None:
+        services = [self._legacy_service, *self._services.values()]
+        await asyncio.gather(*(service.close() for service in services), return_exceptions=True)
 
 
 # 全局管理器；每个用户隔离在 zhuque_pkg/users/user_<id>/ 下。

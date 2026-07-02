@@ -1,4 +1,6 @@
 const CHINA_TIME_ZONE = 'Asia/Shanghai';
+const CHINA_TIME_ZONE_OFFSET = '+08:00';
+const BACKEND_NAIVE_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 
 const normalizeBackendDate = (value) => {
   if (!value) {
@@ -15,14 +17,18 @@ const normalizeBackendDate = (value) => {
     return normalized;
   }
 
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized)) {
-    return `${normalized}Z`;
+  if (BACKEND_NAIVE_DATETIME_PATTERN.test(normalized)) {
+    return `${normalized}${CHINA_TIME_ZONE_OFFSET}`;
   }
 
   return normalized;
 };
 
-const parseBackendDate = (value) => {
+export const parseBackendDate = (value) => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
   const normalized = normalizeBackendDate(value);
   if (!normalized) {
     return null;

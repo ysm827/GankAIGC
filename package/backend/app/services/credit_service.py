@@ -1,12 +1,11 @@
 ﻿import math
 import re
-from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.models import CreditCode, CreditTransaction, OptimizationSession, User
-from app.utils.time import utcnow
+from app.utils.time import to_china_naive, utcnow
 
 
 CREDIT_UNIT_CHARACTERS = 1000
@@ -196,7 +195,7 @@ class CreditService:
         return transaction
 
     def redeem_code(self, user: User, code: str) -> CreditTransaction:
-        now = datetime.now(timezone.utc)
+        now = utcnow()
         credit_code = (
             self.db.query(CreditCode)
             .filter(
@@ -210,9 +209,7 @@ class CreditService:
         if not credit_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="兑换码无效")
 
-        expires_at = credit_code.expires_at
-        if expires_at and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        expires_at = to_china_naive(credit_code.expires_at)
         if expires_at and expires_at < now:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="兑换码已过期")
 

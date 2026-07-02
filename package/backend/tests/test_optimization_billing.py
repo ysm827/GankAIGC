@@ -1,7 +1,11 @@
+import json
 import socket
 import sys
 import types
+import zipfile
 from io import BytesIO
+
+import httpx
 
 import app.config as config_module
 from app.database import SessionLocal
@@ -186,38 +190,50 @@ def test_parse_docx_document_upload_falls_back_to_markitdown(client, monkeypatch
     assert payload["char_count"] == 8
 
 
-def test_parse_pdf_document_upload_defaults_to_docling(client, monkeypatch):
+def test_parse_pdf_document_upload_uses_mineru_content_list(client, monkeypatch):
     from app.services import document_structure_service as structure_module
+    from app.services import mineru_service as mineru_module
 
     _, token = _create_user(credit_balance=0)
+    seen_calls = []
 
-    def fake_docling(_content):
-        raw_segments = [
-            (
-                "1 绪论",
-                structure_module.SegmentSemanticDecision(
-                    structure_module.SEMANTIC_TYPE_SECTION_HEADING,
-                    structure_module.SEMANTIC_SOURCE_DOCLING,
-                    0.9,
-                    False,
-                    "docling_section_header",
-                ),
-                1,
-                '{"l": 1}',
-            ),
-            ("PDF 正文段落围绕研究背景展开，长度足够进入正文候选。" * 5, None, 1, None),
-        ]
-        return structure_module.build_parsed_document_from_raw_segments(
-            raw_segments,
-            parser="docling",
-            document_format="pdf",
-            fallback_source=structure_module.SEMANTIC_SOURCE_DOCLING,
-            warnings=[],
-            parse_engine="docling",
-            trace={"engine": "docling", "item_count": len(raw_segments)},
+    def fake_parse_pdf(filename, content):
+        seen_calls.append((filename, content[:4]))
+        return mineru_module.MinerUParseResult(
+            batch_id="batch-123",
+            trace_id="trace-abc",
+            model_version="vlm",
+            content_list_name="paper_content_list.json",
+            full_zip_url="https://mineru.example/full.zip",
+            content_items=[
+                {"type": "text", "text": "1 绪论", "text_level": 1, "bbox": [1, 2, 3, 4], "page_idx": 0},
+                {
+                    "type": "text",
+                    "text": "正文段落围绕研究背景展开，且长度足够进入正文候选。" * 5,
+                    "bbox": [1, 2, 3, 4],
+                    "page_idx": 0,
+                },
+                {
+                    "type": "table",
+                    "table_caption": ["表 1 实验结果"],
+                    "table_body": "<table><tr><td>A</td></tr></table>",
+                    "table_footnote": [],
+                    "bbox": [1, 2, 3, 4],
+                    "page_idx": 1,
+                },
+                {"type": "equation", "text": "$$x=y$$", "bbox": [1, 2, 3, 4], "page_idx": 1},
+                {
+                    "type": "list",
+                    "sub_type": "ref_text",
+                    "list_items": ["[1] Author. Title[J]. 2020."],
+                    "bbox": [1, 2, 3, 4],
+                    "page_idx": 2,
+                },
+            ],
         )
 
-    monkeypatch.setattr(structure_module.DocumentStructureService, "_parse_pdf_with_docling", lambda self, content: fake_docling(content))
+    monkeypatch.setattr(structure_module.settings, "PDF_STRUCTURE_ENGINE", "mineru", raising=False)
+    monkeypatch.setattr(structure_module.mineru_service, "parse_pdf", fake_parse_pdf)
 
     response = client.post(
         "/api/optimization/documents/parse",
@@ -227,15 +243,355 @@ def test_parse_pdf_document_upload_defaults_to_docling(client, monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["parser"] == "docling"
-    assert payload["parse_engine"] == "docling"
+    assert seen_calls == [("paper.pdf", b"%PDF")]
+    assert payload["filename"] == "paper.pdf"
+    assert payload["parser"] == "mineru"
+    assert payload["parse_engine"] == "mineru"
     assert payload["parse_fallback_used"] is False
+    trace = json.loads(payload["parse_trace"])
+    assert trace["engine"] == "mineru"
+    assert trace["api"] == "v4"
+    assert trace["batch_id"] == "batch-123"
+    assert trace["content_item_count"] == 5
+    assert trace["content_list_name"] == "paper_content_list.json"
     assert payload["structure_summary"]["SECTION_HEADING"] == 1
     assert payload["structure_summary"]["BODY"] == 1
-    assert payload["segments"][0]["page_number"] == 1
+    assert payload["structure_summary"]["TABLE"] == 1
+    assert payload["structure_summary"]["FORMULA"] == 1
+    assert payload["structure_summary"]["REFERENCE_ITEM"] == 1
+    by_type = {segment["semantic_type"]: segment for segment in payload["segments"]}
+    assert by_type["BODY"]["reduce_allowed"] is True
+    assert by_type["SECTION_HEADING"]["reduce_allowed"] is False
+    assert by_type["TABLE"]["reduce_allowed"] is False
+    assert by_type["FORMULA"]["reduce_allowed"] is False
+    assert by_type["REFERENCE_ITEM"]["reduce_allowed"] is False
+    assert by_type["BODY"]["page_number"] == 1
+    assert by_type["TABLE"]["page_number"] == 2
+    assert by_type["REFERENCE_ITEM"]["page_number"] == 3
 
 
-def test_parse_pdf_docling_merges_same_page_body_lines():
+def test_mineru_pdf_cleanup_removes_repeated_headers_without_losing_references():
+    from app.services import document_structure_service as structure_module
+    from app.services import mineru_service as mineru_module
+
+    result = mineru_module.MinerUParseResult(
+        batch_id="batch-refs",
+        trace_id="trace-refs",
+        model_version="vlm",
+        content_list_name="journal_content_list.json",
+        full_zip_url="https://mineru.example/full.zip",
+        content_items=[
+            {"type": "text", "text": "8 References", "text_level": 1, "page_idx": 30},
+            {
+                "type": "text",
+                "text": "[1] Chen, A. (2021). Cultural communication in digital platforms. Journal of Media Studies, 12(1), 1-10.",
+                "page_idx": 30,
+            },
+            {"type": "text", "text": "32", "page_idx": 31},
+            {"type": "text", "text": "International Journal of Social Science and Education Research", "page_idx": 31},
+            {"type": "text", "text": "Volume 7 Issue 9, 2024", "page_idx": 31},
+            {"type": "text", "text": "ISSN: 2637-6067", "page_idx": 31},
+            {"type": "text", "text": "DOI: 10.6918/IJOSSER.202409_7(9).0039", "page_idx": 31},
+            {
+                "type": "text",
+                "text": "[2] Zhang, L. (2020). Digital culture and media practice. Journal of Communication, 8(2), 20-30. doi:10.1000/ref.2020",
+                "page_idx": 31,
+            },
+            {"type": "text", "text": "International Journal of Social Science and Education Research", "page_idx": 32},
+            {"type": "text", "text": "Volume 7 Issue 9, 2024", "page_idx": 32},
+            {"type": "text", "text": "ISSN: 2637-6067", "page_idx": 32},
+            {"type": "text", "text": "DOI: 10.6918/IJOSSER.202409_7(9).0039", "page_idx": 32},
+        ],
+    )
+
+    parsed = structure_module.build_parsed_document_from_mineru_result(result)
+
+    assert "International Journal of Social Science and Education Research" not in parsed.text
+    assert "Volume 7 Issue 9, 2024" not in parsed.text
+    assert "ISSN: 2637-6067" not in parsed.text
+    assert "10.6918/IJOSSER.202409_7(9).0039" not in parsed.text
+    assert "\n\n32\n\n" not in f"\n\n{parsed.text}\n\n"
+    assert "[1] Chen, A. (2021)" in parsed.text
+    assert "[2] Zhang, L. (2020)" in parsed.text
+
+    semantic_by_text = {segment.text: segment.semantic_type for segment in parsed.segments}
+    assert semantic_by_text["8 References"] == structure_module.SEMANTIC_TYPE_REFERENCE_HEADING
+    assert semantic_by_text[
+        "[1] Chen, A. (2021). Cultural communication in digital platforms. Journal of Media Studies, 12(1), 1-10."
+    ] == structure_module.SEMANTIC_TYPE_REFERENCE_ITEM
+    assert semantic_by_text[
+        "[2] Zhang, L. (2020). Digital culture and media practice. Journal of Communication, 8(2), 20-30. doi:10.1000/ref.2020"
+    ] == structure_module.SEMANTIC_TYPE_REFERENCE_ITEM
+    assert all(segment.semantic_type != structure_module.SEMANTIC_TYPE_HEADER_FOOTER for segment in parsed.segments)
+
+
+def test_mineru_pdf_maps_real_ref_text_items_from_content_list():
+    from app.services import document_structure_service as structure_module
+    from app.services import mineru_service as mineru_module
+
+    result = mineru_module.MinerUParseResult(
+        batch_id="batch-real-ref-text",
+        trace_id="trace-real-ref-text",
+        model_version="vlm",
+        content_list_name="real_content_list.json",
+        full_zip_url="https://mineru.example/full.zip",
+        content_items=[
+            {"type": "text", "text": "References", "text_level": 2, "page_idx": 4},
+            {
+                "type": "ref_text",
+                "text": "[1] Sijing, C., & Lie, Z. (2020, December). Research on Cultural and Creative Products Combined with Mobile Virtual Applications for Chinese Museums. In 2020 International Conference on Intelligent Design (ICID) (pp. 267-272). IEEE.",
+                "page_idx": 4,
+            },
+            {"type": "header", "text": "International Journal of Social Science and Education Research", "page_idx": 4},
+            {"type": "page_number", "text": "32", "page_idx": 4},
+            {
+                "type": "ref_text",
+                "text": "[2] Zhang, L. (2020). Foreshadowing the Future of Capitalism: Surveillance Technology and Digital Realism in Xu Bing’s Dragonfly Eyes. Comparative Cinema, 8(14), 62-81.",
+                "page_idx": 5,
+            },
+        ],
+    )
+
+    parsed = structure_module.build_parsed_document_from_mineru_result(result)
+
+    assert "[1] Sijing, C." in parsed.text
+    assert "[2] Zhang, L." in parsed.text
+    assert "International Journal of Social Science and Education Research" not in parsed.text
+    assert "\n\n32\n\n" not in f"\n\n{parsed.text}\n\n"
+
+    ref_segments = [segment for segment in parsed.segments if segment.semantic_type == structure_module.SEMANTIC_TYPE_REFERENCE_ITEM]
+    assert [segment.page_number for segment in ref_segments] == [5, 6]
+    assert all(segment.reduce_allowed is False for segment in ref_segments)
+    assert all(segment.semantic_reason == "mineru_reference_text" for segment in ref_segments)
+
+
+def test_parse_pdf_document_upload_falls_back_to_markitdown_when_mineru_fails(client, monkeypatch):
+    from app.services import document_structure_service as structure_module
+    from app.services import mineru_service as mineru_module
+
+    _, token = _create_user(credit_balance=0)
+    seen_extensions = []
+
+    class FakeMarkItDown:
+        def __init__(self, enable_plugins=False):
+            assert enable_plugins is False
+
+        def convert_stream(self, stream, *, file_extension=None):
+            seen_extensions.append(file_extension)
+            assert stream.read().startswith(b"%PDF")
+            return types.SimpleNamespace(text_content="PDF fallback body")
+
+    monkeypatch.setattr(structure_module.settings, "PDF_STRUCTURE_ENGINE", "mineru", raising=False)
+    monkeypatch.setattr(
+        structure_module.mineru_service,
+        "parse_pdf",
+        lambda _filename, _content: (_ for _ in ()).throw(mineru_module.MinerUConfigError("未配置 MINERU_API_TOKEN")),
+    )
+    monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.pdf", b"%PDF-1.7 fake pdf", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert seen_extensions == [".pdf"]
+    assert payload["filename"] == "paper.pdf"
+    assert payload["parser"] == "markitdown"
+    assert payload["parse_engine"] == "markitdown"
+    assert payload["parse_fallback_used"] is True
+    assert "MinerU" in payload["warnings"][0]
+    trace = json.loads(payload["parse_trace"])
+    assert trace["engine"] == "markitdown"
+    assert trace["fallback_from"] == "mineru"
+    assert trace["fallback_reason"] == "MinerUConfigError"
+    assert payload["text"] == "PDF fallback body"
+
+
+def test_mineru_service_uses_v4_upload_poll_and_content_list_zip(monkeypatch):
+    from app.services import mineru_service as mineru_module
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        archive.writestr("paper_content_list.json", json.dumps([
+            {"type": "text", "text": "正文段落", "page_idx": 0, "bbox": [1, 2, 3, 4]}
+        ]))
+    zip_bytes = zip_buffer.getvalue()
+    calls = []
+
+    def fake_response(status_code, *, json_payload=None, content=None, url="https://mineru.test/fake"):
+        return httpx.Response(
+            status_code,
+            json=json_payload,
+            content=content,
+            request=httpx.Request("GET", url),
+        )
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, *, headers=None, json=None):
+            calls.append(("POST", url, headers, json))
+            return fake_response(
+                200,
+                json_payload={
+                    "code": 0,
+                    "data": {
+                        "batch_id": "batch-1",
+                        "file_urls": ["https://upload.example/paper"],
+                    },
+                    "msg": "ok",
+                        "trace_id": "trace-1",
+                },
+                url=url,
+            )
+
+        def put(self, url, *, content=None):
+            calls.append(("PUT", url, content))
+            return fake_response(200, url=url)
+
+        def get(self, url, *, headers=None):
+            calls.append(("GET", url, headers))
+            if url.endswith("/api/v4/extract-results/batch/batch-1"):
+                return fake_response(
+                    200,
+                    json_payload={
+                        "code": 0,
+                        "data": {
+                            "batch_id": "batch-1",
+                            "extract_result": {
+                                "file_name": "paper.pdf",
+                                "state": "done",
+                                "full_zip_url": "https://download.example/full.zip",
+                                "err_msg": "",
+                                "data_id": "",
+                            },
+                        },
+                        "msg": "ok",
+                    },
+                    url=url,
+                )
+            return fake_response(200, content=zip_bytes, url=url)
+
+    monkeypatch.setattr(mineru_module.settings, "MINERU_API_TOKEN", "token-1", raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_BASE_URL", "https://mineru.test", raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_MODEL_VERSION", "vlm", raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_LANGUAGE", "ch", raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_IS_OCR", False, raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_ENABLE_FORMULA", True, raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_ENABLE_TABLE", True, raising=False)
+    monkeypatch.setattr(mineru_module.httpx, "Client", FakeClient)
+
+    result = mineru_module.MinerUService().parse_pdf("paper.pdf", b"%PDF-body")
+
+    assert result.batch_id == "batch-1"
+    assert result.trace_id == "trace-1"
+    assert result.content_list_name == "paper_content_list.json"
+    assert result.content_items == [{"type": "text", "text": "正文段落", "page_idx": 0, "bbox": [1, 2, 3, 4]}]
+    post_call = calls[0]
+    assert post_call[0:2] == ("POST", "https://mineru.test/api/v4/file-urls/batch")
+    assert post_call[2]["Authorization"] == "Bearer token-1"
+    assert post_call[3]["files"] == [{"name": "paper.pdf", "is_ocr": False}]
+    assert post_call[3]["model_version"] == "vlm"
+    assert post_call[3]["enable_formula"] is True
+    assert post_call[3]["enable_table"] is True
+    assert calls[1] == ("PUT", "https://upload.example/paper", b"%PDF-body")
+    assert calls[2][0:2] == ("GET", "https://mineru.test/api/v4/extract-results/batch/batch-1")
+    assert calls[3][0:2] == ("GET", "https://download.example/full.zip")
+
+
+def test_mineru_service_accepts_batch_extract_result_array(monkeypatch):
+    from app.services import mineru_service as mineru_module
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        archive.writestr("paper_content_list.json", json.dumps([
+            {"type": "text", "text": "数组形态解析正文", "page_idx": 0, "bbox": [1, 2, 3, 4]}
+        ]))
+    zip_bytes = zip_buffer.getvalue()
+
+    def fake_response(status_code, *, json_payload=None, content=None, url="https://mineru.test/fake"):
+        return httpx.Response(
+            status_code,
+            json=json_payload,
+            content=content,
+            request=httpx.Request("GET", url),
+        )
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, *, headers=None, json=None):
+            return fake_response(
+                200,
+                json_payload={
+                    "code": 0,
+                    "data": {
+                        "batch_id": "batch-array",
+                        "file_urls": ["https://upload.example/paper"],
+                    },
+                    "msg": "ok",
+                    "trace_id": "trace-array",
+                },
+                url=url,
+            )
+
+        def put(self, url, *, content=None):
+            return fake_response(200, url=url)
+
+        def get(self, url, *, headers=None):
+            if url.endswith("/api/v4/extract-results/batch/batch-array"):
+                return fake_response(
+                    200,
+                    json_payload={
+                        "code": 0,
+                        "data": {
+                            "batch_id": "batch-array",
+                            "extract_result": [
+                                {
+                                    "file_name": "paper.pdf",
+                                    "state": "done",
+                                    "full_zip_url": "https://download.example/full.zip",
+                                    "err_msg": "",
+                                    "data_id": "",
+                                }
+                            ],
+                        },
+                        "msg": "ok",
+                    },
+                    url=url,
+                )
+            return fake_response(200, content=zip_bytes, url=url)
+
+    monkeypatch.setattr(mineru_module.settings, "MINERU_API_TOKEN", "token-1", raising=False)
+    monkeypatch.setattr(mineru_module.settings, "MINERU_BASE_URL", "https://mineru.test", raising=False)
+    monkeypatch.setattr(mineru_module.httpx, "Client", FakeClient)
+
+    result = mineru_module.MinerUService().parse_pdf("paper.pdf", b"%PDF-body")
+
+    assert result.batch_id == "batch-array"
+    assert result.trace_id == "trace-array"
+    assert result.full_zip_url == "https://download.example/full.zip"
+    assert result.content_items == [{"type": "text", "text": "数组形态解析正文", "page_idx": 0, "bbox": [1, 2, 3, 4]}]
+
+
+def test_parse_pdf_line_segments_merge_same_page_body_lines():
     from app.services import document_structure_service as structure_module
 
     raw_segments = [
@@ -243,10 +599,10 @@ def test_parse_pdf_docling_merges_same_page_body_lines():
             "1 Introduction",
             structure_module.SegmentSemanticDecision(
                 structure_module.SEMANTIC_TYPE_SECTION_HEADING,
-                structure_module.SEMANTIC_SOURCE_DOCLING,
+                structure_module.SEMANTIC_SOURCE_TEXT_RULE,
                 0.9,
                 False,
-                "docling_section_header",
+                "section_heading",
             ),
             1,
             '{"l": 1}',
@@ -257,22 +613,22 @@ def test_parse_pdf_docling_merges_same_page_body_lines():
         ("construction of digital identities by transnational bloggers on Chinese social media platforms", None, 1, '{"line": 4}'),
         ("2 Methods", structure_module.SegmentSemanticDecision(
             structure_module.SEMANTIC_TYPE_SECTION_HEADING,
-            structure_module.SEMANTIC_SOURCE_DOCLING,
+            structure_module.SEMANTIC_SOURCE_TEXT_RULE,
             0.9,
             False,
-            "docling_section_header",
+            "section_heading",
         ), 1, '{"l": 2}'),
     ]
 
     merged = structure_module.merge_pdf_line_segments(raw_segments)
     parsed = structure_module.build_parsed_document_from_raw_segments(
         merged,
-        parser="docling",
+        parser="markitdown",
         document_format="pdf",
-        fallback_source=structure_module.SEMANTIC_SOURCE_DOCLING,
+        fallback_source=structure_module.SEMANTIC_SOURCE_MARKITDOWN_TEXT_RULE,
         warnings=[],
-        parse_engine="docling",
-        trace={"engine": "docling"},
+        parse_engine="markitdown",
+        trace={"engine": "markitdown"},
     )
 
     assert len(parsed.segments) == 3
@@ -312,45 +668,11 @@ def test_parse_pdf_text_export_merges_soft_wrapped_lines():
     assert parsed.segments[1].reduce_allowed is True
 
 
-def test_parse_pdf_document_upload_falls_back_to_markitdown(client, monkeypatch):
+def test_parse_pdf_document_upload_extracts_text_with_real_markitdown(client, monkeypatch):
     from app.services import document_structure_service as structure_module
 
     _, token = _create_user(credit_balance=0)
-    seen_extensions = []
-
-    class FakeMarkItDown:
-        def __init__(self, enable_plugins=False):
-            assert enable_plugins is False
-
-        def convert_stream(self, stream, *, file_extension=None):
-            seen_extensions.append(file_extension)
-            assert stream.read().startswith(b"%PDF")
-            return types.SimpleNamespace(text_content="PDF parsed body")
-
-    monkeypatch.setitem(sys.modules, "markitdown", types.SimpleNamespace(MarkItDown=FakeMarkItDown))
-    monkeypatch.setattr(structure_module.DocumentStructureService, "_parse_pdf_with_docling", lambda self, content: (_ for _ in ()).throw(RuntimeError("docling failed")))
-
-    response = client.post(
-        "/api/optimization/documents/parse",
-        files={"file": ("paper.pdf", b"%PDF-1.7 fake pdf", "application/pdf")},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert seen_extensions == [".pdf"]
-    assert payload["filename"] == "paper.pdf"
-    assert payload["parser"] == "markitdown"
-    assert payload["parse_engine"] == "markitdown"
-    assert payload["parse_fallback_used"] is True
-    assert payload["text"] == "PDF parsed body"
-
-
-def test_parse_pdf_document_upload_extracts_text_with_real_markitdown(client, monkeypatch):
-    from app.routes import optimization
-
-    monkeypatch.setattr(optimization.settings, "PDF_STRUCTURE_ENGINE", "markitdown", raising=False)
-    _, token = _create_user(credit_balance=0)
+    monkeypatch.setattr(structure_module.settings, "PDF_STRUCTURE_ENGINE", "markitdown", raising=False)
     pdf = b"""%PDF-1.4
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
@@ -595,6 +917,72 @@ def test_ai_detect_reduce_retry_does_not_hold_platform_credit(client, monkeypatc
         assert session.charge_status == "not_charged"
         assert session.charged_credits == 0
         assert transactions == []
+    finally:
+        db.close()
+
+
+def test_ai_detect_reduce_retry_clears_stale_zhuque_trace_final(client, monkeypatch):
+    from app.routes import optimization
+
+    user_id, token = _create_user(credit_balance=0)
+    monkeypatch.setattr(optimization, "run_optimization", _noop_run_optimization)
+
+    db = SessionLocal()
+    try:
+        failed_session = OptimizationSession(
+            user_id=user_id,
+            session_id="failed-ai-detect-reduce-stale-final",
+            original_text="汉" * 1000,
+            current_stage="ai_detect_reduce",
+            status="failed",
+            error_message="朱雀降重未达标",
+            processing_mode="ai_detect_reduce",
+            billing_mode="platform",
+            charge_status="not_charged",
+            charged_credits=0,
+            zhuque_agent_trace=json.dumps(
+                {
+                    "version": 1,
+                    "threshold": 20.0,
+                    "events": [
+                        {
+                            "type": "detect",
+                            "seq": 1,
+                            "message": "上一轮检测事件保留",
+                        }
+                    ],
+                    "final": {
+                        "status": "failed",
+                        "rate": None,
+                        "diagnosis": "上一轮失败诊断不应在重试中继续展示",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(failed_session)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/optimization/sessions/failed-ai-detect-reduce-stale-final/retry",
+        json={"billing_mode": "keep"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+    db = SessionLocal()
+    try:
+        session = db.query(OptimizationSession).filter(
+            OptimizationSession.session_id == "failed-ai-detect-reduce-stale-final"
+        ).one()
+        trace = json.loads(session.zhuque_agent_trace)
+        assert session.status == "queued"
+        assert "final" not in trace
+        assert trace["events"][0]["message"] == "上一轮检测事件保留"
+        assert trace["threshold"] == 20.0
     finally:
         db.close()
 
