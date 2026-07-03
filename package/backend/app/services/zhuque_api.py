@@ -361,6 +361,24 @@ def _zhuque_payload_has_score_or_ratio(payload: Any) -> bool:
     return isinstance(labels_ratio, dict) and bool(labels_ratio)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _zhuque_detect_headless() -> bool:
+    """Whether real-page Zhuque detection should run in a hidden browser.
+
+    Default stays headless for server deployments. Local troubleshooting can set
+    ``ZHUQUE_DETECT_HEADLESS=false`` so Tencent CAPTCHA challenges appear in a
+    real browser window and can be solved without abandoning the active detect
+    page/context.
+    """
+    return _env_bool("ZHUQUE_DETECT_HEADLESS", True)
+
+
 def _zhuque_page_captcha_detected(page_state: dict) -> bool:
     if not isinstance(page_state, dict):
         return False
@@ -659,6 +677,7 @@ class ZhuqueAPI:
         self._last_detect_failed = False
         self._detect_cooldown = 8.0
         self._detect_cooldown_after_fail = 30.0
+        self._browser_headless = True
 
     def _playwright_browsers_path(self) -> Path:
         return Path(__file__).resolve().parents[3] / ".playwright-browsers"
@@ -762,8 +781,9 @@ class ZhuqueAPI:
             await self._close_persistent_page_context()
             self._browser = None
 
+        desired_headless = _zhuque_detect_headless()
         launch_kwargs = {
-            "headless": True,
+            "headless": desired_headless,
             "args": [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
@@ -771,12 +791,23 @@ class ZhuqueAPI:
         }
         try:
             self._browser = await self._pw.chromium.launch(channel="chrome", **launch_kwargs)
+            self._browser_headless = desired_headless
         except Exception as exc:
             logger.info(
                 "朱雀真实页面检测未能启动 Chrome channel，回退 Playwright Chromium: %s",
                 exc,
             )
-            self._browser = await self._pw.chromium.launch(**launch_kwargs)
+            try:
+                self._browser = await self._pw.chromium.launch(**launch_kwargs)
+                self._browser_headless = desired_headless
+            except Exception:
+                if desired_headless:
+                    raise
+                logger.exception("朱雀真实页面检测可见浏览器启动失败，回退无头模式")
+                fallback_kwargs = dict(launch_kwargs)
+                fallback_kwargs["headless"] = True
+                self._browser = await self._pw.chromium.launch(**fallback_kwargs)
+                self._browser_headless = True
         return self._browser
 
     def _session_status_file(self) -> Path:
@@ -1718,6 +1749,8 @@ class ZhuqueAPI:
                 return self._failure("朱雀真实页面检测失败：检测按钮被禁用，可能文本长度不足或次数用尽", len(text))
 
             deadline = time.time() + timeout
+            captcha_seen = False
+            captcha_artifact_written = False
             while time.time() < deadline:
                 await page.wait_for_timeout(1000)
                 data = await page.evaluate(
@@ -1877,21 +1910,6 @@ class ZhuqueAPI:
                         };
                     }"""
                 )
-                if _zhuque_page_captcha_detected(data):
-                    await self._write_quota_probe_artifacts(
-                        page,
-                        reason="detect_captcha_required",
-                        quota_state={
-                            "captcha_text": data.get("captcha_text") or "",
-                            "captcha_iframe_src": data.get("captcha_iframe_src") or "",
-                            "button_text": data.get("button_text") or "",
-                            "alert_title": data.get("alert_title") or "",
-                        },
-                    )
-                    return _captcha_required_zhuque_result(
-                        "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
-                        len(text),
-                    )
                 for observed in data.get("result_payloads") or []:
                     if isinstance(observed, dict):
                         remember_result_payload(observed.get("value"))
@@ -1911,6 +1929,35 @@ class ZhuqueAPI:
                             }
                         )
                     return observed_result
+                if _zhuque_page_captcha_detected(data):
+                    captcha_seen = True
+                    if not captcha_artifact_written:
+                        await self._write_quota_probe_artifacts(
+                            page,
+                            reason=(
+                                "detect_captcha_required"
+                                if self._browser_headless
+                                else "detect_captcha_waiting_for_visible_browser"
+                            ),
+                            quota_state={
+                                "captcha_text": data.get("captcha_text") or "",
+                                "captcha_iframe_src": data.get("captcha_iframe_src") or "",
+                                "button_text": data.get("button_text") or "",
+                                "alert_title": data.get("alert_title") or "",
+                                "headless": self._browser_headless,
+                            },
+                        )
+                        captcha_artifact_written = True
+                    if self._browser_headless:
+                        return _captcha_required_zhuque_result(
+                            "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
+                            len(text),
+                        )
+                    # Visible local detection window: keep the same page alive so
+                    # the user can complete Tencent CAPTCHA and the existing
+                    # WebSocket/HTTP payload listeners can capture the terminal
+                    # result without losing browser continuity.
+                    continue
                 vue = data.get("vue") or {}
                 if vue.get("type") and not vue.get("processing") and vue.get("rate") is not None:
                     payload = _merge_zhuque_page_payload(
@@ -1934,6 +1981,11 @@ class ZhuqueAPI:
                         )
                     return result
 
+            if captcha_seen:
+                return _captcha_required_zhuque_result(
+                    "朱雀腾讯验证码在可见检测窗口中仍未完成，请完成验证后点击继续/重试",
+                    len(text),
+                )
             return self._failure(f"朱雀真实页面检测超时 ({timeout}s)", len(text))
         except Exception as exc:
             message = str(exc)
