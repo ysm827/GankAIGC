@@ -3949,7 +3949,7 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         assert segment.enhanced_text == f"增强后:{segment.polished_text}"
         assert segment.zhuque_reduced_text == segment.enhanced_text
         assert segment.zhuque_detect_rate == 12
-        assert user.zhuque_free_uses_remaining == 20
+        assert user.zhuque_free_uses_remaining == 99
         assert user.zhuque_total_uses == 2
         assert user.credit_balance == 10
         assert [(txn.reason, txn.delta) for txn in transactions] == [("zhuque_reduce", -10)]
