@@ -1599,6 +1599,22 @@ def test_zhuque_api_page_observed_payload_does_not_require_vue_dom_state():
     assert result["segment_labels"][0]["position_end"] == 6
 
 
+def test_zhuque_api_visible_captcha_wait_budget_is_configurable(monkeypatch):
+    from app.services.zhuque_api import _zhuque_visible_captcha_wait_seconds
+
+    monkeypatch.delenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", raising=False)
+    assert _zhuque_visible_captcha_wait_seconds() == 600.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "900")
+    assert _zhuque_visible_captcha_wait_seconds() == 900.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "bad")
+    assert _zhuque_visible_captcha_wait_seconds() == 600.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "-1")
+    assert _zhuque_visible_captcha_wait_seconds() == 0.0
+
+
 def test_zhuque_api_infers_score_from_segment_labels_when_summary_is_missing():
     from app.services.zhuque_api import normalize_zhuque_result
 

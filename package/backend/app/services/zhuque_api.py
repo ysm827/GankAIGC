@@ -425,6 +425,21 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _zhuque_visible_captcha_wait_seconds() -> float:
+    """Extra wait budget for human-solved CAPTCHA in a visible detect window."""
+    return max(0.0, _env_float("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", 600.0))
+
+
 def _zhuque_detect_headless() -> bool:
     """Whether real-page Zhuque detection should run in a hidden browser.
 
@@ -1845,6 +1860,7 @@ class ZhuqueAPI:
             deadline = time.time() + timeout
             captcha_seen = False
             captcha_artifact_written = False
+            captcha_deadline_extended = False
             while time.time() < deadline:
                 await page.wait_for_timeout(1000)
                 data = await page.evaluate(
@@ -2047,6 +2063,9 @@ class ZhuqueAPI:
                             "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
                             len(text),
                         )
+                    if not captcha_deadline_extended:
+                        deadline = max(deadline, time.time() + _zhuque_visible_captcha_wait_seconds())
+                        captcha_deadline_extended = True
                     # Visible local detection window: keep the same page alive so
                     # the user can complete Tencent CAPTCHA and the existing
                     # WebSocket/HTTP payload listeners can capture the terminal
