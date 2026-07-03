@@ -681,6 +681,28 @@ def test_zhuque_capture_logged_out_status_prefers_live_page_quota_over_previous(
     assert "15 left" in status["quota_text"]
 
 
+def test_zhuque_capture_session_status_uses_unique_tmp_file(monkeypatch, tmp_path):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_unique_status_tmp", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module, "SESSION_STATUS_FILE", tmp_path / "session_status.json")
+    monkeypatch.setattr(module.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(module.time, "time_ns", lambda: 123456789)
+    legacy_fixed_tmp = tmp_path / "session_status.tmp"
+    legacy_fixed_tmp.write_text("stale", encoding="utf-8")
+
+    module.write_session_status({"connected": True, "ready": True, "message": "ok"})
+
+    status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert status["connected"] is True
+    assert legacy_fixed_tmp.read_text(encoding="utf-8") == "stale"
+    assert not (tmp_path / "session_status.json.4242.123456789.tmp").exists()
+
+
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
@@ -1723,6 +1745,38 @@ def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
     assert result is None
 
 
+def test_zhuque_api_focuses_existing_detect_page(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    class FakePage:
+        def __init__(self, url):
+            self.url = url
+            self.focused = False
+
+        def is_closed(self):
+            return False
+
+        async def bring_to_front(self):
+            self.focused = True
+
+    class FakeContext:
+        def __init__(self, pages):
+            self.pages = pages
+
+    blank_page = FakePage("about:blank")
+    detect_page = FakePage("https://matrix.tencent.com/ai-detect/")
+    api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
+    api._browser_headless = False
+    api._browser_context = FakeContext([blank_page, detect_page])
+
+    result = asyncio.run(api.focus_cached_page())
+
+    assert result["available"] is True
+    assert result["url"] == "https://matrix.tencent.com/ai-detect/"
+    assert detect_page.focused is True
+    assert api._cached_page is detect_page
+
+
 def test_zhuque_api_detects_real_page_captcha_challenge():
     from app.services.zhuque_api import _captcha_required_zhuque_result, _zhuque_page_captcha_detected
 
@@ -2039,6 +2093,50 @@ def test_zhuque_browser_start_endpoint_defaults_to_remote_qr_per_user(client, mo
     assert body["qr_image_data"].startswith("data:image/png;base64,")
     assert body["sync_session"] is True
     assert calls == [user_id, ("reset", user_id)]
+
+
+def test_zhuque_browser_start_endpoint_reuses_existing_detection_window(client, monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    credential_file = str(tmp_path / "creds_latest.json")
+    calls = []
+
+    class FakeUserZhuqueService:
+        async def focus_detection_window(self):
+            calls.append("focus")
+            return {
+                "available": True,
+                "credential_file": credential_file,
+                "url": "https://matrix.tencent.com/ai-detect/",
+            }
+
+    class FakeZhuqueService:
+        def for_user(self, current_user_id):
+            calls.append(("for_user", current_user_id))
+            return FakeUserZhuqueService()
+
+        def reset_user(self, current_user_id):
+            calls.append(("reset", current_user_id))
+
+    def fail_start_zhuque_wechat_capture(*, sync_session=True, user=None):
+        raise AssertionError("local-window capture must not launch when detect window is reusable")
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_start_zhuque_wechat_capture", fail_start_zhuque_wechat_capture)
+
+    response = client.post(
+        "/api/optimization/zhuque/browser/start?mode=local_window",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "reused"
+    assert body["credential_file"] == credential_file
+    assert "复用当前朱雀检测窗口" in body["message"]
+    assert calls == [("for_user", user_id), "focus"]
 
 
 def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypatch, tmp_path):

@@ -857,6 +857,39 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True, user: Optional[Us
         }
 
 
+async def _reuse_zhuque_detection_window(user: User, *, sync_session: bool = True) -> Optional[dict]:
+    """Focus the user's existing Zhuque detect page instead of opening another window."""
+    service = _zhuque_service_for_user(user)
+    focus_detection_window = getattr(service, "focus_detection_window", None)
+    if not callable(focus_detection_window):
+        return None
+    try:
+        focus_result = await focus_detection_window()
+    except Exception:
+        return None
+    if not isinstance(focus_result, dict) or not focus_result.get("available"):
+        return None
+    return {
+        "status": "reused",
+        "auth_mode": "headless_api",
+        "login_mode": "wechat_qr",
+        "credential_file": focus_result.get("credential_file", ""),
+        "sync_session": sync_session,
+        "command": None,
+        "message": "已复用当前朱雀检测窗口，请在该窗口完成验证码/登录后回到 GankAIGC 继续重试。",
+        "session_id": "",
+        "qr_image_data": "",
+        "expires_at": "",
+        "connected": False,
+        "ready": False,
+        "has_token": False,
+        "has_anonymous_fp": False,
+        "remaining_uses": -1,
+        "user_name": "",
+        "quota_text": "",
+    }
+
+
 def _get_zhuque_headless_status(user: Optional[User] = None) -> dict:
     service = _zhuque_service_for_user(user) if user is not None else zhuque_service
     status = service._ensure_api().credential_status()
@@ -1144,6 +1177,9 @@ async def start_zhuque_browser(
     本地开发；公网/VPS 默认不要依赖服务端桌面。
     """
     if mode == "local_window":
+        reused_window = await _reuse_zhuque_detection_window(user, sync_session=sync_session)
+        if reused_window is not None:
+            return reused_window
         # The visible verifier writes credentials asynchronously; force the
         # next detect/retry to rebuild the real-page context from disk instead
         # of reusing a stale CAPTCHA-blocked page or cached credential payload.

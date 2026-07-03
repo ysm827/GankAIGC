@@ -819,6 +819,74 @@ class ZhuqueAPI:
         profile_name = "detect_chrome_profile_anonymous" if anonymous else "detect_chrome_profile"
         return self.credentials_file.parent / profile_name
 
+    async def focus_cached_page(self) -> dict:
+        """Bring the existing visible Zhuque detect page forward when possible.
+
+        Manual Tencent CAPTCHA resolution should reuse the real-page detector's
+        current tab instead of launching a second local-window sync browser. The
+        method never creates a new page; it only focuses an already-live page in
+        this service instance.
+        """
+        candidates = []
+        if self._cached_page is not None:
+            candidates.append(self._cached_page)
+        if self._browser_context is not None:
+            with contextlib.suppress(Exception):
+                candidates.extend(getattr(self._browser_context, "pages", []) or [])
+
+        seen: set[int] = set()
+        live_pages = []
+        for candidate in candidates:
+            if candidate is None or id(candidate) in seen:
+                continue
+            seen.add(id(candidate))
+            try:
+                if candidate.is_closed():
+                    continue
+            except Exception:
+                continue
+            live_pages.append(candidate)
+
+        if not live_pages:
+            return {
+                "available": False,
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "message": "当前没有可复用的朱雀检测窗口",
+            }
+
+        page = next(
+            (candidate for candidate in live_pages if "matrix.tencent.com/ai-detect" in str(getattr(candidate, "url", ""))),
+            live_pages[0],
+        )
+        if self._browser_headless:
+            return {
+                "available": False,
+                "headless": True,
+                "credential_file": str(self.credentials_file),
+                "url": str(getattr(page, "url", "")),
+                "message": "当前朱雀检测浏览器是无头模式，无法前置可见窗口",
+            }
+
+        try:
+            await page.bring_to_front()
+        except Exception as exc:
+            return {
+                "available": False,
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "url": str(getattr(page, "url", "")),
+                "message": f"复用朱雀检测窗口失败: {exc}",
+            }
+        self._cached_page = page
+        return {
+            "available": True,
+            "headless": False,
+            "credential_file": str(self.credentials_file),
+            "url": str(getattr(page, "url", "")),
+            "message": "已复用当前朱雀检测窗口",
+        }
+
     async def _seed_persistent_context_state(self, context, *, anonymous: bool) -> None:
         """Seed a fixed browser profile from the latest per-user Zhuque state.
 
@@ -1859,6 +1927,7 @@ class ZhuqueAPI:
             else:
                 page = await self._browser_context.new_page()
                 is_cached = False
+            self._cached_page = page
             observed_result_payloads: list[dict] = []
 
             def remember_result_payload(payload: Any) -> None:
