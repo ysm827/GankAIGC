@@ -1599,6 +1599,84 @@ def test_zhuque_api_page_observed_payload_does_not_require_vue_dom_state():
     assert result["segment_labels"][0]["position_end"] == 6
 
 
+def test_zhuque_api_infers_score_from_segment_labels_when_summary_is_missing():
+    from app.services.zhuque_api import normalize_zhuque_result
+
+    result = normalize_zhuque_result(
+        {
+            "segment_labels": [
+                {"text": "AI段落", "label": 0, "conf": 0.99, "position": [0, 200]},
+                {"text": "可疑段落", "label": 2, "conf": 0.88, "position": [400, 100]},
+            ],
+            "button_text": "Detect now(18 left)",
+        },
+        text_length=1000,
+        source="page_fallback",
+    )
+
+    assert result["success"] is True
+    assert result["score_inferred_from_segment_labels"] is True
+    assert result["labels_ratio"] == {"0": 0.2, "1": 0.7, "2": 0.1}
+    assert result["rate"] == 20.0
+    assert result["risk_rate"] == 20.0
+    assert result["remaining_uses"] == 18
+    assert result["segment_labels"][0]["position_end"] == 200
+
+
+def test_zhuque_api_page_observed_labels_wait_while_captcha_visible():
+    from app.services.zhuque_api import _normalize_zhuque_observed_page_result
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {
+                "segment_labels": [
+                    {"text": "验证码期间段落", "label": 0, "position": [0, 10]},
+                ]
+            }
+        ],
+        page_state={
+            "captcha_visible": True,
+            "captcha_text": "tcaptcha Verification Code",
+            "button_text": "Detecting",
+            "alert": "",
+            "alert_title": "Detecting...",
+        },
+        text_length=500,
+    )
+
+    assert result is None
+
+
+def test_zhuque_api_page_observed_score_payload_merges_latest_segment_labels():
+    from app.services.zhuque_api import _normalize_zhuque_observed_page_result
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {
+                "segment_labels": [
+                    {"text": "真实朱雀段落", "label": 0, "position": [10, 6]},
+                ]
+            },
+            {
+                "confidence": 0.64,
+                "labels_ratio": {"0": 0.64, "1": 0.36, "2": 0.0},
+            },
+        ],
+        page_state={
+            "button_text": "Detect now(17 left)",
+            "alert": "",
+            "alert_title": "",
+        },
+        text_length=1000,
+    )
+
+    assert result is not None
+    assert result["success"] is True
+    assert result["rate"] == 64.0
+    assert result["segment_labels"][0]["position_end"] == 16
+    assert result["remaining_uses"] == 17
+
+
 def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
     from app.services.zhuque_api import (
         _extract_zhuque_terminal_payload,

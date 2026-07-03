@@ -361,6 +361,63 @@ def _zhuque_payload_has_score_or_ratio(payload: Any) -> bool:
     return isinstance(labels_ratio, dict) and bool(labels_ratio)
 
 
+def _infer_raw_labels_ratio_from_segment_labels(segment_labels: Any, text_length: int) -> dict:
+    """Conservative fallback when Zhuque exposes labels before/without a total score.
+
+    Live Zhuque can render highlighted spans while the old summary payload is
+    delayed or absent after a Tencent CAPTCHA challenge. Treat labelled AI /
+    suspicious spans as covered risk and count unlabelled text as human, so the
+    pipeline can still continue from the same solved page instead of failing on
+    ``缺少有效检测分数``.
+    """
+    if not isinstance(segment_labels, list) or text_length <= 0:
+        return {}
+
+    lengths = {"0": 0, "1": 0, "2": 0}
+    for item in segment_labels:
+        if not isinstance(item, dict):
+            continue
+        try:
+            label = int(item.get("label"))
+        except (TypeError, ValueError):
+            continue
+        if label not in {0, 1, 2}:
+            continue
+
+        span_length = 0
+        position = item.get("position")
+        if (
+            isinstance(position, list)
+            and len(position) == 2
+            and all(isinstance(value, (int, float)) for value in position)
+        ):
+            start = max(0, int(position[0]))
+            length = int(position[1])
+            if length > 0 and start < text_length:
+                span_length = min(length, text_length - start)
+        if span_length <= 0:
+            label_text = item.get("text")
+            if isinstance(label_text, str) and label_text:
+                span_length = min(len(label_text), text_length)
+        if span_length <= 0:
+            continue
+        lengths[str(label)] += span_length
+
+    labelled_length = sum(lengths.values())
+    if labelled_length <= 0:
+        return {}
+
+    ratios = {label: max(0.0, length / text_length) for label, length in lengths.items()}
+    ratio_total = sum(ratios.values())
+    if ratio_total > 1.0:
+        ratios = {label: value / ratio_total for label, value in ratios.items()}
+    else:
+        # Zhuque usually returns only highlighted suspicious/AI spans. Missing
+        # coverage is therefore the safest human/default bucket.
+        ratios["1"] = min(1.0, ratios["1"] + (1.0 - ratio_total))
+    return ratios
+
+
 def _env_bool(name: str, default: bool) -> bool:
     value = os.environ.get(name)
     if value is None or not value.strip():
@@ -405,17 +462,32 @@ def _zhuque_page_captcha_detected(page_state: dict) -> bool:
 
 
 def _select_zhuque_terminal_payload(observed_payloads: list[dict]) -> Optional[dict]:
-    """Pick a real terminal result, not transient empty segment arrays."""
-    payload = next(
+    """Pick a real terminal result, not transient empty segment arrays.
+
+    Prefer the latest payload containing a score/ratio and merge the latest
+    segment labels into it. Vue component scans can surface segment labels a
+    little earlier than the summary score, especially after manual CAPTCHA; if
+    labels are selected first, downstream normalization fails with a false
+    ``缺少有效检测分数`` even when a scored payload was also observed.
+    """
+    scored_payload = next(
+        (item for item in reversed(observed_payloads) if _zhuque_payload_has_score_or_ratio(item)),
+        None,
+    )
+    label_payload = next(
         (item for item in reversed(observed_payloads) if _zhuque_payload_has_segment_labels(item)),
         None,
     )
-    if payload is None:
-        payload = next(
-            (item for item in reversed(observed_payloads) if _zhuque_payload_has_score_or_ratio(item)),
-            None,
-        )
-    return dict(payload) if isinstance(payload, dict) else None
+    if isinstance(scored_payload, dict):
+        payload = dict(scored_payload)
+        if label_payload and not _zhuque_payload_has_segment_labels(payload):
+            payload["segment_labels"] = label_payload.get("segment_labels")
+        if label_payload:
+            for key in ("content_type", "feedback_token"):
+                if payload.get(key) is None and label_payload.get(key) is not None:
+                    payload[key] = label_payload.get(key)
+        return payload
+    return dict(label_payload) if isinstance(label_payload, dict) else None
 
 
 def _normalize_zhuque_observed_page_result(
@@ -444,7 +516,17 @@ def _normalize_zhuque_observed_page_result(
     if page_state.get("alert_title") and not payload.get("alert_title"):
         payload["alert_title"] = page_state.get("alert_title")
 
+    if _zhuque_page_captcha_detected(page_state) and not _zhuque_payload_has_score_or_ratio(payload):
+        # CAPTCHA is still active; segment-label-only Vue state can be stale or
+        # partial. Keep waiting for the user-solved page to emit a scored result.
+        return None
+
     result = normalize_zhuque_result(payload, text_length=text_length, source="page_fallback")
+    if not result.get("success") and not _zhuque_payload_has_score_or_ratio(payload):
+        # Non-empty labels without a score are useful only if normalization can
+        # infer a conservative risk. Otherwise keep polling instead of surfacing
+        # a misleading terminal failure while the page may still be rendering.
+        return None
     result["page_result_payload_count"] = len(observed_payloads)
     result["page_result_has_segment_labels"] = any(
         _zhuque_payload_has_segment_labels(item) for item in observed_payloads
@@ -574,6 +656,15 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
     )
     raw_labels = data.get("labels_ratio") or data.get("labelsRatio") or {}
     labels_ratio, label_map = _infer_and_convert_labels(raw_labels, raw_rate)
+    score_inferred_from_segment_labels = False
+    if not labels_ratio:
+        inferred_raw_labels = _infer_raw_labels_ratio_from_segment_labels(
+            data.get("segment_labels"),
+            text_length,
+        )
+        if inferred_raw_labels:
+            labels_ratio, label_map = _infer_and_convert_labels(inferred_raw_labels, raw_rate)
+            score_inferred_from_segment_labels = True
     if not labels_ratio and raw_rate is not None:
         ai_ratio_from_rate = _coerce_ratio_value(raw_rate)
         labels_ratio = {
@@ -624,7 +715,7 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         data.get("button_text"),
     )
 
-    return {
+    result = {
         "success": True,
         "rate": rate,
         "risk_rate": risk_rate,
@@ -641,6 +732,9 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         "feedback_token": data.get("feedback_token"),
         "source": source,
     }
+    if score_inferred_from_segment_labels:
+        result["score_inferred_from_segment_labels"] = True
+    return result
 
 
 class ZhuqueAPI:
