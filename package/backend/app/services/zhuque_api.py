@@ -440,6 +440,23 @@ def _zhuque_visible_captcha_wait_seconds() -> float:
     return max(0.0, _env_float("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", 600.0))
 
 
+def _zhuque_detect_failure_retryable(message: str) -> bool:
+    lowered = str(message or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "超时",
+            "timeout",
+            "reset",
+            "closed",
+            "断连",
+            "按钮被禁用",
+            "button disabled",
+            "重开页面",
+        )
+    )
+
+
 def _zhuque_detect_headless() -> bool:
     """Whether real-page Zhuque detection should run in a hidden browser.
 
@@ -1842,6 +1859,64 @@ class ZhuqueAPI:
             await self._human_mouse_move(page, 540, 420, 650, 580, duration_ms=450)
             await page.wait_for_timeout(random.randint(80, 250))
 
+            button_state = {}
+            for _ in range(24):
+                button_state = await page.evaluate(
+                    """() => {
+                        const button = document.querySelector('.submit-btn')
+                            || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+                        const textEl = document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]');
+                        const captchaNodes = [...document.querySelectorAll(
+                            '#tcaptcha_iframe_dy, #tcaptcha_wrapper_transform_dy, iframe[src*="captcha.gtimg.com"], .tcaptcha-transform, [id*=captcha], [class*=captcha]'
+                        )];
+                        const visibleCaptchaNodes = captchaNodes.filter((el) => {
+                            const rect = el.getBoundingClientRect();
+                            const style = window.getComputedStyle(el);
+                            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                        });
+                        return {
+                            found: Boolean(button),
+                            disabled: button ? Boolean(button.disabled) : false,
+                            text: button ? (button.textContent || '').trim() : '',
+                            input_length: textEl ? String('value' in textEl ? textEl.value : textEl.textContent || '').length : -1,
+                            captcha_visible: visibleCaptchaNodes.length > 0,
+                            captcha_text: visibleCaptchaNodes
+                                .map((el) => `${el.tagName || ''}#${el.id || ''}.${el.className || ''} ${el.src || ''} ${(el.textContent || '').trim()}`)
+                                .join(' | ')
+                                .slice(0, 500),
+                        };
+                    }"""
+                )
+                if not button_state.get("found") or not button_state.get("disabled"):
+                    break
+                if _zhuque_page_captcha_detected(button_state):
+                    break
+                await page.wait_for_timeout(500)
+
+            if not button_state.get("found"):
+                return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
+            if button_state.get("disabled"):
+                if _zhuque_page_captcha_detected(button_state):
+                    return _captcha_required_zhuque_result(
+                        "朱雀触发腾讯验证码，请在当前朱雀检测窗口手动完成验证后重试",
+                        len(text),
+                    )
+                await self._write_quota_probe_artifacts(
+                    page,
+                    reason="detect_button_disabled_before_click",
+                    quota_state={
+                        "button_text": button_state.get("text") or "",
+                        "input_length": button_state.get("input_length"),
+                        "set_result": str(set_result),
+                        "headless": self._browser_headless,
+                    },
+                )
+                await self._close_persistent_page_context()
+                return self._failure(
+                    "朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试（可能文本尚未写入或旧检测状态未清空）",
+                    len(text),
+                )
+
             click_result = await page.evaluate(
                 """() => {
                     const button = document.querySelector('.submit-btn')
@@ -1855,7 +1930,8 @@ class ZhuqueAPI:
             if "NOT_FOUND" in str(click_result):
                 return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
             if "DISABLED" in str(click_result):
-                return self._failure("朱雀真实页面检测失败：检测按钮被禁用，可能文本长度不足或次数用尽", len(text))
+                await self._close_persistent_page_context()
+                return self._failure("朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试", len(text))
 
             deadline = time.time() + timeout
             captcha_seen = False
@@ -2151,7 +2227,7 @@ class ZhuqueAPI:
                 return result
             last_result = result
             message = str(result.get("message") or "")
-            retryable = any(marker in message.lower() for marker in ("超时", "timeout", "reset", "closed", "断连"))
+            retryable = _zhuque_detect_failure_retryable(message)
             if not retryable:
                 self._last_detect_failed = False
                 return result

@@ -1600,7 +1600,10 @@ def test_zhuque_api_page_observed_payload_does_not_require_vue_dom_state():
 
 
 def test_zhuque_api_visible_captcha_wait_budget_is_configurable(monkeypatch):
-    from app.services.zhuque_api import _zhuque_visible_captcha_wait_seconds
+    from app.services.zhuque_api import (
+        _zhuque_detect_failure_retryable,
+        _zhuque_visible_captcha_wait_seconds,
+    )
 
     monkeypatch.delenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", raising=False)
     assert _zhuque_visible_captcha_wait_seconds() == 600.0
@@ -1613,6 +1616,9 @@ def test_zhuque_api_visible_captcha_wait_budget_is_configurable(monkeypatch):
 
     monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "-1")
     assert _zhuque_visible_captcha_wait_seconds() == 0.0
+
+    assert _zhuque_detect_failure_retryable("检测按钮被禁用，已重开页面重试")
+    assert not _zhuque_detect_failure_retryable("次数用尽")
 
 
 def test_zhuque_api_infers_score_from_segment_labels_when_summary_is_missing():
@@ -1865,6 +1871,54 @@ def test_zhuque_api_page_fallback_retries_timeout(monkeypatch, tmp_path):
     assert result["remaining_uses"] == 18
     assert len(calls) == 2
     assert calls[0]["anonymous"] is False
+    assert api._last_detect_failed is False
+
+
+def test_zhuque_api_page_fallback_retries_disabled_button(monkeypatch, tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "token",
+                "localStorage": {"aiGenAccessToken": "token"},
+                "userName": "tester",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    api = ZhuqueAPI(credentials_file=creds_file)
+    calls = []
+
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
+        if len(calls) == 1:
+            return {
+                "success": False,
+                "message": "朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试",
+                "remaining_uses": -1,
+                "text_length": len(text),
+                "source": "page_fallback",
+            }
+        return {
+            "success": True,
+            "rate": 12.0,
+            "risk_rate": 12.0,
+            "labels_ratio": {"0": 0.12, "1": 0.88, "2": 0.0},
+            "remaining_uses": 16,
+            "text_length": len(text),
+            "source": "page_fallback",
+        }
+
+    monkeypatch.setattr(api, "_detect_with_page", fake_detect_with_page)
+
+    result = asyncio.run(api.detect("汉" * 500, timeout=60.0))
+
+    assert result["success"] is True
+    assert result["rate"] == 12.0
+    assert len(calls) == 2
     assert api._last_detect_failed is False
 
 
