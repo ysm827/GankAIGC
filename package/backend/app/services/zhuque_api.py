@@ -468,6 +468,11 @@ def _zhuque_detect_headless() -> bool:
     return _env_bool("ZHUQUE_DETECT_HEADLESS", True)
 
 
+def _zhuque_detect_persistent_profile() -> bool:
+    """Use a stable Chrome user-data-dir for repeated Zhuque detections."""
+    return _env_bool("ZHUQUE_DETECT_PERSISTENT_PROFILE", False)
+
+
 def _zhuque_page_captcha_detected(page_state: dict) -> bool:
     if not isinstance(page_state, dict):
         return False
@@ -796,6 +801,8 @@ class ZhuqueAPI:
         self._browser_context = None
         self._browser_context_anonymous: Optional[bool] = None
         self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = False
+        self._browser_profile_dir: Optional[Path] = None
         self._cached_page = None
         self._ws_handler_ref = None
         self._response_handler_ref = None
@@ -807,6 +814,53 @@ class ZhuqueAPI:
 
     def _playwright_browsers_path(self) -> Path:
         return Path(__file__).resolve().parents[3] / ".playwright-browsers"
+
+    def _detect_profile_dir(self, *, anonymous: bool) -> Path:
+        profile_name = "detect_chrome_profile_anonymous" if anonymous else "detect_chrome_profile"
+        return self.credentials_file.parent / profile_name
+
+    async def _seed_persistent_context_state(self, context, *, anonymous: bool) -> None:
+        """Seed a fixed browser profile from the latest per-user Zhuque state.
+
+        ``launch_persistent_context`` cannot take Playwright's ``storage_state``
+        option directly, so import cookies and localStorage after the profile is
+        opened. The profile then keeps future Zhuque-issued device state on disk.
+        """
+        if anonymous:
+            state = self._anonymous_page_storage_state() or {}
+        else:
+            state_file = self.credentials_file.parent / "browser_state.json"
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
+            except (OSError, json.JSONDecodeError):
+                state = {}
+        cookies = state.get("cookies") if isinstance(state, dict) else None
+        if isinstance(cookies, list) and cookies:
+            with contextlib.suppress(Exception):
+                await context.add_cookies(cookies)
+        origins = state.get("origins") if isinstance(state, dict) else None
+        if isinstance(origins, list) and origins:
+            local_storage_by_origin = {
+                str(origin.get("origin")): {
+                    str(item.get("name")): item.get("value")
+                    for item in (origin.get("localStorage") or [])
+                    if isinstance(item, dict) and item.get("name") is not None and item.get("value") is not None
+                }
+                for origin in origins
+                if isinstance(origin, dict) and origin.get("origin")
+            }
+            local_storage_json = json.dumps(local_storage_by_origin, ensure_ascii=False)
+            await context.add_init_script(
+                f"""
+                (() => {{
+                    const states = {local_storage_json};
+                    const data = states[location.origin] || {{}};
+                    for (const [k, v] of Object.entries(data)) {{
+                        try {{ localStorage.setItem(k, String(v)); }} catch (e) {{}}
+                    }}
+                }})();
+                """
+            )
 
     # ── 凭证 ─────────────────────────────────────────────
 
@@ -881,9 +935,13 @@ class ZhuqueAPI:
         if self._browser_context is not None:
             with contextlib.suppress(Exception):
                 await self._browser_context.close()
+        if self._browser_persistent_profile:
+            self._browser = None
         self._browser_context = None
         self._browser_context_anonymous = None
         self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = False
+        self._browser_profile_dir = None
 
     async def close(self) -> None:
         """Close the persistent Playwright resources used by real-page detect."""
@@ -935,6 +993,74 @@ class ZhuqueAPI:
                 self._browser = await self._pw.chromium.launch(**fallback_kwargs)
                 self._browser_headless = True
         return self._browser
+
+    async def _ensure_persistent_profile_context(self, async_playwright_factory, *, anonymous: bool):
+        if self._pw is None:
+            self._pw = await async_playwright_factory().start()
+
+        desired_headless = _zhuque_detect_headless()
+        profile_dir = self._detect_profile_dir(anonymous=anonymous)
+        if (
+            self._browser_context is not None
+            and self._browser_persistent_profile
+            and self._browser_profile_dir == profile_dir
+            and self._browser_context_anonymous == anonymous
+            and not self._browser_context_needs_refresh
+        ):
+            return self._browser_context
+
+        await self._close_persistent_page_context()
+        if self._browser is not None:
+            with contextlib.suppress(Exception):
+                await self._browser.close()
+        self._browser = None
+
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        launch_kwargs = {
+            "headless": desired_headless,
+            "viewport": {"width": 1280, "height": 720},
+            "user_agent": DEFAULT_USER_AGENT,
+            "args": [
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        }
+        try:
+            self._browser_context = await self._pw.chromium.launch_persistent_context(
+                str(profile_dir),
+                channel="chrome",
+                **launch_kwargs,
+            )
+            self._browser_headless = desired_headless
+        except Exception as exc:
+            logger.info(
+                "朱雀真实页面检测未能用固定 profile 启动 Chrome channel，回退 Playwright Chromium: %s",
+                exc,
+            )
+            try:
+                self._browser_context = await self._pw.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    **launch_kwargs,
+                )
+                self._browser_headless = desired_headless
+            except Exception:
+                if desired_headless:
+                    raise
+                logger.exception("朱雀真实页面检测固定 profile 可见浏览器启动失败，回退无头模式")
+                fallback_kwargs = dict(launch_kwargs)
+                fallback_kwargs["headless"] = True
+                self._browser_context = await self._pw.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    **fallback_kwargs,
+                )
+                self._browser_headless = True
+        await self._seed_persistent_context_state(self._browser_context, anonymous=anonymous)
+        self._browser_context_anonymous = anonymous
+        self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = True
+        self._browser_profile_dir = profile_dir
+        self._browser = getattr(self._browser_context, "browser", None)
+        return self._browser_context
 
     def _session_status_file(self) -> Path:
         return self.credentials_file.parent / "session_status.json"
@@ -1694,28 +1820,31 @@ class ZhuqueAPI:
         page = None
         is_cached = False
         try:
-            browser = await self._launch_persistent_browser(async_playwright)
-            if (
-                self._browser_context_needs_refresh
-                or self._browser_context_anonymous is not None
-                and self._browser_context_anonymous != anonymous
-            ):
-                await self._close_persistent_page_context()
+            if _zhuque_detect_persistent_profile():
+                await self._ensure_persistent_profile_context(async_playwright, anonymous=anonymous)
+            else:
+                browser = await self._launch_persistent_browser(async_playwright)
+                if (
+                    self._browser_context_needs_refresh
+                    or self._browser_context_anonymous is not None
+                    and self._browser_context_anonymous != anonymous
+                ):
+                    await self._close_persistent_page_context()
 
-            if self._browser_context is None:
-                ctx_kwargs = {
-                    "viewport": {"width": 1280, "height": 720},
-                    "user_agent": DEFAULT_USER_AGENT,
-                }
-                state_file = self.credentials_file.parent / "browser_state.json"
-                if anonymous:
-                    anonymous_storage_state = self._anonymous_page_storage_state()
-                    if anonymous_storage_state:
-                        ctx_kwargs["storage_state"] = anonymous_storage_state
-                elif state_file.exists():
-                    ctx_kwargs["storage_state"] = str(state_file)
-                self._browser_context = await browser.new_context(**ctx_kwargs)
-                self._browser_context_anonymous = anonymous
+                if self._browser_context is None:
+                    ctx_kwargs = {
+                        "viewport": {"width": 1280, "height": 720},
+                        "user_agent": DEFAULT_USER_AGENT,
+                    }
+                    state_file = self.credentials_file.parent / "browser_state.json"
+                    if anonymous:
+                        anonymous_storage_state = self._anonymous_page_storage_state()
+                        if anonymous_storage_state:
+                            ctx_kwargs["storage_state"] = anonymous_storage_state
+                    elif state_file.exists():
+                        ctx_kwargs["storage_state"] = str(state_file)
+                    self._browser_context = await browser.new_context(**ctx_kwargs)
+                    self._browser_context_anonymous = anonymous
 
             if self._cached_page is not None:
                 with contextlib.suppress(Exception):
