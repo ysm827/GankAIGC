@@ -681,6 +681,28 @@ def test_zhuque_capture_logged_out_status_prefers_live_page_quota_over_previous(
     assert "15 left" in status["quota_text"]
 
 
+def test_zhuque_capture_session_status_uses_unique_tmp_file(monkeypatch, tmp_path):
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    spec = importlib.util.spec_from_file_location("zhuque_capture_unique_status_tmp", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module, "SESSION_STATUS_FILE", tmp_path / "session_status.json")
+    monkeypatch.setattr(module.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(module.time, "time_ns", lambda: 123456789)
+    legacy_fixed_tmp = tmp_path / "session_status.tmp"
+    legacy_fixed_tmp.write_text("stale", encoding="utf-8")
+
+    module.write_session_status({"connected": True, "ready": True, "message": "ok"})
+
+    status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert status["connected"] is True
+    assert legacy_fixed_tmp.read_text(encoding="utf-8") == "stale"
+    assert not (tmp_path / "session_status.json.4242.123456789.tmp").exists()
+
+
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
@@ -1599,6 +1621,106 @@ def test_zhuque_api_page_observed_payload_does_not_require_vue_dom_state():
     assert result["segment_labels"][0]["position_end"] == 6
 
 
+def test_zhuque_api_visible_captcha_wait_budget_is_configurable(monkeypatch):
+    from app.services.zhuque_api import (
+        _zhuque_detect_failure_retryable,
+        _zhuque_visible_captcha_wait_seconds,
+    )
+
+    monkeypatch.delenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", raising=False)
+    assert _zhuque_visible_captcha_wait_seconds() == 600.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "900")
+    assert _zhuque_visible_captcha_wait_seconds() == 900.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "bad")
+    assert _zhuque_visible_captcha_wait_seconds() == 600.0
+
+    monkeypatch.setenv("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", "-1")
+    assert _zhuque_visible_captcha_wait_seconds() == 0.0
+
+    assert _zhuque_detect_failure_retryable("检测按钮被禁用，已重开页面重试")
+    assert not _zhuque_detect_failure_retryable("次数用尽")
+
+
+def test_zhuque_api_infers_score_from_segment_labels_when_summary_is_missing():
+    from app.services.zhuque_api import normalize_zhuque_result
+
+    result = normalize_zhuque_result(
+        {
+            "segment_labels": [
+                {"text": "AI段落", "label": 0, "conf": 0.99, "position": [0, 200]},
+                {"text": "可疑段落", "label": 2, "conf": 0.88, "position": [400, 100]},
+            ],
+            "button_text": "Detect now(18 left)",
+        },
+        text_length=1000,
+        source="page_fallback",
+    )
+
+    assert result["success"] is True
+    assert result["score_inferred_from_segment_labels"] is True
+    assert result["labels_ratio"] == {"0": 0.2, "1": 0.7, "2": 0.1}
+    assert result["rate"] == 20.0
+    assert result["risk_rate"] == 20.0
+    assert result["remaining_uses"] == 18
+    assert result["segment_labels"][0]["position_end"] == 200
+
+
+def test_zhuque_api_page_observed_labels_wait_while_captcha_visible():
+    from app.services.zhuque_api import _normalize_zhuque_observed_page_result
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {
+                "segment_labels": [
+                    {"text": "验证码期间段落", "label": 0, "position": [0, 10]},
+                ]
+            }
+        ],
+        page_state={
+            "captcha_visible": True,
+            "captcha_text": "tcaptcha Verification Code",
+            "button_text": "Detecting",
+            "alert": "",
+            "alert_title": "Detecting...",
+        },
+        text_length=500,
+    )
+
+    assert result is None
+
+
+def test_zhuque_api_page_observed_score_payload_merges_latest_segment_labels():
+    from app.services.zhuque_api import _normalize_zhuque_observed_page_result
+
+    result = _normalize_zhuque_observed_page_result(
+        observed_payloads=[
+            {
+                "segment_labels": [
+                    {"text": "真实朱雀段落", "label": 0, "position": [10, 6]},
+                ]
+            },
+            {
+                "confidence": 0.64,
+                "labels_ratio": {"0": 0.64, "1": 0.36, "2": 0.0},
+            },
+        ],
+        page_state={
+            "button_text": "Detect now(17 left)",
+            "alert": "",
+            "alert_title": "",
+        },
+        text_length=1000,
+    )
+
+    assert result is not None
+    assert result["success"] is True
+    assert result["rate"] == 64.0
+    assert result["segment_labels"][0]["position_end"] == 16
+    assert result["remaining_uses"] == 17
+
+
 def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
     from app.services.zhuque_api import (
         _extract_zhuque_terminal_payload,
@@ -1621,6 +1743,38 @@ def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
     )
 
     assert result is None
+
+
+def test_zhuque_api_focuses_existing_detect_page(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    class FakePage:
+        def __init__(self, url):
+            self.url = url
+            self.focused = False
+
+        def is_closed(self):
+            return False
+
+        async def bring_to_front(self):
+            self.focused = True
+
+    class FakeContext:
+        def __init__(self, pages):
+            self.pages = pages
+
+    blank_page = FakePage("about:blank")
+    detect_page = FakePage("https://matrix.tencent.com/ai-detect/")
+    api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
+    api._browser_headless = False
+    api._browser_context = FakeContext([blank_page, detect_page])
+
+    result = asyncio.run(api.focus_cached_page())
+
+    assert result["available"] is True
+    assert result["url"] == "https://matrix.tencent.com/ai-detect/"
+    assert detect_page.focused is True
+    assert api._cached_page is detect_page
 
 
 def test_zhuque_api_detects_real_page_captcha_challenge():
@@ -1774,6 +1928,54 @@ def test_zhuque_api_page_fallback_retries_timeout(monkeypatch, tmp_path):
     assert api._last_detect_failed is False
 
 
+def test_zhuque_api_page_fallback_retries_disabled_button(monkeypatch, tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(
+        json.dumps(
+            {
+                "access_token": "token",
+                "localStorage": {"aiGenAccessToken": "token"},
+                "userName": "tester",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    api = ZhuqueAPI(credentials_file=creds_file)
+    calls = []
+
+    async def fake_detect_with_page(text, timeout, *, reason="", anonymous=False):
+        calls.append({"text": text, "timeout": timeout, "reason": reason, "anonymous": anonymous})
+        if len(calls) == 1:
+            return {
+                "success": False,
+                "message": "朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试",
+                "remaining_uses": -1,
+                "text_length": len(text),
+                "source": "page_fallback",
+            }
+        return {
+            "success": True,
+            "rate": 12.0,
+            "risk_rate": 12.0,
+            "labels_ratio": {"0": 0.12, "1": 0.88, "2": 0.0},
+            "remaining_uses": 16,
+            "text_length": len(text),
+            "source": "page_fallback",
+        }
+
+    monkeypatch.setattr(api, "_detect_with_page", fake_detect_with_page)
+
+    result = asyncio.run(api.detect("汉" * 500, timeout=60.0))
+
+    assert result["success"] is True
+    assert result["rate"] == 12.0
+    assert len(calls) == 2
+    assert api._last_detect_failed is False
+
+
 def test_zhuque_api_missing_credentials_attempts_anonymous_page_fallback(monkeypatch, tmp_path):
     from app.services.zhuque_api import ZhuqueAPI
 
@@ -1891,6 +2093,50 @@ def test_zhuque_browser_start_endpoint_defaults_to_remote_qr_per_user(client, mo
     assert body["qr_image_data"].startswith("data:image/png;base64,")
     assert body["sync_session"] is True
     assert calls == [user_id, ("reset", user_id)]
+
+
+def test_zhuque_browser_start_endpoint_reuses_existing_detection_window(client, monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    credential_file = str(tmp_path / "creds_latest.json")
+    calls = []
+
+    class FakeUserZhuqueService:
+        async def focus_detection_window(self):
+            calls.append("focus")
+            return {
+                "available": True,
+                "credential_file": credential_file,
+                "url": "https://matrix.tencent.com/ai-detect/",
+            }
+
+    class FakeZhuqueService:
+        def for_user(self, current_user_id):
+            calls.append(("for_user", current_user_id))
+            return FakeUserZhuqueService()
+
+        def reset_user(self, current_user_id):
+            calls.append(("reset", current_user_id))
+
+    def fail_start_zhuque_wechat_capture(*, sync_session=True, user=None):
+        raise AssertionError("local-window capture must not launch when detect window is reusable")
+
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+    monkeypatch.setattr(optimization_route, "_start_zhuque_wechat_capture", fail_start_zhuque_wechat_capture)
+
+    response = client.post(
+        "/api/optimization/zhuque/browser/start?mode=local_window",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "reused"
+    assert body["credential_file"] == credential_file
+    assert "复用当前朱雀检测窗口" in body["message"]
+    assert calls == [("for_user", user_id), "focus"]
 
 
 def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypatch, tmp_path):
@@ -3801,7 +4047,7 @@ def test_ai_detect_reduce_rewrites_segments_above_threshold_and_records_results(
         assert segment.enhanced_text == f"增强后:{segment.polished_text}"
         assert segment.zhuque_reduced_text == segment.enhanced_text
         assert segment.zhuque_detect_rate == 12
-        assert user.zhuque_free_uses_remaining == 20
+        assert user.zhuque_free_uses_remaining == 99
         assert user.zhuque_total_uses == 2
         assert user.credit_balance == 10
         assert [(txn.reason, txn.delta) for txn in transactions] == [("zhuque_reduce", -10)]

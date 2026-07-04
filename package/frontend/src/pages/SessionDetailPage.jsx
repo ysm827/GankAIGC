@@ -46,6 +46,7 @@ const SessionDetailPage = () => {
   const [exportFormat, setExportFormat] = useState('docx');
   const [resultViewMode, setResultViewMode] = useState('enhanced');
   const [zhuqueLiveEvents, setZhuqueLiveEvents] = useState([]);
+  const [zhuqueStatus, setZhuqueStatus] = useState(null);
   const [collapsedZhuqueEventKeys, setCollapsedZhuqueEventKeys] = useState(() => new Set());
   const [isOpeningZhuqueVerification, setIsOpeningZhuqueVerification] = useState(false);
   const [isRetryingZhuqueAfterVerification, setIsRetryingZhuqueAfterVerification] = useState(false);
@@ -149,6 +150,13 @@ const SessionDetailPage = () => {
       setZhuqueLiveEvents((current) => (
         mergeZhuqueEvents([], [...current, ...zhuqueEvents]).slice(-20)
       ));
+      const latestRemaining = [...zhuqueEvents]
+        .reverse()
+        .map(event => event?.remaining_uses)
+        .find(value => Number.isFinite(Number(value)) && Number(value) >= 0);
+      if (latestRemaining !== undefined) {
+        setZhuqueStatus((current) => ({ ...(current || {}), remaining_uses: Number(latestRemaining) }));
+      }
     }
   };
 
@@ -198,9 +206,18 @@ const SessionDetailPage = () => {
 
   const loadSessionDetail = async () => {
     try {
-      const response = await optimizationAPI.getSessionDetail(sessionId);
-      setSession(response.data);
-      setSegments(response.data.segments || []);
+      const [sessionResponse, zhuqueStatusResponse] = await Promise.all([
+        optimizationAPI.getSessionDetail(sessionId),
+        optimizationAPI.getZhuqueAuthStatus().catch((error) => {
+          console.warn('加载朱雀状态失败:', error);
+          return null;
+        }),
+      ]);
+      setSession(sessionResponse.data);
+      setSegments(sessionResponse.data.segments || []);
+      if (zhuqueStatusResponse?.data) {
+        setZhuqueStatus(zhuqueStatusResponse.data);
+      }
     } catch (error) {
       toast.error('加载会话详情失败');
       navigate('/workspace');
@@ -361,33 +378,59 @@ const SessionDetailPage = () => {
       return null;
     }
 
+    const trace = parseZhuqueAgentTrace(session?.zhuque_agent_trace);
+    const traceEvents = Array.isArray(trace?.events) ? trace.events : [];
+    const detectEvents = traceEvents.filter(event => event?.type === 'detect');
+    const successfulDetectEvents = detectEvents.filter(event => (
+      event?.status !== 'error'
+      && event?.rate !== null
+      && event?.rate !== undefined
+      && !Number.isNaN(Number(event.rate))
+    ));
+    const latestSuccessfulDetect = [...successfulDetectEvents].reverse()[0] || null;
+    const latestKnownRemaining = [
+      zhuqueStatus?.remaining_uses,
+      ...[...detectEvents].reverse().map(event => event?.remaining_uses),
+    ].find(value => Number.isFinite(Number(value)) && Number(value) >= 0);
+
     const detectedSegments = sortedSegments.filter(
       seg => seg.zhuque_detect_count > 0 || seg.zhuque_detect_rate !== null || seg.zhuque_detect_result
     );
-    if (detectedSegments.length === 0) {
+    if (detectedSegments.length === 0 && successfulDetectEvents.length === 0) {
       return {
         finalRate: null,
         isInvalid: false,
         detectCount: 0,
         reduceRounds: 0,
         segmentCount: sortedSegments.length,
-        result: null,
+        result: latestKnownRemaining !== undefined ? { remaining_uses: Number(latestKnownRemaining) } : null,
       };
     }
 
     // sortedSegments is already sorted by segment_index, no need to re-sort
     const reportSegment = [...detectedSegments]
       .reverse()
-      .find(seg => seg.zhuque_detect_result || seg.zhuque_detect_rate !== null) || detectedSegments[0];
-    const result = parseZhuqueResult(reportSegment.zhuque_detect_result);
-    const finalRate = getZhuqueRiskRate(result, reportSegment.zhuque_detect_rate);
+      .find(seg => seg.zhuque_detect_result || seg.zhuque_detect_rate !== null) || detectedSegments[0] || {};
+    const parsedResult = parseZhuqueResult(reportSegment.zhuque_detect_result);
+    const result = {
+      ...(parsedResult || {}),
+      ...(latestSuccessfulDetect?.rate !== undefined ? { rate: latestSuccessfulDetect.rate } : {}),
+      ...(latestKnownRemaining !== undefined ? { remaining_uses: Number(latestKnownRemaining) } : {}),
+    };
+    const finalRate = getZhuqueRiskRate(result, reportSegment.zhuque_detect_rate ?? latestSuccessfulDetect?.rate ?? null);
     const isInvalid = result?.success === false || finalRate === null;
+    const traceReduceRounds = Math.max(
+      ...traceEvents
+        .filter(event => Number.isFinite(Number(event?.round)))
+        .map(event => Number(event.round)),
+      0,
+    );
 
     return {
       finalRate,
       isInvalid,
-      detectCount: Math.max(...detectedSegments.map(seg => seg.zhuque_detect_count || 0)),
-      reduceRounds: Math.max(...segments.map(seg => seg.zhuque_reduce_attempt || 0), 0),
+      detectCount: successfulDetectEvents.length || Math.max(...detectedSegments.map(seg => seg.zhuque_detect_count || 0), 0),
+      reduceRounds: Math.max(...segments.map(seg => seg.zhuque_reduce_attempt || 0), traceReduceRounds, 0),
       segmentCount: segments.length,
       result,
     };
@@ -696,7 +739,7 @@ const SessionDetailPage = () => {
       && segments.some(seg => seg.polished_text && seg.enhanced_text);
   }, [session?.processing_mode, segments]);
 
-  const zhuqueReport = useMemo(() => getZhuqueReport(), [session, sortedSegments]);
+  const zhuqueReport = useMemo(() => getZhuqueReport(), [session, sortedSegments, zhuqueStatus]);
   const zhuqueAgentTrace = useMemo(() => parseZhuqueAgentTrace(session?.zhuque_agent_trace), [session?.zhuque_agent_trace]);
   const zhuqueTraceEvents = useMemo(() => zhuqueAgentTrace?.events || [], [zhuqueAgentTrace]);
   const zhuqueTimelineEvents = useMemo(() => mergeZhuqueEvents(zhuqueTraceEvents, zhuqueLiveEvents), [zhuqueTraceEvents, zhuqueLiveEvents]);

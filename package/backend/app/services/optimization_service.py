@@ -1684,6 +1684,12 @@ class OptimizationService:
                 user = self.db.get(User, self.session_obj.user_id)
                 if user:
                     user.zhuque_total_uses = int(user.zhuque_total_uses or 0) + 1
+                    try:
+                        remaining_uses = int(result.get("remaining_uses"))
+                    except (TypeError, ValueError):
+                        remaining_uses = -1
+                    if remaining_uses >= 0:
+                        user.zhuque_free_uses_remaining = remaining_uses
             label_meta = summarize_zhuque_segment_labels(result)
             logger.info(
                 "Zhuque full text detect session=%s source=%s detect_text_source=%s prefer_reduced=%s success=%s rate=%s segment_labels=%s usable_positions=%s label_counts=%s position_format=%s",

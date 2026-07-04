@@ -361,6 +361,118 @@ def _zhuque_payload_has_score_or_ratio(payload: Any) -> bool:
     return isinstance(labels_ratio, dict) and bool(labels_ratio)
 
 
+def _infer_raw_labels_ratio_from_segment_labels(segment_labels: Any, text_length: int) -> dict:
+    """Conservative fallback when Zhuque exposes labels before/without a total score.
+
+    Live Zhuque can render highlighted spans while the old summary payload is
+    delayed or absent after a Tencent CAPTCHA challenge. Treat labelled AI /
+    suspicious spans as covered risk and count unlabelled text as human, so the
+    pipeline can still continue from the same solved page instead of failing on
+    ``缺少有效检测分数``.
+    """
+    if not isinstance(segment_labels, list) or text_length <= 0:
+        return {}
+
+    lengths = {"0": 0, "1": 0, "2": 0}
+    for item in segment_labels:
+        if not isinstance(item, dict):
+            continue
+        try:
+            label = int(item.get("label"))
+        except (TypeError, ValueError):
+            continue
+        if label not in {0, 1, 2}:
+            continue
+
+        span_length = 0
+        position = item.get("position")
+        if (
+            isinstance(position, list)
+            and len(position) == 2
+            and all(isinstance(value, (int, float)) for value in position)
+        ):
+            start = max(0, int(position[0]))
+            length = int(position[1])
+            if length > 0 and start < text_length:
+                span_length = min(length, text_length - start)
+        if span_length <= 0:
+            label_text = item.get("text")
+            if isinstance(label_text, str) and label_text:
+                span_length = min(len(label_text), text_length)
+        if span_length <= 0:
+            continue
+        lengths[str(label)] += span_length
+
+    labelled_length = sum(lengths.values())
+    if labelled_length <= 0:
+        return {}
+
+    ratios = {label: max(0.0, length / text_length) for label, length in lengths.items()}
+    ratio_total = sum(ratios.values())
+    if ratio_total > 1.0:
+        ratios = {label: value / ratio_total for label, value in ratios.items()}
+    else:
+        # Zhuque usually returns only highlighted suspicious/AI spans. Missing
+        # coverage is therefore the safest human/default bucket.
+        ratios["1"] = min(1.0, ratios["1"] + (1.0 - ratio_total))
+    return ratios
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _zhuque_visible_captcha_wait_seconds() -> float:
+    """Extra wait budget for human-solved CAPTCHA in a visible detect window."""
+    return max(0.0, _env_float("ZHUQUE_VISIBLE_CAPTCHA_WAIT_SECONDS", 600.0))
+
+
+def _zhuque_detect_failure_retryable(message: str) -> bool:
+    lowered = str(message or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "超时",
+            "timeout",
+            "reset",
+            "closed",
+            "断连",
+            "按钮被禁用",
+            "button disabled",
+            "重开页面",
+        )
+    )
+
+
+def _zhuque_detect_headless() -> bool:
+    """Whether real-page Zhuque detection should run in a hidden browser.
+
+    Default stays headless for server deployments. Local troubleshooting can set
+    ``ZHUQUE_DETECT_HEADLESS=false`` so Tencent CAPTCHA challenges appear in a
+    real browser window and can be solved without abandoning the active detect
+    page/context.
+    """
+    return _env_bool("ZHUQUE_DETECT_HEADLESS", True)
+
+
+def _zhuque_detect_persistent_profile() -> bool:
+    """Use a stable Chrome user-data-dir for repeated Zhuque detections."""
+    return _env_bool("ZHUQUE_DETECT_PERSISTENT_PROFILE", False)
+
+
 def _zhuque_page_captcha_detected(page_state: dict) -> bool:
     if not isinstance(page_state, dict):
         return False
@@ -387,17 +499,32 @@ def _zhuque_page_captcha_detected(page_state: dict) -> bool:
 
 
 def _select_zhuque_terminal_payload(observed_payloads: list[dict]) -> Optional[dict]:
-    """Pick a real terminal result, not transient empty segment arrays."""
-    payload = next(
+    """Pick a real terminal result, not transient empty segment arrays.
+
+    Prefer the latest payload containing a score/ratio and merge the latest
+    segment labels into it. Vue component scans can surface segment labels a
+    little earlier than the summary score, especially after manual CAPTCHA; if
+    labels are selected first, downstream normalization fails with a false
+    ``缺少有效检测分数`` even when a scored payload was also observed.
+    """
+    scored_payload = next(
+        (item for item in reversed(observed_payloads) if _zhuque_payload_has_score_or_ratio(item)),
+        None,
+    )
+    label_payload = next(
         (item for item in reversed(observed_payloads) if _zhuque_payload_has_segment_labels(item)),
         None,
     )
-    if payload is None:
-        payload = next(
-            (item for item in reversed(observed_payloads) if _zhuque_payload_has_score_or_ratio(item)),
-            None,
-        )
-    return dict(payload) if isinstance(payload, dict) else None
+    if isinstance(scored_payload, dict):
+        payload = dict(scored_payload)
+        if label_payload and not _zhuque_payload_has_segment_labels(payload):
+            payload["segment_labels"] = label_payload.get("segment_labels")
+        if label_payload:
+            for key in ("content_type", "feedback_token"):
+                if payload.get(key) is None and label_payload.get(key) is not None:
+                    payload[key] = label_payload.get(key)
+        return payload
+    return dict(label_payload) if isinstance(label_payload, dict) else None
 
 
 def _normalize_zhuque_observed_page_result(
@@ -426,7 +553,17 @@ def _normalize_zhuque_observed_page_result(
     if page_state.get("alert_title") and not payload.get("alert_title"):
         payload["alert_title"] = page_state.get("alert_title")
 
+    if _zhuque_page_captcha_detected(page_state) and not _zhuque_payload_has_score_or_ratio(payload):
+        # CAPTCHA is still active; segment-label-only Vue state can be stale or
+        # partial. Keep waiting for the user-solved page to emit a scored result.
+        return None
+
     result = normalize_zhuque_result(payload, text_length=text_length, source="page_fallback")
+    if not result.get("success") and not _zhuque_payload_has_score_or_ratio(payload):
+        # Non-empty labels without a score are useful only if normalization can
+        # infer a conservative risk. Otherwise keep polling instead of surfacing
+        # a misleading terminal failure while the page may still be rendering.
+        return None
     result["page_result_payload_count"] = len(observed_payloads)
     result["page_result_has_segment_labels"] = any(
         _zhuque_payload_has_segment_labels(item) for item in observed_payloads
@@ -556,6 +693,15 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
     )
     raw_labels = data.get("labels_ratio") or data.get("labelsRatio") or {}
     labels_ratio, label_map = _infer_and_convert_labels(raw_labels, raw_rate)
+    score_inferred_from_segment_labels = False
+    if not labels_ratio:
+        inferred_raw_labels = _infer_raw_labels_ratio_from_segment_labels(
+            data.get("segment_labels"),
+            text_length,
+        )
+        if inferred_raw_labels:
+            labels_ratio, label_map = _infer_and_convert_labels(inferred_raw_labels, raw_rate)
+            score_inferred_from_segment_labels = True
     if not labels_ratio and raw_rate is not None:
         ai_ratio_from_rate = _coerce_ratio_value(raw_rate)
         labels_ratio = {
@@ -606,7 +752,7 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         data.get("button_text"),
     )
 
-    return {
+    result = {
         "success": True,
         "rate": rate,
         "risk_rate": risk_rate,
@@ -623,6 +769,9 @@ def normalize_zhuque_result(data: dict, *, text_length: int, source: str) -> dic
         "feedback_token": data.get("feedback_token"),
         "source": source,
     }
+    if score_inferred_from_segment_labels:
+        result["score_inferred_from_segment_labels"] = True
+    return result
 
 
 class ZhuqueAPI:
@@ -652,6 +801,8 @@ class ZhuqueAPI:
         self._browser_context = None
         self._browser_context_anonymous: Optional[bool] = None
         self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = False
+        self._browser_profile_dir: Optional[Path] = None
         self._cached_page = None
         self._ws_handler_ref = None
         self._response_handler_ref = None
@@ -659,9 +810,125 @@ class ZhuqueAPI:
         self._last_detect_failed = False
         self._detect_cooldown = 8.0
         self._detect_cooldown_after_fail = 30.0
+        self._browser_headless = True
 
     def _playwright_browsers_path(self) -> Path:
         return Path(__file__).resolve().parents[3] / ".playwright-browsers"
+
+    def _detect_profile_dir(self, *, anonymous: bool) -> Path:
+        profile_name = "detect_chrome_profile_anonymous" if anonymous else "detect_chrome_profile"
+        return self.credentials_file.parent / profile_name
+
+    async def focus_cached_page(self) -> dict:
+        """Bring the existing visible Zhuque detect page forward when possible.
+
+        Manual Tencent CAPTCHA resolution should reuse the real-page detector's
+        current tab instead of launching a second local-window sync browser. The
+        method never creates a new page; it only focuses an already-live page in
+        this service instance.
+        """
+        candidates = []
+        if self._cached_page is not None:
+            candidates.append(self._cached_page)
+        if self._browser_context is not None:
+            with contextlib.suppress(Exception):
+                candidates.extend(getattr(self._browser_context, "pages", []) or [])
+
+        seen: set[int] = set()
+        live_pages = []
+        for candidate in candidates:
+            if candidate is None or id(candidate) in seen:
+                continue
+            seen.add(id(candidate))
+            try:
+                if candidate.is_closed():
+                    continue
+            except Exception:
+                continue
+            live_pages.append(candidate)
+
+        if not live_pages:
+            return {
+                "available": False,
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "message": "当前没有可复用的朱雀检测窗口",
+            }
+
+        page = next(
+            (candidate for candidate in live_pages if "matrix.tencent.com/ai-detect" in str(getattr(candidate, "url", ""))),
+            live_pages[0],
+        )
+        if self._browser_headless:
+            return {
+                "available": False,
+                "headless": True,
+                "credential_file": str(self.credentials_file),
+                "url": str(getattr(page, "url", "")),
+                "message": "当前朱雀检测浏览器是无头模式，无法前置可见窗口",
+            }
+
+        try:
+            await page.bring_to_front()
+        except Exception as exc:
+            return {
+                "available": False,
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "url": str(getattr(page, "url", "")),
+                "message": f"复用朱雀检测窗口失败: {exc}",
+            }
+        self._cached_page = page
+        return {
+            "available": True,
+            "headless": False,
+            "credential_file": str(self.credentials_file),
+            "url": str(getattr(page, "url", "")),
+            "message": "已复用当前朱雀检测窗口",
+        }
+
+    async def _seed_persistent_context_state(self, context, *, anonymous: bool) -> None:
+        """Seed a fixed browser profile from the latest per-user Zhuque state.
+
+        ``launch_persistent_context`` cannot take Playwright's ``storage_state``
+        option directly, so import cookies and localStorage after the profile is
+        opened. The profile then keeps future Zhuque-issued device state on disk.
+        """
+        if anonymous:
+            state = self._anonymous_page_storage_state() or {}
+        else:
+            state_file = self.credentials_file.parent / "browser_state.json"
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
+            except (OSError, json.JSONDecodeError):
+                state = {}
+        cookies = state.get("cookies") if isinstance(state, dict) else None
+        if isinstance(cookies, list) and cookies:
+            with contextlib.suppress(Exception):
+                await context.add_cookies(cookies)
+        origins = state.get("origins") if isinstance(state, dict) else None
+        if isinstance(origins, list) and origins:
+            local_storage_by_origin = {
+                str(origin.get("origin")): {
+                    str(item.get("name")): item.get("value")
+                    for item in (origin.get("localStorage") or [])
+                    if isinstance(item, dict) and item.get("name") is not None and item.get("value") is not None
+                }
+                for origin in origins
+                if isinstance(origin, dict) and origin.get("origin")
+            }
+            local_storage_json = json.dumps(local_storage_by_origin, ensure_ascii=False)
+            await context.add_init_script(
+                f"""
+                (() => {{
+                    const states = {local_storage_json};
+                    const data = states[location.origin] || {{}};
+                    for (const [k, v] of Object.entries(data)) {{
+                        try {{ localStorage.setItem(k, String(v)); }} catch (e) {{}}
+                    }}
+                }})();
+                """
+            )
 
     # ── 凭证 ─────────────────────────────────────────────
 
@@ -736,9 +1003,13 @@ class ZhuqueAPI:
         if self._browser_context is not None:
             with contextlib.suppress(Exception):
                 await self._browser_context.close()
+        if self._browser_persistent_profile:
+            self._browser = None
         self._browser_context = None
         self._browser_context_anonymous = None
         self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = False
+        self._browser_profile_dir = None
 
     async def close(self) -> None:
         """Close the persistent Playwright resources used by real-page detect."""
@@ -762,8 +1033,9 @@ class ZhuqueAPI:
             await self._close_persistent_page_context()
             self._browser = None
 
+        desired_headless = _zhuque_detect_headless()
         launch_kwargs = {
-            "headless": True,
+            "headless": desired_headless,
             "args": [
                 "--no-sandbox",
                 "--disable-blink-features=AutomationControlled",
@@ -771,13 +1043,92 @@ class ZhuqueAPI:
         }
         try:
             self._browser = await self._pw.chromium.launch(channel="chrome", **launch_kwargs)
+            self._browser_headless = desired_headless
         except Exception as exc:
             logger.info(
                 "朱雀真实页面检测未能启动 Chrome channel，回退 Playwright Chromium: %s",
                 exc,
             )
-            self._browser = await self._pw.chromium.launch(**launch_kwargs)
+            try:
+                self._browser = await self._pw.chromium.launch(**launch_kwargs)
+                self._browser_headless = desired_headless
+            except Exception:
+                if desired_headless:
+                    raise
+                logger.exception("朱雀真实页面检测可见浏览器启动失败，回退无头模式")
+                fallback_kwargs = dict(launch_kwargs)
+                fallback_kwargs["headless"] = True
+                self._browser = await self._pw.chromium.launch(**fallback_kwargs)
+                self._browser_headless = True
         return self._browser
+
+    async def _ensure_persistent_profile_context(self, async_playwright_factory, *, anonymous: bool):
+        if self._pw is None:
+            self._pw = await async_playwright_factory().start()
+
+        desired_headless = _zhuque_detect_headless()
+        profile_dir = self._detect_profile_dir(anonymous=anonymous)
+        if (
+            self._browser_context is not None
+            and self._browser_persistent_profile
+            and self._browser_profile_dir == profile_dir
+            and self._browser_context_anonymous == anonymous
+            and not self._browser_context_needs_refresh
+        ):
+            return self._browser_context
+
+        await self._close_persistent_page_context()
+        if self._browser is not None:
+            with contextlib.suppress(Exception):
+                await self._browser.close()
+        self._browser = None
+
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        launch_kwargs = {
+            "headless": desired_headless,
+            "viewport": {"width": 1280, "height": 720},
+            "user_agent": DEFAULT_USER_AGENT,
+            "args": [
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        }
+        try:
+            self._browser_context = await self._pw.chromium.launch_persistent_context(
+                str(profile_dir),
+                channel="chrome",
+                **launch_kwargs,
+            )
+            self._browser_headless = desired_headless
+        except Exception as exc:
+            logger.info(
+                "朱雀真实页面检测未能用固定 profile 启动 Chrome channel，回退 Playwright Chromium: %s",
+                exc,
+            )
+            try:
+                self._browser_context = await self._pw.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    **launch_kwargs,
+                )
+                self._browser_headless = desired_headless
+            except Exception:
+                if desired_headless:
+                    raise
+                logger.exception("朱雀真实页面检测固定 profile 可见浏览器启动失败，回退无头模式")
+                fallback_kwargs = dict(launch_kwargs)
+                fallback_kwargs["headless"] = True
+                self._browser_context = await self._pw.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    **fallback_kwargs,
+                )
+                self._browser_headless = True
+        await self._seed_persistent_context_state(self._browser_context, anonymous=anonymous)
+        self._browser_context_anonymous = anonymous
+        self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = True
+        self._browser_profile_dir = profile_dir
+        self._browser = getattr(self._browser_context, "browser", None)
+        return self._browser_context
 
     def _session_status_file(self) -> Path:
         return self.credentials_file.parent / "session_status.json"
@@ -1537,28 +1888,31 @@ class ZhuqueAPI:
         page = None
         is_cached = False
         try:
-            browser = await self._launch_persistent_browser(async_playwright)
-            if (
-                self._browser_context_needs_refresh
-                or self._browser_context_anonymous is not None
-                and self._browser_context_anonymous != anonymous
-            ):
-                await self._close_persistent_page_context()
+            if _zhuque_detect_persistent_profile():
+                await self._ensure_persistent_profile_context(async_playwright, anonymous=anonymous)
+            else:
+                browser = await self._launch_persistent_browser(async_playwright)
+                if (
+                    self._browser_context_needs_refresh
+                    or self._browser_context_anonymous is not None
+                    and self._browser_context_anonymous != anonymous
+                ):
+                    await self._close_persistent_page_context()
 
-            if self._browser_context is None:
-                ctx_kwargs = {
-                    "viewport": {"width": 1280, "height": 720},
-                    "user_agent": DEFAULT_USER_AGENT,
-                }
-                state_file = self.credentials_file.parent / "browser_state.json"
-                if anonymous:
-                    anonymous_storage_state = self._anonymous_page_storage_state()
-                    if anonymous_storage_state:
-                        ctx_kwargs["storage_state"] = anonymous_storage_state
-                elif state_file.exists():
-                    ctx_kwargs["storage_state"] = str(state_file)
-                self._browser_context = await browser.new_context(**ctx_kwargs)
-                self._browser_context_anonymous = anonymous
+                if self._browser_context is None:
+                    ctx_kwargs = {
+                        "viewport": {"width": 1280, "height": 720},
+                        "user_agent": DEFAULT_USER_AGENT,
+                    }
+                    state_file = self.credentials_file.parent / "browser_state.json"
+                    if anonymous:
+                        anonymous_storage_state = self._anonymous_page_storage_state()
+                        if anonymous_storage_state:
+                            ctx_kwargs["storage_state"] = anonymous_storage_state
+                    elif state_file.exists():
+                        ctx_kwargs["storage_state"] = str(state_file)
+                    self._browser_context = await browser.new_context(**ctx_kwargs)
+                    self._browser_context_anonymous = anonymous
 
             if self._cached_page is not None:
                 with contextlib.suppress(Exception):
@@ -1573,6 +1927,7 @@ class ZhuqueAPI:
             else:
                 page = await self._browser_context.new_page()
                 is_cached = False
+            self._cached_page = page
             observed_result_payloads: list[dict] = []
 
             def remember_result_payload(payload: Any) -> None:
@@ -1702,6 +2057,64 @@ class ZhuqueAPI:
             await self._human_mouse_move(page, 540, 420, 650, 580, duration_ms=450)
             await page.wait_for_timeout(random.randint(80, 250))
 
+            button_state = {}
+            for _ in range(24):
+                button_state = await page.evaluate(
+                    """() => {
+                        const button = document.querySelector('.submit-btn')
+                            || [...document.querySelectorAll('button')].find(b => /立即检测|Detect/i.test(b.textContent || ''));
+                        const textEl = document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]');
+                        const captchaNodes = [...document.querySelectorAll(
+                            '#tcaptcha_iframe_dy, #tcaptcha_wrapper_transform_dy, iframe[src*="captcha.gtimg.com"], .tcaptcha-transform, [id*=captcha], [class*=captcha]'
+                        )];
+                        const visibleCaptchaNodes = captchaNodes.filter((el) => {
+                            const rect = el.getBoundingClientRect();
+                            const style = window.getComputedStyle(el);
+                            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                        });
+                        return {
+                            found: Boolean(button),
+                            disabled: button ? Boolean(button.disabled) : false,
+                            text: button ? (button.textContent || '').trim() : '',
+                            input_length: textEl ? String('value' in textEl ? textEl.value : textEl.textContent || '').length : -1,
+                            captcha_visible: visibleCaptchaNodes.length > 0,
+                            captcha_text: visibleCaptchaNodes
+                                .map((el) => `${el.tagName || ''}#${el.id || ''}.${el.className || ''} ${el.src || ''} ${(el.textContent || '').trim()}`)
+                                .join(' | ')
+                                .slice(0, 500),
+                        };
+                    }"""
+                )
+                if not button_state.get("found") or not button_state.get("disabled"):
+                    break
+                if _zhuque_page_captcha_detected(button_state):
+                    break
+                await page.wait_for_timeout(500)
+
+            if not button_state.get("found"):
+                return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
+            if button_state.get("disabled"):
+                if _zhuque_page_captcha_detected(button_state):
+                    return _captcha_required_zhuque_result(
+                        "朱雀触发腾讯验证码，请在当前朱雀检测窗口手动完成验证后重试",
+                        len(text),
+                    )
+                await self._write_quota_probe_artifacts(
+                    page,
+                    reason="detect_button_disabled_before_click",
+                    quota_state={
+                        "button_text": button_state.get("text") or "",
+                        "input_length": button_state.get("input_length"),
+                        "set_result": str(set_result),
+                        "headless": self._browser_headless,
+                    },
+                )
+                await self._close_persistent_page_context()
+                return self._failure(
+                    "朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试（可能文本尚未写入或旧检测状态未清空）",
+                    len(text),
+                )
+
             click_result = await page.evaluate(
                 """() => {
                     const button = document.querySelector('.submit-btn')
@@ -1715,9 +2128,13 @@ class ZhuqueAPI:
             if "NOT_FOUND" in str(click_result):
                 return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
             if "DISABLED" in str(click_result):
-                return self._failure("朱雀真实页面检测失败：检测按钮被禁用，可能文本长度不足或次数用尽", len(text))
+                await self._close_persistent_page_context()
+                return self._failure("朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试", len(text))
 
             deadline = time.time() + timeout
+            captcha_seen = False
+            captcha_artifact_written = False
+            captcha_deadline_extended = False
             while time.time() < deadline:
                 await page.wait_for_timeout(1000)
                 data = await page.evaluate(
@@ -1877,21 +2294,6 @@ class ZhuqueAPI:
                         };
                     }"""
                 )
-                if _zhuque_page_captcha_detected(data):
-                    await self._write_quota_probe_artifacts(
-                        page,
-                        reason="detect_captcha_required",
-                        quota_state={
-                            "captcha_text": data.get("captcha_text") or "",
-                            "captcha_iframe_src": data.get("captcha_iframe_src") or "",
-                            "button_text": data.get("button_text") or "",
-                            "alert_title": data.get("alert_title") or "",
-                        },
-                    )
-                    return _captcha_required_zhuque_result(
-                        "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
-                        len(text),
-                    )
                 for observed in data.get("result_payloads") or []:
                     if isinstance(observed, dict):
                         remember_result_payload(observed.get("value"))
@@ -1911,6 +2313,38 @@ class ZhuqueAPI:
                             }
                         )
                     return observed_result
+                if _zhuque_page_captcha_detected(data):
+                    captcha_seen = True
+                    if not captcha_artifact_written:
+                        await self._write_quota_probe_artifacts(
+                            page,
+                            reason=(
+                                "detect_captcha_required"
+                                if self._browser_headless
+                                else "detect_captcha_waiting_for_visible_browser"
+                            ),
+                            quota_state={
+                                "captcha_text": data.get("captcha_text") or "",
+                                "captcha_iframe_src": data.get("captcha_iframe_src") or "",
+                                "button_text": data.get("button_text") or "",
+                                "alert_title": data.get("alert_title") or "",
+                                "headless": self._browser_headless,
+                            },
+                        )
+                        captcha_artifact_written = True
+                    if self._browser_headless:
+                        return _captcha_required_zhuque_result(
+                            "朱雀触发腾讯验证码，请打开朱雀验证窗口，在真实浏览器手动完成验证后回到本页继续处理",
+                            len(text),
+                        )
+                    if not captcha_deadline_extended:
+                        deadline = max(deadline, time.time() + _zhuque_visible_captcha_wait_seconds())
+                        captcha_deadline_extended = True
+                    # Visible local detection window: keep the same page alive so
+                    # the user can complete Tencent CAPTCHA and the existing
+                    # WebSocket/HTTP payload listeners can capture the terminal
+                    # result without losing browser continuity.
+                    continue
                 vue = data.get("vue") or {}
                 if vue.get("type") and not vue.get("processing") and vue.get("rate") is not None:
                     payload = _merge_zhuque_page_payload(
@@ -1934,6 +2368,11 @@ class ZhuqueAPI:
                         )
                     return result
 
+            if captcha_seen:
+                return _captcha_required_zhuque_result(
+                    "朱雀腾讯验证码在可见检测窗口中仍未完成，请完成验证后点击继续/重试",
+                    len(text),
+                )
             return self._failure(f"朱雀真实页面检测超时 ({timeout}s)", len(text))
         except Exception as exc:
             message = str(exc)
@@ -1986,7 +2425,7 @@ class ZhuqueAPI:
                 return result
             last_result = result
             message = str(result.get("message") or "")
-            retryable = any(marker in message.lower() for marker in ("超时", "timeout", "reset", "closed", "断连"))
+            retryable = _zhuque_detect_failure_retryable(message)
             if not retryable:
                 self._last_detect_failed = False
                 return result

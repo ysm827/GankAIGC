@@ -475,6 +475,15 @@ class ZhuqueService:
         await self._queue.put((task_id, text, future))
         return await future
 
+    async def focus_detection_window(self) -> dict:
+        """Reuse the current visible Zhuque detect page for manual verification."""
+        if self.api is None:
+            return {"available": False, "message": "当前没有可复用的朱雀检测窗口"}
+        focus_cached_page = getattr(self.api, "focus_cached_page", None)
+        if not callable(focus_cached_page):
+            return {"available": False, "message": "当前朱雀检测服务不支持窗口复用"}
+        return await focus_cached_page()
+
     async def close(self) -> None:
         """Stop the consumer and close persistent Zhuque browser resources."""
         if self._consumer_task is not None and not self._consumer_task.done():

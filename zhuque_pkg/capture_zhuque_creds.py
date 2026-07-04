@@ -744,10 +744,17 @@ def write_session_status(status: dict) -> None:
         "message": status.get("message") or "",
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    tmp_file = SESSION_STATUS_FILE.with_suffix(".tmp")
-    with open(tmp_file, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-    tmp_file.replace(SESSION_STATUS_FILE)
+    SESSION_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp_file = SESSION_STATUS_FILE.with_name(f"{SESSION_STATUS_FILE.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        tmp_file.replace(SESSION_STATUS_FILE)
+    finally:
+        try:
+            tmp_file.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _auth_state_status(auth_state: dict, *, message: str = "") -> dict:
