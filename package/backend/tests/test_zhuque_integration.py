@@ -1745,6 +1745,65 @@ def test_zhuque_api_page_observed_empty_segment_labels_are_not_terminal():
     assert result is None
 
 
+def test_zhuque_api_connects_to_configured_detect_cdp_endpoint(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    calls = []
+
+    class FakeContext:
+        pass
+
+    class FakeBrowser:
+        def __init__(self, context):
+            self.contexts = [context]
+
+    class FakeChromium:
+        def __init__(self, context):
+            self.context = context
+
+        async def connect_over_cdp(self, endpoint):
+            calls.append(endpoint)
+            return FakeBrowser(self.context)
+
+    class FakePlaywright:
+        def __init__(self, context):
+            self.chromium = FakeChromium(context)
+
+    class FakePlaywrightManager:
+        def __init__(self, context):
+            self.context = context
+
+        async def start(self):
+            return FakePlaywright(self.context)
+
+    context = FakeContext()
+    monkeypatch.setenv("ZHUQUE_DETECT_CDP_ENDPOINT", "http://127.0.0.1:9222/")
+    api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
+
+    result = asyncio.run(api._ensure_cdp_context(lambda: FakePlaywrightManager(context), anonymous=False))
+
+    assert result is context
+    assert calls == ["http://127.0.0.1:9222"]
+    assert api._browser_external_context is True
+    assert api._browser_headless is False
+    assert api._browser_cdp_endpoint == "http://127.0.0.1:9222"
+
+
+def test_zhuque_api_prefers_auto_system_browser_when_visible(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    api = ZhuqueAPI(credentials_file=tmp_path / "creds_latest.json")
+    monkeypatch.delenv("ZHUQUE_DETECT_CDP_ENDPOINT", raising=False)
+    monkeypatch.setenv("ZHUQUE_DETECT_HEADLESS", "false")
+    monkeypatch.setenv("ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER", "true")
+    monkeypatch.setattr(api, "_ensure_system_browser_cdp_endpoint", lambda: "http://127.0.0.1:9224")
+
+    assert api._preferred_detect_cdp_endpoint() == "http://127.0.0.1:9224"
+
+    monkeypatch.setenv("ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER", "false")
+    assert api._preferred_detect_cdp_endpoint() == ""
+
+
 def test_zhuque_api_focuses_existing_detect_page(tmp_path):
     from app.services.zhuque_api import ZhuqueAPI
 
@@ -2533,6 +2592,50 @@ def test_zhuque_remote_login_does_not_capture_full_page_without_qr(tmp_path):
 
     assert session.qr_image_data == ""
     assert not session.qrcode_file.exists()
+
+
+def test_zhuque_remote_login_inspect_retries_navigation_context_destroyed():
+    import app.services.zhuque_remote_login_service as remote_module
+
+    class FakeContext:
+        async def cookies(self):
+            return []
+
+    class FakePage:
+        def __init__(self):
+            self.context = FakeContext()
+            self.evaluate_calls = 0
+            self.waited_for_load = False
+
+        async def evaluate(self, script):
+            self.evaluate_calls += 1
+            if self.evaluate_calls == 1:
+                raise RuntimeError("Page.evaluate: Execution context was destroyed, most likely because of a navigation")
+            return {
+                "localStorage": {"fp": "retry-fp"},
+                "userName": "",
+                "userInfoText": "",
+                "loginPromptVisible": True,
+                "quotaText": "",
+                "submitButtonText": "Detect now(4 left)",
+                "remainingUses": 4,
+                "url": "https://matrix.tencent.com/ai-detect/",
+                "timestamp": "2026-07-06T00:00:00Z",
+            }
+
+        async def wait_for_load_state(self, state, timeout):
+            self.waited_for_load = True
+
+        async def wait_for_timeout(self, timeout):
+            pass
+
+    page = FakePage()
+    state = asyncio.run(remote_module.inspect_auth_state(page))
+
+    assert page.evaluate_calls == 2
+    assert page.waited_for_load is True
+    assert state["remainingUses"] == 4
+    assert state["fp"] == "retry-fp"
 
 
 def test_zhuque_trigger_login_flow_clicks_english_login_and_wechat(monkeypatch):

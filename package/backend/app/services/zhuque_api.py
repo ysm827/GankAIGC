@@ -14,7 +14,11 @@ import json
 import logging
 import os
 import random
+import re
+import subprocess
 import time
+import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -473,6 +477,11 @@ def _zhuque_detect_persistent_profile() -> bool:
     return _env_bool("ZHUQUE_DETECT_PERSISTENT_PROFILE", False)
 
 
+def _zhuque_detect_cdp_endpoint() -> str:
+    """Optional Chrome DevTools endpoint for using a user-launched browser."""
+    return os.environ.get("ZHUQUE_DETECT_CDP_ENDPOINT", "").strip().rstrip("/")
+
+
 def _zhuque_page_captcha_detected(page_state: dict) -> bool:
     if not isinstance(page_state, dict):
         return False
@@ -803,6 +812,11 @@ class ZhuqueAPI:
         self._browser_context_needs_refresh = False
         self._browser_persistent_profile = False
         self._browser_profile_dir: Optional[Path] = None
+        self._browser_external_context = False
+        self._browser_cdp_endpoint: Optional[str] = None
+        self._browser_cdp_managed = False
+        self._browser_cdp_process = None
+        self._preferred_cdp_endpoint_managed = False
         self._cached_page = None
         self._ws_handler_ref = None
         self._response_handler_ref = None
@@ -818,6 +832,209 @@ class ZhuqueAPI:
     def _detect_profile_dir(self, *, anonymous: bool) -> Path:
         profile_name = "detect_chrome_profile_anonymous" if anonymous else "detect_chrome_profile"
         return self.credentials_file.parent / profile_name
+
+    def _detect_system_browser_profile_dir(self, executable: str) -> str:
+        configured = os.environ.get("ZHUQUE_DETECT_BROWSER_USER_DATA_DIR", "").strip()
+        if configured:
+            return configured
+        if self._is_windows_browser_executable(executable):
+            local_app_data = self._windows_local_app_data()
+            return local_app_data.rstrip("\\/") + r"\GankAIGC\ZhuqueDetectBrowserProfile"
+        return str(self.credentials_file.parent / "detect_system_browser_profile")
+
+    @staticmethod
+    def _is_wsl() -> bool:
+        if os.environ.get("WSL_INTEROP") or os.environ.get("WSL_DISTRO_NAME"):
+            return True
+        try:
+            release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+        except OSError:
+            return False
+        return "microsoft" in release or "wsl" in release
+
+    @staticmethod
+    def _run_text(args: list[str], timeout: float = 3.0) -> str:
+        try:
+            completed = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return (completed.stdout or "").strip()
+
+    @classmethod
+    def _windows_to_wsl_path(cls, path: str) -> Optional[Path]:
+        text = (path or "").strip().strip('"')
+        if not text:
+            return None
+        converted = cls._run_text(["wslpath", "-u", text], timeout=2.0) if cls._is_wsl() else ""
+        if converted:
+            return Path(converted)
+        match = re.match(r"^([a-zA-Z]):\\(.*)$", text)
+        if match:
+            drive, rest = match.groups()
+            linux_rest = rest.replace("\\", "/")
+            return Path(f"/mnt/{drive.lower()}/{linux_rest}")
+        return None
+
+    @classmethod
+    def _windows_local_app_data(cls) -> str:
+        configured = os.environ.get("ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR", "").strip()
+        if configured:
+            return configured
+        local_app_data_env = os.environ.get("LOCALAPPDATA", "").strip()
+        if local_app_data_env:
+            return local_app_data_env
+        local_app_data = cls._run_text(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-Command",
+                "[Environment]::GetFolderPath('LocalApplicationData')",
+            ],
+            timeout=3.0,
+        )
+        if local_app_data:
+            return local_app_data
+        return r"C:\GankAIGC"
+
+    @staticmethod
+    def _is_windows_browser_executable(executable: str | None) -> bool:
+        if not executable:
+            return False
+        text = str(executable).lower()
+        return text.endswith(".exe") or text.startswith("/mnt/")
+
+    def _find_detect_browser_executable(self) -> Optional[str]:
+        env_path = os.environ.get("ZHUQUE_DETECT_BROWSER_EXECUTABLE") or os.environ.get("ZHUQUE_CHROME_EXECUTABLE")
+        windows_env_path = self._windows_to_wsl_path(env_path) if self._is_wsl() and env_path else None
+        candidates: list[Any] = [env_path, windows_env_path]
+        if os.name == "nt":
+            program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+            program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            candidates.extend(
+                [
+                    rf"{program_files}\Google\Chrome\Application\chrome.exe",
+                    rf"{program_files_x86}\Google\Chrome\Application\chrome.exe",
+                    rf"{program_files}\Microsoft\Edge\Application\msedge.exe",
+                    rf"{program_files_x86}\Microsoft\Edge\Application\msedge.exe",
+                    rf"{program_files}\BraveSoftware\Brave-Browser\Application\brave.exe",
+                    rf"{program_files_x86}\BraveSoftware\Brave-Browser\Application\brave.exe",
+                    rf"{local_app_data}\Google\Chrome\Application\chrome.exe" if local_app_data else None,
+                ]
+            )
+        if self._is_wsl():
+            candidates.extend(
+                [
+                    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                    "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+                    "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+                    "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                    "/mnt/c/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe",
+                    "/mnt/c/Program Files (x86)/BraveSoftware/Brave-Browser/Application/brave.exe",
+                ]
+            )
+        candidates.extend(
+            [
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/microsoft-edge",
+                "/usr/bin/microsoft-edge-stable",
+                "/usr/bin/msedge",
+                "/usr/bin/brave-browser",
+                "/usr/bin/brave",
+                "/snap/bin/chromium",
+                "/snap/bin/brave",
+            ]
+        )
+        for candidate in candidates:
+            if candidate and Path(candidate).exists():
+                return str(candidate)
+        return None
+
+    def _detect_cdp_port(self) -> int:
+        try:
+            return int(os.environ.get("ZHUQUE_DETECT_CDP_PORT") or "9224")
+        except (TypeError, ValueError):
+            return 9224
+
+    def _cdp_endpoints(self, port: int) -> list[str]:
+        hosts = ["127.0.0.1", "localhost"]
+        if self._is_wsl():
+            try:
+                resolv_conf = Path("/etc/resolv.conf").read_text(encoding="utf-8")
+            except OSError:
+                resolv_conf = ""
+            match = re.search(r"^nameserver\s+([0-9.]+)", resolv_conf, flags=re.MULTILINE)
+            if match and match.group(1) not in hosts:
+                hosts.append(match.group(1))
+        return [f"http://{host}:{port}" for host in hosts]
+
+    def _wait_for_cdp(self, port: int, timeout: float = 8.0) -> str:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for endpoint in self._cdp_endpoints(port):
+                try:
+                    with urllib.request.urlopen(f"{endpoint}/json/version", timeout=0.5) as response:
+                        if response.status == 200:
+                            return endpoint
+                except (OSError, urllib.error.URLError):
+                    continue
+            time.sleep(0.25)
+        return ""
+
+    def _ensure_system_browser_cdp_endpoint(self) -> str:
+        port = self._detect_cdp_port()
+        existing = self._wait_for_cdp(port, timeout=0.5)
+        if existing:
+            return existing
+        executable = self._find_detect_browser_executable()
+        if not executable:
+            return ""
+        profile_dir = self._detect_system_browser_profile_dir(executable)
+        if not self._is_windows_browser_executable(executable):
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+        args = [
+            executable,
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile_dir}",
+            f"--app={self.http_base_url}/ai-detect/",
+            "--window-size=1280,800",
+            "--window-position=120,80",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-features=Translate",
+        ]
+        if self._is_wsl() and self._is_windows_browser_executable(executable):
+            args.insert(2, "--remote-debugging-address=0.0.0.0")
+        try:
+            self._browser_cdp_process = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+        except OSError:
+            return ""
+        return self._wait_for_cdp(port, timeout=10.0)
+
+    def _preferred_detect_cdp_endpoint(self) -> str:
+        self._preferred_cdp_endpoint_managed = False
+        configured = _zhuque_detect_cdp_endpoint()
+        if configured:
+            return configured
+        if _zhuque_detect_headless() or not _env_bool("ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER", True):
+            return ""
+        endpoint = self._ensure_system_browser_cdp_endpoint()
+        self._preferred_cdp_endpoint_managed = bool(endpoint)
+        return endpoint
 
     async def focus_cached_page(self) -> dict:
         """Bring the existing visible Zhuque detect page forward when possible.
@@ -994,27 +1211,32 @@ class ZhuqueAPI:
         return {str(key): value for key, value in storage.items() if key is not None and value is not None}
 
     async def _close_persistent_page_context(self) -> None:
-        if self._cached_page is not None:
+        external_context = self._browser_external_context
+        if self._cached_page is not None and not external_context:
             with contextlib.suppress(Exception):
                 await self._cached_page.close()
         self._cached_page = None
         self._ws_handler_ref = None
         self._response_handler_ref = None
-        if self._browser_context is not None:
+        if self._browser_context is not None and not external_context:
             with contextlib.suppress(Exception):
                 await self._browser_context.close()
-        if self._browser_persistent_profile:
+        if self._browser_persistent_profile or external_context:
             self._browser = None
         self._browser_context = None
         self._browser_context_anonymous = None
         self._browser_context_needs_refresh = False
         self._browser_persistent_profile = False
         self._browser_profile_dir = None
+        self._browser_external_context = False
+        self._browser_cdp_endpoint = None
+        self._browser_cdp_managed = False
 
     async def close(self) -> None:
         """Close the persistent Playwright resources used by real-page detect."""
+        external_context = self._browser_external_context
         await self._close_persistent_page_context()
-        if self._browser is not None:
+        if self._browser is not None and not external_context:
             with contextlib.suppress(Exception):
                 await self._browser.close()
         self._browser = None
@@ -1027,11 +1249,15 @@ class ZhuqueAPI:
         if self._pw is None:
             self._pw = await async_playwright_factory().start()
         if self._browser is not None:
-            with contextlib.suppress(Exception):
-                if self._browser.is_connected():
-                    return self._browser
-            await self._close_persistent_page_context()
-            self._browser = None
+            if self._browser_external_context:
+                await self._close_persistent_page_context()
+                self._browser = None
+            else:
+                with contextlib.suppress(Exception):
+                    if self._browser.is_connected():
+                        return self._browser
+                await self._close_persistent_page_context()
+                self._browser = None
 
         desired_headless = _zhuque_detect_headless()
         launch_kwargs = {
@@ -1062,6 +1288,41 @@ class ZhuqueAPI:
                 self._browser_headless = True
         return self._browser
 
+    async def _ensure_cdp_context(self, async_playwright_factory, *, anonymous: bool, endpoint: str = ""):
+        endpoint = (endpoint or self._preferred_detect_cdp_endpoint()).strip().rstrip("/")
+        if not endpoint:
+            raise RuntimeError("朱雀检测未找到可用的本机浏览器调试端点")
+        if self._pw is None:
+            self._pw = await async_playwright_factory().start()
+        if (
+            self._browser_context is not None
+            and self._browser_external_context
+            and self._browser_cdp_endpoint == endpoint
+            and self._browser_context_anonymous == anonymous
+            and not self._browser_context_needs_refresh
+        ):
+            return self._browser_context
+
+        managed_endpoint = bool(self._preferred_cdp_endpoint_managed)
+        previous_browser = self._browser
+        previous_external = self._browser_external_context
+        await self._close_persistent_page_context()
+        if previous_browser is not None and not previous_external:
+            with contextlib.suppress(Exception):
+                await previous_browser.close()
+        self._browser = await self._pw.chromium.connect_over_cdp(endpoint)
+        contexts = getattr(self._browser, "contexts", []) or []
+        self._browser_context = contexts[0] if contexts else await self._browser.new_context()
+        self._browser_context_anonymous = anonymous
+        self._browser_context_needs_refresh = False
+        self._browser_persistent_profile = False
+        self._browser_profile_dir = None
+        self._browser_external_context = True
+        self._browser_cdp_endpoint = endpoint
+        self._browser_cdp_managed = managed_endpoint
+        self._browser_headless = False
+        return self._browser_context
+
     async def _ensure_persistent_profile_context(self, async_playwright_factory, *, anonymous: bool):
         if self._pw is None:
             self._pw = await async_playwright_factory().start()
@@ -1077,10 +1338,12 @@ class ZhuqueAPI:
         ):
             return self._browser_context
 
+        previous_browser = self._browser
+        previous_external = self._browser_external_context
         await self._close_persistent_page_context()
-        if self._browser is not None:
+        if previous_browser is not None and not previous_external:
             with contextlib.suppress(Exception):
-                await self._browser.close()
+                await previous_browser.close()
         self._browser = None
 
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -1888,7 +2151,10 @@ class ZhuqueAPI:
         page = None
         is_cached = False
         try:
-            if _zhuque_detect_persistent_profile():
+            cdp_endpoint = self._preferred_detect_cdp_endpoint()
+            if cdp_endpoint:
+                await self._ensure_cdp_context(async_playwright, anonymous=anonymous, endpoint=cdp_endpoint)
+            elif _zhuque_detect_persistent_profile():
                 await self._ensure_persistent_profile_context(async_playwright, anonymous=anonymous)
             else:
                 browser = await self._launch_persistent_browser(async_playwright)
@@ -1925,7 +2191,16 @@ class ZhuqueAPI:
                 page = self._cached_page
                 is_cached = True
             else:
-                page = await self._browser_context.new_page()
+                page = None
+                if self._browser_external_context:
+                    with contextlib.suppress(Exception):
+                        live_pages = [candidate for candidate in (getattr(self._browser_context, "pages", []) or []) if not candidate.is_closed()]
+                        page = next(
+                            (candidate for candidate in live_pages if "matrix.tencent.com/ai-detect" in str(getattr(candidate, "url", ""))),
+                            live_pages[0] if live_pages else None,
+                        )
+                if page is None:
+                    page = await self._browser_context.new_page()
                 is_cached = False
             self._cached_page = page
             observed_result_payloads: list[dict] = []
@@ -1963,7 +2238,7 @@ class ZhuqueAPI:
             self._ws_handler_ref = on_websocket
             self._response_handler_ref = on_response_event
 
-            if not is_cached and not anonymous:
+            if not is_cached and not anonymous and (not self._browser_external_context or self._browser_cdp_managed):
                 try:
                     creds = self.load_credentials(refresh=False) or {}
                 except Exception:
@@ -1983,6 +2258,15 @@ class ZhuqueAPI:
                         }})();
                         """
                     )
+                    with contextlib.suppress(Exception):
+                        await page.evaluate(
+                            """(data) => {
+                                for (const [k, v] of Object.entries(data || {})) {
+                                    try { localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (e) {}
+                                }
+                            }""",
+                            local_storage,
+                        )
 
             if not is_cached:
                 await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)

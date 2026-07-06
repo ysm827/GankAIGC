@@ -205,8 +205,30 @@ def credentials_from_auth_state(auth_state: dict) -> dict:
     return creds
 
 
+def _page_navigation_context_destroyed(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "execution context was destroyed" in message or "navigation" in message and "context" in message
+
+
+async def _evaluate_after_navigation(page, script: str, *, retries: int = 3):
+    last_exc = None
+    for attempt in range(max(1, retries)):
+        try:
+            return await page.evaluate(script)
+        except Exception as exc:
+            last_exc = exc
+            if not _page_navigation_context_destroyed(exc) or attempt >= retries - 1:
+                raise
+            with contextlib.suppress(Exception):
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            with contextlib.suppress(Exception):
+                await page.wait_for_timeout(300)
+    raise last_exc or RuntimeError("page.evaluate failed")
+
+
 async def inspect_auth_state(page) -> dict:
-    browser_state = await page.evaluate(
+    browser_state = await _evaluate_after_navigation(
+        page,
         r"""
         (() => {
             const localStorageValues = {};
@@ -255,10 +277,11 @@ async def trigger_login_flow(page) -> bool:
         await page.wait_for_selector(".user-info", state="visible", timeout=5000)
         await page.click(".user-info")
     except Exception:
-        await page.evaluate("document.querySelector('.user-info, .user-name')?.click()")
+        await _evaluate_after_navigation(page, "document.querySelector('.user-info, .user-name')?.click()")
     await page.wait_for_timeout(800)
 
-    await page.evaluate(
+    await _evaluate_after_navigation(
+        page,
         r"""
         () => {
             const isVisible = (el) => {
@@ -293,7 +316,8 @@ async def trigger_login_flow(page) -> bool:
         await page.wait_for_selector(".login-dialog .login-option, .login-option", state="visible", timeout=8000)
         await page.click(".login-dialog .login-option, .login-option", timeout=5000)
     except Exception:
-        await page.evaluate(
+        await _evaluate_after_navigation(
+            page,
             r"""
             () => {
                 const isVisible = (el) => {
@@ -326,7 +350,8 @@ async def trigger_login_flow(page) -> bool:
             "() => [...document.querySelectorAll('iframe')].some(f => /open\\.weixin\\.qq\\.com|qrconnect/i.test(f.src || ''))",
             timeout=10000,
         )
-    return await page.evaluate(
+    return await _evaluate_after_navigation(
+        page,
         r"""
         () => [...document.querySelectorAll('iframe')]
             .some(f => /open\.weixin\.qq\.com|qrconnect/i.test(f.src || ''))
