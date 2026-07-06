@@ -154,6 +154,29 @@ Docker 部署默认还会启动 `backup` 服务，每天自动备份 PostgreSQL 
 
 模型 Base URL 默认要求公网 HTTPS 地址。Windows 一键包本机使用 `cliproxy`、`new-api` 等本地代理时，后台把 `SERVER_HOST` 设为 `127.0.0.1`，打开“允许本地 HTTP 模型代理”，Base URL 填 `http://127.0.0.1:端口/v1`。不要写成 `https://127.0.0.1:端口/v1`。公网或 VPS 部署不要开启本地代理模式，必须使用公网 HTTPS Base URL。
 
+### 朱雀扫码登录与检测浏览器
+
+前端「朱雀扫码登录」不是读取用户默认 Chrome 的个人登录态，而是后端打开朱雀登录页、截取微信二维码给前端展示，扫码成功后将朱雀 cookie/localStorage 保存到当前 GankAIGC 用户目录：
+
+```text
+zhuque_pkg/users/user_<id>/creds_latest.json
+zhuque_pkg/users/user_<id>/browser_state.json
+```
+
+后续朱雀检测会把这份凭证注入到自动管理的检测浏览器，并尽量复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器；无桌面 Linux 会回退到 Playwright/Chromium，若遇人工验证码需提供 VNC/X11/远程桌面等可视化环境。
+
+普通用户不需要手动设置 Chrome `--remote-debugging-port` 或 Profile。高级部署可在 `.env` 中覆盖：
+
+```properties
+ZHUQUE_DETECT_HEADLESS=false
+ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true
+ZHUQUE_DETECT_CDP_ENDPOINT=
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=
+ZHUQUE_DETECT_BROWSER_USER_DATA_DIR=
+```
+
+GankAIGC 不会无授权读取默认浏览器的个人 Cookie，避免误读或泄露其他网站登录态。
+
 Docker 更新采用手动 SSH 模式：后台只检测 GitHub Release 并提供复制命令，不直接控制 Docker，也不挂载 Docker socket。VPS 上升级通常执行：
 
 ```bash

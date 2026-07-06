@@ -528,8 +528,61 @@ ADMIN_DATABASE_WRITE_ENABLED=false
 4. 管理员创建或批量生成啤酒兑换码，用户在前台兑换啤酒。
 5. 管理员可在「公告」中用 Markdown 发布维护通知、模型切换通知或使用说明。
 6. 用户进入工作台，选择平台啤酒模式或自带 API 模式。
-7. 提交论文文本，等待任务处理完成。
-8. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
+7. 如使用朱雀 AI 检测/降 AI，先在工作台点击「朱雀扫码登录」，用微信扫码授权。
+8. 提交论文文本，等待任务处理完成。
+9. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
+
+---
+
+## 🐦 朱雀扫码登录与检测浏览器
+
+GankAIGC 的朱雀登录不是读取用户本机默认 Chrome 的个人 Cookie，而是通过当前 GankAIGC 用户独立保存一份朱雀凭证：
+
+```text
+前端点击「朱雀扫码登录」
+↓
+后端打开朱雀登录页并截取微信二维码
+↓
+前端弹窗展示二维码
+↓
+用户用微信扫码
+↓
+后端保存朱雀 cookie / localStorage 到当前用户目录
+↓
+检测时自动注入这份凭证并复用检测浏览器
+```
+
+凭证默认保存在：
+
+```text
+zhuque_pkg/users/user_<id>/creds_latest.json
+zhuque_pkg/users/user_<id>/browser_state.json
+```
+
+本机可见检测时，系统会自动探测 Chrome / Edge / Brave：
+
+- Windows / WSL：优先使用可控的 Windows Chrome / Edge / Brave 检测窗口。
+- Linux 桌面：自动查找 `/usr/bin/google-chrome`、`chromium`、`microsoft-edge`、`brave-browser` 等常见浏览器。
+- Linux 服务器 / 无桌面：会回退到 Playwright/Chromium；如果朱雀要求人工验证码，需要 VNC/X11/远程桌面等可视化环境。
+
+普通用户不需要手动运行 `--remote-debugging-port`，也不需要查 Chrome Profile。日常只需：
+
+1. 在前端扫码登录朱雀。
+2. 直接开始检测/降 AI。
+3. 如遇验证码，在自动打开的朱雀检测窗口里完成验证；该窗口会尽量复用。
+4. 如果检测窗口卡住或状态异常，关闭该检测窗口后重新开始检测即可。
+
+高级部署可通过环境变量覆盖自动行为：
+
+```properties
+ZHUQUE_DETECT_HEADLESS=false
+ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true
+ZHUQUE_DETECT_CDP_ENDPOINT=
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=
+ZHUQUE_DETECT_BROWSER_USER_DATA_DIR=
+```
+
+安全说明：GankAIGC 不会无授权读取用户默认浏览器的个人登录态，避免误读或泄露其他网站 Cookie。
 
 ---
 
