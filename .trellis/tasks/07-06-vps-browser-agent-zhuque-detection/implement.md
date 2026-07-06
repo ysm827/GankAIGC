@@ -22,7 +22,7 @@ Do not batch multiple phases without validation.
 - [x] Phase 4 complete: Zhuque transport selection + backend pipeline integration.
 - [x] Phase 5 complete: Chrome extension MVP.
 - [x] Phase 6 complete: frontend browser-agent UX.
-- [ ] Phase 7 complete: docs/config/deployment update.
+- [x] Phase 7 complete: docs/config/deployment update.
 - [ ] Phase 8 complete: end-to-end VPS/browser manual validation.
 
 ## Phase 0: Planning Artifacts
@@ -460,15 +460,15 @@ browser-extension/README.md
 
 ### Checklist
 
-- [ ] Document VPS requires Chrome extension for reliable Zhuque detection.
-- [ ] Document local deployment still uses automatic local browser.
-- [ ] Document extension installation and pairing.
-- [ ] Document config values:
+- [x] Document VPS requires Chrome extension for reliable Zhuque detection.
+- [x] Document local deployment still uses automatic local browser.
+- [x] Document extension installation and pairing.
+- [x] Document config values:
   - `ZHUQUE_DETECT_TRANSPORT=browser_agent` for VPS.
   - `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`.
   - local `ZHUQUE_DETECT_TRANSPORT=local_browser` or `auto`.
-- [ ] Document no public CDP / no `--remote-debugging-port` requirement.
-- [ ] Update specs with final contracts learned during implementation.
+- [x] Document no public CDP / no `--remote-debugging-port` requirement.
+- [x] Update specs with final contracts learned during implementation.
 
 ### Validation
 
@@ -479,7 +479,7 @@ rg -n "ZHUQUE_DETECT_TRANSPORT|browser_agent|Chrome 插件|本机浏览器" READ
 
 ### Tick After Passing
 
-- [ ] Phase 7 docs/config passed.
+- [x] Phase 7 docs/config passed. Validation: `git diff --check` passed; `rg -n "ZHUQUE_DETECT_TRANSPORT|browser_agent|Chrome 插件|本机浏览器" README.md package/README.md .env.docker.example browser-extension/README.md` confirmed docs/config coverage.
 
 ---
 

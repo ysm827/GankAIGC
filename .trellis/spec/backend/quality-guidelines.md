@@ -597,3 +597,84 @@ httpx[socks]==0.27.0
 markitdown[docx,pdf]>=0.1.3,<1.0.0
 python-docx>=1.1.0
 ```
+
+---
+
+## Scenario: Zhuque Browser-Agent Transport for VPS
+
+### 1. Scope / Trigger
+
+- Trigger: any backend change to Zhuque transport selection, browser-agent pairing/job APIs, extension polling contracts, or VPS Docker configuration.
+- This is an infra and cross-layer contract spanning environment keys, FastAPI routes, SQLAlchemy models, worker transport, Chrome extension payloads, and workspace status UI.
+
+### 2. Signatures
+
+- Env:
+  - `ZHUQUE_DETECT_TRANSPORT`: `auto | local_browser | browser_agent | server_headless`.
+  - `ZHUQUE_SERVER_HEADLESS_FALLBACK`: boolean; VPS browser-agent mode should keep this `false`.
+  - `ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS`, `ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS`.
+- Web-user API:
+  - `POST /api/browser-agent/pairings` -> `{pairing_id, pairing_code, expires_at}` for the authenticated GankAIGC user.
+  - `GET /api/browser-agent/status` -> `{required, transport, online, agents, message}`.
+  - `POST /api/browser-agent/revoke` accepts `{agent_id}` and revokes only the current user's agent.
+- Extension API:
+  - `POST /api/browser-agent/claim` accepts `{pairing_code, name?, extension_version?, capabilities?}` and returns `{agent_id, agent_token}` exactly once per pairing.
+  - `POST /api/browser-agent/heartbeat` authenticates with the agent token.
+  - `POST /api/browser-agent/jobs/claim` long-polls pending Zhuque jobs for the paired user.
+  - `POST /api/browser-agent/jobs/{job_id}/progress|complete|fail` updates only jobs owned by that agent/user.
+- DB:
+  - `browser_agent_pairings`, `browser_agents`, `zhuque_agent_jobs` are persistent handoff tables. Docker app/worker must never depend on an in-memory queue for browser-agent Zhuque work.
+
+### 3. Contracts
+
+- VPS mode must use `ZHUQUE_DETECT_TRANSPORT=browser_agent` and `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`; do not silently launch server-side Playwright/Chromium for Zhuque detection in this mode.
+- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension.
+- Pairing codes and agent tokens are secret material. Store only HMAC/hash values server-side; return the agent token only from the claim response; support revocation.
+- `BrowserAgentZhuqueTransport.detect()` creates a `zhuque_agent_jobs` row, waits for completion, and normalizes the extension result through the same Zhuque result normalizer used by local detection. Extension payloads with placeholder scores (`rate < 0` or `> 100`), benchmark-table labels, empty segment labels, or example/card text must be rejected before the reduce pipeline consumes them.
+- Extension/manual states are progress states, not immediate failures. `manual_required` should keep the job alive until the user solves Zhuque login/CAPTCHA locally or the configured timeout expires.
+- The extension may open/reuse `https://matrix.tencent.com/ai-detect/` in the user's local Chrome, but backend code must not require public CDP, remote desktop, or `--remote-debugging-port` for VPS browser-agent mode.
+- Full paper text can live in `zhuque_agent_jobs.payload_text` for MVP handoff, but application logs, traces, and progress JSON must avoid logging the full payload.
+
+### 4. Validation & Error Matrix
+
+- No fresh online agent and transport is `browser_agent` -> preflight/start returns an actionable error before spending Zhuque quota or LLM credits.
+- Pairing expired/claimed/invalid -> HTTP 400/404 style error; no token is issued.
+- Revoked agent token -> heartbeat and job claim fail; status reports offline/revoked.
+- Concurrent extension claims -> one job can be claimed once; row lock/atomic update prevents double execution.
+- Job remains `pending/claimed/running/manual_required` beyond timeout -> backend marks it `expired` and returns a timeout message that tells the user to keep Chrome/plugin online and finish Zhuque manual verification.
+- Extension completes with invalid result -> backend normalization rejects it and the session fails with a Zhuque result error rather than saving fake `-100`, `Benchmark`, or `检测中` payloads.
+- VPS browser-agent mode logs show server-side Playwright Zhuque detection -> deployment/config regression.
+
+### 5. Good/Base/Bad Cases
+
+- Good: VPS worker creates one persistent browser-agent job, the user's Chrome extension claims it, reuses the Zhuque tab, returns normalized `rate/labels_ratio/segment_labels`, and the reduce pipeline continues.
+- Good: Workspace shows browser-agent `required=true`, generates a pairing code, then flips from offline to online after heartbeat.
+- Good: User sees a visible Zhuque CAPTCHA in local Chrome; extension sends `manual_required`, the task waits, and completion resumes after the user solves it.
+- Base: Local `python main.py` with `ZHUQUE_DETECT_TRANSPORT=auto` uses the existing local browser path and `GET /api/browser-agent/status` returns `required=false`.
+- Bad: VPS uses `server_headless` or hidden fallback by default, requires public CDP, or asks users to start Chrome with `--remote-debugging-port`.
+- Bad: Extension host permissions use `<all_urls>` or backend logs include full paper text from `payload_text`.
+
+### 6. Tests Required
+
+- Backend tests must cover pairing creation/claim expiry/reuse, token auth, heartbeat freshness, status online/offline, revoke, job claim/progress/complete/fail/expire, ownership checks, and browser-agent transport selection.
+- Zhuque integration tests must keep local-window, remote QR, and local browser behavior passing when browser-agent code exists.
+- Frontend/static tests must assert `browserAgentAPI`, pairing/status/revoke UI strings, `required/offline/online` copy, local-mode copy, and offline preflight blocking.
+- Manual VPS validation must prove no server-headless Zhuque detection starts in `browser_agent` mode and the user's local Chrome performs the Zhuque interaction.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```env
+# VPS default that tends to trigger Zhuque CAPTCHA/fraud controls.
+ZHUQUE_DETECT_TRANSPORT=server_headless
+ZHUQUE_SERVER_HEADLESS_FALLBACK=true
+```
+
+#### Correct
+
+```env
+# VPS recommended path: dispatch to a paired user-local Chrome extension.
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+```

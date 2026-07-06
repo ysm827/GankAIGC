@@ -592,3 +592,76 @@ const riskRate = Math.max(aiRate, suspiciousRate);
   background: rgba(255, 255, 255, 0.94);
 }
 ```
+
+---
+
+## Scenario: Workspace Browser-Agent Zhuque UX
+
+### 1. Scope / Trigger
+
+- Trigger: any frontend change to `WorkspacePage.jsx`, `src/api/index.js`, or static bundle behavior for VPS/browser-agent Zhuque detection.
+- This UI is a cross-layer status surface for `GET /api/browser-agent/status`, pairing, revocation, and Zhuque task start/preflight blocking.
+
+### 2. Signatures
+
+- API client functions in `src/api/index.js`:
+  - `browserAgentAPI.createPairing()` -> `POST /browser-agent/pairings`.
+  - `browserAgentAPI.getStatus()` -> `GET /browser-agent/status`.
+  - `browserAgentAPI.revoke(agentId)` -> `POST /browser-agent/revoke` with `{agent_id}`.
+- Workspace state:
+  - `browserAgentStatus`, `browserAgentPairing`, `browserAgentRequired`, `browserAgentOnline`, `browserAgentPrimary`.
+- Backend status payload consumed by the UI:
+  - `{required, transport, online, agents, message}`.
+  - agent rows may include `{agent_id, name, status, last_seen_at, extension_version}`.
+
+### 3. Contracts
+
+- The compact Zhuque card remains ordered as `朱雀 AI 检测` -> `扫码登录/已登录` -> `连接状态` -> `剩余次数`; browser-agent transport information is a secondary block below those core metrics.
+- When `required=true` or `transport="browser_agent"`, show VPS/plugin copy: `插件在线` or `插件未连接`, pairing-code generation, and optional revoke action for the connected device.
+- When browser-agent is not required, show local copy such as `本地浏览器模式` and explicitly say local deployment continues using the built-in/local browser path without mandatory plugin installation.
+- Starting `AI检测 + 降重` while browser-agent is required but offline must fail fast in the workspace with actionable copy before the normal Zhuque preflight/start chain.
+- Pairing codes are short-lived secrets. Render them only after explicit user action, not in passive page load. Do not store them in localStorage.
+- Keep the Apple workspace visual language: low-chrome rounded card, Action Blue for pairing action, no new heavy gradients, and static bundle sync after build.
+
+### 4. Validation & Error Matrix
+
+- `required=true`, `online=false` -> show `插件未连接` and generation guidance; start button flow toasts `VPS 朱雀检测需要先连接本机 Chrome 插件`.
+- `required=true`, `online=true` -> show `插件在线`, device name/version when available, and allow task start to continue into Zhuque preflight.
+- `required=false`, `transport=auto/local_browser` -> show `本地浏览器模式`; do not imply plugin is mandatory.
+- Pairing creation fails -> toast backend detail or `生成浏览器插件配对码失败`.
+- Revocation fails -> toast backend detail or `撤销浏览器插件失败`.
+
+### 5. Good/Base/Bad Cases
+
+- Good: VPS user selects `AI检测 + 降重`, sees plugin offline, generates a code, enters it in the extension, status flips online, then starts the task.
+- Good: Local user still sees the normal Zhuque login/quota card plus `本地浏览器模式`, with no blocker demanding extension installation.
+- Base: Browser-agent API is temporarily unreachable; the workspace falls back to non-required `auto` copy and the existing Zhuque readiness error handling remains visible.
+- Bad: Rendering a pairing code automatically on page load, hiding Zhuque quota metrics behind plugin UI, or adding a second unrelated朱雀 card that duplicates state.
+
+### 6. Tests Required
+
+- Static tests must assert `browserAgentAPI`, `/browser-agent/pairings`, `/browser-agent/status`, `/browser-agent/revoke`, `browserAgentRequired`, `browserAgentOnline`, `检测传输`, `插件在线`, `插件未连接`, `生成配对码`, `撤销插件`, `配对码`, local-mode copy, and offline start-blocking copy.
+- Existing static tests for the compact Zhuque card order and CSS tokens must continue to pass.
+- Run `cd package/frontend && npm run build`, sync `package/frontend/dist` into `package/static`, and force-stage new ignored static assets.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsx
+// Blocks every local user until an extension is installed.
+if (!browserAgentStatus?.online) {
+  toast.error('请先安装 Chrome 插件');
+  return;
+}
+```
+
+#### Correct
+
+```jsx
+// Only VPS/browser-agent mode requires the plugin.
+if (processingMode === 'ai_detect_reduce' && browserAgentRequired && !browserAgentOnline) {
+  toast.error('VPS 朱雀检测需要先连接本机 Chrome 插件');
+  return;
+}
+```
