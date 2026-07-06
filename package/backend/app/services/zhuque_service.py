@@ -13,6 +13,7 @@ from uuid import uuid4
 from typing import List, Optional, Callable, Any
 
 from app.services.zhuque_api import ZhuqueAPI
+from app.services.zhuque_browser_agent_transport import BrowserAgentZhuqueTransport
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,10 @@ def zhuque_user_credentials_file(user_id: int | str) -> Path:
 class ZhuqueService:
     """Per-credential Zhuque API service with serialized detect queue."""
 
-    def __init__(self, *, credentials_file: str | Path | None = None, owner_label: str = "global"):
+    def __init__(self, *, credentials_file: str | Path | None = None, owner_label: str = "global", user_id: int | None = None):
         self.credentials_file = Path(credentials_file).expanduser() if credentials_file else None
         self.owner_label = owner_label
+        self.user_id = user_id
         self.api: Optional[ZhuqueAPI] = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._ready: bool = False
@@ -314,6 +316,9 @@ class ZhuqueService:
                 exc_info=True,
             )
 
+    def _use_browser_agent_transport(self) -> bool:
+        return self.user_id is not None and BrowserAgentZhuqueTransport.enabled()
+
     def _ensure_api(self) -> ZhuqueAPI:
         if self.api is None:
             self.api = ZhuqueAPI(debug=False, credentials_file=self.credentials_file)
@@ -373,6 +378,14 @@ class ZhuqueService:
         if self._ready:
             self._ensure_consumer_task()
             return
+        if self._use_browser_agent_transport():
+            status = BrowserAgentZhuqueTransport(self.user_id).status()
+            if not status.get("ready"):
+                raise RuntimeError(status.get("message") or "本机浏览器插件未连接")
+            self._ready = True
+            self._ensure_consumer_task()
+            logger.info("[ZhuqueService:%s] browser-agent transport ready", self.owner_label)
+            return
         api = self._ensure_api()
         status = await api.status()
         has_token = bool(status.get("has_token"))
@@ -418,7 +431,13 @@ class ZhuqueService:
                 except Exception:
                     credential_status = {}
                 detection_used_anonymous = not bool(credential_status.get("has_token"))
-                result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
+                if self._use_browser_agent_transport():
+                    result = await BrowserAgentZhuqueTransport(self.user_id).detect(
+                        text,
+                        timeout=settings.ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT,
+                    )
+                else:
+                    result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
                 if self._should_reset_after_detect_failure(result):
                     self.reset_credentials_state()
                 if (
@@ -432,7 +451,7 @@ class ZhuqueService:
                         "remaining_uses": max(before_remaining - 1, 0),
                     }
                 self._remember_remaining_uses(result.get("remaining_uses"))
-                if result.get("success") and detection_used_anonymous:
+                if result.get("success") and detection_used_anonymous and not self._use_browser_agent_transport():
                     remaining_uses = self._coerce_remaining_uses(result.get("remaining_uses"))
                     anonymous_fp = self._anonymous_fp_from_api(self.api, credential_status, result)
                     if remaining_uses >= 0 or anonymous_fp:
@@ -500,6 +519,20 @@ class ZhuqueService:
         """读取朱雀微信凭证状态，不发起检测，不消耗朱雀次数。"""
         text_length = len(text or "") if text is not None else None
         text_length_ok = True if text is None else text_length >= 350
+        if self._use_browser_agent_transport():
+            status = BrowserAgentZhuqueTransport(self.user_id).status()
+            return {
+                **status,
+                "page_found": status.get("connected", False),
+                "has_token": False,
+                "has_anonymous_fp": False,
+                "text_length": text_length,
+                "text_length_ok": text_length_ok,
+                "estimated_first_round_credits": 10 if text else 0,
+                "estimated_max_round_credits": (10 * settings.ZHUQUE_MAX_REDUCE_ROUNDS) if text else 0,
+                "credential_file": str(self.credentials_file) if self.credentials_file else "",
+                "actions": [] if status.get("ready") else ["connect_browser_agent"],
+            }
         base = {
             "ready": False,
             "connected": False,
@@ -749,6 +782,7 @@ class ZhuqueServiceManager:
             service = ZhuqueService(
                 credentials_file=zhuque_user_credentials_file(numeric_user_id),
                 owner_label=f"user_{numeric_user_id}",
+                user_id=numeric_user_id,
             )
             self._services[numeric_user_id] = service
         return service

@@ -1,0 +1,147 @@
+"""Zhuque detection transport executed by a user's paired local browser agent."""
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from app.config import settings
+from app.database import SessionLocal
+from app.models.browser_agent_constants import (
+    BROWSER_AGENT_STATUS_REVOKED,
+    ZHUQUE_AGENT_JOB_STATUS_COMPLETED,
+    ZHUQUE_AGENT_JOB_STATUS_FAILED,
+    ZHUQUE_AGENT_JOB_STATUS_EXPIRED,
+    ZHUQUE_AGENT_JOB_STATUS_CANCELLED,
+    ZHUQUE_AGENT_JOB_STATUS_MANUAL_REQUIRED,
+)
+from app.models.models import BrowserAgent, ZhuqueAgentJob
+from app.services.browser_agent_service import BrowserAgentService
+from app.services.zhuque_api import normalize_zhuque_result
+from app.utils.time import utcnow
+
+
+class BrowserAgentUnavailable(RuntimeError):
+    pass
+
+
+class BrowserAgentJobFailed(RuntimeError):
+    pass
+
+
+class BrowserAgentZhuqueTransport:
+    source = "browser_agent"
+
+    def __init__(self, user_id: int):
+        self.user_id = int(user_id)
+
+    @staticmethod
+    def enabled() -> bool:
+        return (settings.ZHUQUE_DETECT_TRANSPORT or "auto").strip().lower() == "browser_agent"
+
+    def _latest_online_agent(self, db) -> BrowserAgent | None:
+        now = utcnow()
+        timeout = max(5, settings.ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT)
+        agents = (
+            db.query(BrowserAgent)
+            .filter(
+                BrowserAgent.user_id == self.user_id,
+                BrowserAgent.revoked_at.is_(None),
+                BrowserAgent.status != BROWSER_AGENT_STATUS_REVOKED,
+                BrowserAgent.last_seen_at.isnot(None),
+            )
+            .order_by(BrowserAgent.last_seen_at.desc(), BrowserAgent.id.desc())
+            .all()
+        )
+        for agent in agents:
+            if (now - agent.last_seen_at).total_seconds() <= timeout:
+                return agent
+        return None
+
+    def status(self) -> dict[str, Any]:
+        db = SessionLocal()
+        try:
+            agent = self._latest_online_agent(db)
+            if not agent:
+                return {
+                    "ready": False,
+                    "connected": False,
+                    "auth_mode": "browser_agent",
+                    "login_mode": "local_browser_agent",
+                    "message": "请先连接本机 Chrome 插件，再使用朱雀 AI 检测。",
+                    "remaining_uses": -1,
+                    "button_enabled": False,
+                }
+            return {
+                "ready": True,
+                "connected": True,
+                "auth_mode": "browser_agent",
+                "login_mode": "local_browser_agent",
+                "message": "本机浏览器插件在线，朱雀检测将在用户本地 Chrome 执行。",
+                "remaining_uses": -1,
+                "button_enabled": True,
+                "agent_id": agent.agent_id,
+                "user_name": agent.name or "本机浏览器插件",
+            }
+        finally:
+            db.close()
+
+    async def detect(self, text: str, *, timeout: float | None = None, session_id: int | None = None, segment_id: int | None = None) -> dict:
+        db = SessionLocal()
+        try:
+            if not self._latest_online_agent(db):
+                raise BrowserAgentUnavailable("请先连接本机 Chrome 插件，再使用朱雀 AI 检测。")
+            job = BrowserAgentService(db).create_zhuque_job(
+                user_id=self.user_id,
+                text=text,
+                session_id=session_id,
+                segment_id=segment_id,
+                timeout_seconds=int(timeout or settings.ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT),
+            )
+            job_id = job.job_id
+        finally:
+            db.close()
+
+        deadline = asyncio.get_running_loop().time() + float(timeout or settings.ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT)
+        last_manual_message = ""
+        while asyncio.get_running_loop().time() < deadline:
+            db = SessionLocal()
+            try:
+                job = db.query(ZhuqueAgentJob).filter(ZhuqueAgentJob.job_id == job_id).first()
+                if not job:
+                    raise BrowserAgentJobFailed("本机浏览器检测任务丢失")
+                if job.status == ZHUQUE_AGENT_JOB_STATUS_COMPLETED:
+                    payload = json.loads(job.result_json or "{}")
+                    if isinstance(payload, dict):
+                        raw_payload = payload.get("raw_payload") if isinstance(payload.get("raw_payload"), dict) else payload
+                        normalized = normalize_zhuque_result(raw_payload, text_length=len(text), source=self.source)
+                        if normalized.get("success"):
+                            return normalized
+                        return {
+                            **normalized,
+                            "success": False,
+                            "source": self.source,
+                            "message": normalized.get("message") or payload.get("message") or "本机浏览器返回了无效朱雀结果",
+                        }
+                    return {"success": False, "source": self.source, "message": "本机浏览器返回了无效朱雀结果"}
+                if job.status == ZHUQUE_AGENT_JOB_STATUS_MANUAL_REQUIRED:
+                    with_payload = json.loads(job.progress_json or "{}") if job.progress_json else {}
+                    last_manual_message = str(with_payload.get("message") or "请在本机朱雀页面完成验证")
+                if job.status == ZHUQUE_AGENT_JOB_STATUS_FAILED:
+                    raise BrowserAgentJobFailed(job.error_message or "本机浏览器朱雀检测失败")
+                if job.status == ZHUQUE_AGENT_JOB_STATUS_EXPIRED:
+                    raise TimeoutError(job.error_message or "等待本机浏览器朱雀检测超时")
+                if job.status == ZHUQUE_AGENT_JOB_STATUS_CANCELLED:
+                    raise BrowserAgentJobFailed(job.error_message or "朱雀检测任务已取消")
+            finally:
+                db.close()
+            await asyncio.sleep(1.0)
+
+        db = SessionLocal()
+        try:
+            BrowserAgentService(db).expire_stale_jobs()
+        finally:
+            db.close()
+        if last_manual_message:
+            raise TimeoutError(f"等待本机浏览器朱雀检测超时：{last_manual_message}")
+        raise TimeoutError("等待本机浏览器朱雀检测超时")

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "GankAIGC Zhuque Browser Agent",
+  "description": "Run Zhuque AI detection in the user's local Chrome for GankAIGC VPS deployments.",
+  "version": "0.1.3",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "https://matrix.tencent.com/*",
+    "http://127.0.0.1:9800/*",
+    "http://localhost:9800/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://matrix.tencent.com/*"],
+      "js": ["content-zhuque.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
