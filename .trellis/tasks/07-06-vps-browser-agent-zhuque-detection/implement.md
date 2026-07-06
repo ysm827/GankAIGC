@@ -21,7 +21,7 @@ Do not batch multiple phases without validation.
 - [x] Phase 3 complete: browser-agent job APIs/state machine.
 - [x] Phase 4 complete: Zhuque transport selection + backend pipeline integration.
 - [x] Phase 5 complete: Chrome extension MVP.
-- [ ] Phase 6 complete: frontend browser-agent UX.
+- [x] Phase 6 complete: frontend browser-agent UX.
 - [ ] Phase 7 complete: docs/config/deployment update.
 - [ ] Phase 8 complete: end-to-end VPS/browser manual validation.
 
@@ -409,16 +409,16 @@ package/backend/tests/test_frontend_*.py
 
 ### Checklist
 
-- [ ] Add API client functions for browser-agent pairings/status/revoke.
-- [ ] Workspace Zhuque card branches by transport.
-- [ ] Add pairing code UI.
-- [ ] Add plugin install/load instructions.
-- [ ] Add online/offline/busy/manual-required states.
-- [ ] Start/preflight blocks when `browser_agent` is required but offline.
-- [ ] Session detail shows browser-agent progress/manual-required messages.
-- [ ] Local deployment copy remains local-browser oriented.
-- [ ] Keep Apple workspace visual conventions.
-- [ ] If frontend source changes, rebuild and sync `package/static`.
+- [x] Add API client functions for browser-agent pairings/status/revoke.
+- [x] Workspace Zhuque card branches by transport.
+- [x] Add pairing code UI.
+- [x] Add plugin install/load instructions.
+- [x] Add online/offline/busy/manual-required states.
+- [x] Start/preflight blocks when `browser_agent` is required but offline.
+- [x] Session detail shows browser-agent progress/manual-required messages.
+- [x] Local deployment copy remains local-browser oriented.
+- [x] Keep Apple workspace visual conventions.
+- [x] If frontend source changes, rebuild and sync `package/static`.
 
 ### Validation
 
@@ -437,7 +437,7 @@ git add package/frontend package/static
 
 ### Tick After Passing
 
-- [ ] Phase 6 frontend build/tests passed.
+- [x] Phase 6 frontend build/tests passed. Validation: `cd package/frontend && npm run build` -> passed; synced `package/frontend/dist` to `package/static`; `package/venv/bin/python -m pytest package/backend/tests/test_frontend_redeem_entry.py -q` -> 71 passed.
 
 ---
 
