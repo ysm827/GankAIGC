@@ -50,12 +50,13 @@ MVP manifest includes:
 ```json
 "host_permissions": [
   "https://matrix.tencent.com/*",
+  "https://ga.mumubuku.top/*",
   "http://127.0.0.1:9800/*",
   "http://localhost:9800/*"
 ]
 ```
 
-For a real VPS domain, add your GankAIGC origin before loading the extension, for example:
+For another real VPS domain, add your GankAIGC origin before loading the extension, for example:
 
 ```json
 "https://gankaigc.example.com/*"
