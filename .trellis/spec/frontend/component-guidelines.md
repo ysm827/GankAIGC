@@ -600,7 +600,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 ### 1. Scope / Trigger
 
 - Trigger: any frontend change to `WorkspacePage.jsx`, `src/api/index.js`, or static bundle behavior for VPS/browser-agent Zhuque detection.
-- This UI is a cross-layer status surface for `GET /api/browser-agent/status`, pairing, revocation, and Zhuque task start/preflight blocking.
+- This UI is a cross-layer status surface for `GET /api/browser-agent/status`, pairing, revocation, Zhuque account/quota refresh, and Zhuque task start/preflight blocking.
 
 ### 2. Signatures
 
@@ -610,9 +610,13 @@ const riskRate = Math.max(aiRate, suspiciousRate);
   - `browserAgentAPI.revoke(agentId)` -> `POST /browser-agent/revoke` with `{agent_id}`.
 - Workspace state:
   - `browserAgentStatus`, `browserAgentPairing`, `browserAgentRequired`, `browserAgentOnline`, `browserAgentPrimary`.
+  - `requestBrowserAgentZhuqueRefresh()` posts `GANKAIGC_SYNC_ZHUQUE_STATUS` to the extension page bridge and then reloads backend browser-agent status.
 - Backend status payload consumed by the UI:
-  - `{required, transport, online, agents, message}`.
-  - agent rows may include `{agent_id, name, status, last_seen_at, extension_version}`.
+  - `{required, transport, online, agents, message, zhuque}`.
+  - agent rows may include `{agent_id, name, status, last_seen_at, extension_version, zhuque_status}`.
+- Extension bridge:
+  - `browser-extension/content-gankaigc.js` is matched only to allowed GankAIGC origins, not `<all_urls>`.
+  - It relays page `postMessage` requests to background `SYNC_ZHUQUE_STATUS`, which reads the live Zhuque tab and sends an immediate heartbeat containing `metadata.zhuque`.
 
 ### 3. Contracts
 
@@ -621,12 +625,13 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 - When browser-agent is not required, show local copy such as `本地浏览器模式` and explicitly say local deployment continues using the built-in/local browser path without mandatory plugin installation.
 - Starting `AI检测 + 降重` while browser-agent is required but offline must fail fast in the workspace with actionable copy before the normal Zhuque preflight/start chain.
 - Pairing codes are short-lived secrets. Render them only after explicit user action, not in passive page load. Do not store them in localStorage.
+- In browser-agent mode, page load, manual quota refresh, and task completion should request an immediate extension-side Zhuque status sync instead of waiting for the next 15-second MV3 heartbeat. The UI must still fall back to backend status if the bridge is unavailable or the extension is stale.
 - Keep the Apple workspace visual language: low-chrome rounded card, Action Blue for pairing action, no new heavy gradients, and static bundle sync after build.
 
 ### 4. Validation & Error Matrix
 
 - `required=true`, `online=false` -> show `插件未连接` and generation guidance; start button flow toasts `VPS 朱雀检测需要先连接本机 Chrome 插件`.
-- `required=true`, `online=true` -> show `插件在线`, device name/version when available, and allow task start to continue into Zhuque preflight.
+- `required=true`, `online=true` -> show `插件在线`, device name/version when available, and allow task start to continue into Zhuque preflight. Manual refresh should spin the refresh icon, ask the extension to sync, then update `朱雀账号` / `剩余次数` from backend status.
 - `required=false`, `transport=auto/local_browser` -> show `本地浏览器模式`; do not imply plugin is mandatory.
 - Pairing creation fails -> toast backend detail or `生成浏览器插件配对码失败`.
 - Revocation fails -> toast backend detail or `撤销浏览器插件失败`.
@@ -634,13 +639,14 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 ### 5. Good/Base/Bad Cases
 
 - Good: VPS user selects `AI检测 + 降重`, sees plugin offline, generates a code, enters it in the extension, status flips online, then starts the task.
+- Good: user logs into Zhuque in the local Chrome tab, clicks the workspace refresh icon, and sees `朱雀账号` plus real remaining uses without waiting for the next heartbeat. After a detection job completes, the extension syncs status again so consumed quota is reflected.
 - Good: Local user still sees the normal Zhuque login/quota card plus `本地浏览器模式`, with no blocker demanding extension installation.
 - Base: Browser-agent API is temporarily unreachable; the workspace falls back to non-required `auto` copy and the existing Zhuque readiness error handling remains visible.
-- Bad: Rendering a pairing code automatically on page load, hiding Zhuque quota metrics behind plugin UI, or adding a second unrelated朱雀 card that duplicates state.
+- Bad: Rendering a pairing code automatically on page load, hiding Zhuque quota metrics behind plugin UI, adding a second unrelated朱雀 card that duplicates state, or relying solely on the delayed heartbeat for a user-clicked refresh action.
 
 ### 6. Tests Required
 
-- Static tests must assert `browserAgentAPI`, `/browser-agent/pairings`, `/browser-agent/status`, `/browser-agent/revoke`, `browserAgentRequired`, `browserAgentOnline`, `检测传输`, `插件在线`, `插件未连接`, `生成配对码`, `撤销插件`, `配对码`, local-mode copy, and offline start-blocking copy.
+- Static tests must assert `browserAgentAPI`, `/browser-agent/pairings`, `/browser-agent/status`, `/browser-agent/revoke`, `browserAgentRequired`, `browserAgentOnline`, `requestBrowserAgentZhuqueRefresh`, `GANKAIGC_SYNC_ZHUQUE_STATUS`, `检测传输`, `插件在线`, `插件未连接`, `生成配对码`, `撤销插件`, `配对码`, local-mode copy, offline start-blocking copy, and manifest absence of `<all_urls>`.
 - Existing static tests for the compact Zhuque card order and CSS tokens must continue to pass.
 - Run `cd package/frontend && npm run build`, sync `package/frontend/dist` into `package/static`, and force-stage new ignored static assets.
 

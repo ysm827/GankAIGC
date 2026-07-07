@@ -566,7 +566,7 @@ const ConfigManager = ({ adminToken }) => {
         </div>
       </div>
 
-      <div className="aurora-admin-card aurora-config-card p-6">
+      <div className="aurora-admin-card aurora-config-card aurora-config-document-card p-6">
         <div className="aurora-config-card-title">
           <span className="aurora-config-title-icon aurora-config-title-icon-feature">
             <FileText className="h-5 w-5" />
@@ -576,8 +576,8 @@ const ConfigManager = ({ adminToken }) => {
             <p className="mt-1 text-xs text-slate-500">支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT；MinerU 当前主要用于 PDF 高精度结构解析。</p>
           </div>
         </div>
-        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <label>
+        <div className="aurora-config-document-grid">
+          <label className="aurora-config-field">
             <span>PDF 解析引擎</span>
             <select
               value={formData.PDF_STRUCTURE_ENGINE}
@@ -589,7 +589,7 @@ const ConfigManager = ({ adminToken }) => {
               <option value="markitdown">MarkItDown 本地解析</option>
             </select>
           </label>
-          <label>
+          <label className="aurora-config-field">
             <span>MinerU Base URL</span>
             <input
               type="text"
@@ -599,7 +599,7 @@ const ConfigManager = ({ adminToken }) => {
               className="aurora-admin-input font-mono"
             />
           </label>
-          <label>
+          <label className="aurora-config-field">
             <span>MinerU API Token</span>
             <input
               type="password"
@@ -609,7 +609,7 @@ const ConfigManager = ({ adminToken }) => {
               className="aurora-admin-input font-mono"
             />
           </label>
-          <label>
+          <label className="aurora-config-field">
             <span>MinerU 模型版本</span>
             <input
               type="text"
@@ -619,7 +619,7 @@ const ConfigManager = ({ adminToken }) => {
               className="aurora-admin-input font-mono"
             />
           </label>
-          <label>
+          <label className="aurora-config-field aurora-config-field-compact">
             <span>语言</span>
             <input
               type="text"
@@ -629,7 +629,7 @@ const ConfigManager = ({ adminToken }) => {
               className="aurora-admin-input font-mono"
             />
           </label>
-          <label>
+          <label className="aurora-config-field">
             <span>解析超时</span>
             <div className="aurora-config-unit-input">
               <input
@@ -642,7 +642,7 @@ const ConfigManager = ({ adminToken }) => {
               <strong>秒</strong>
             </div>
           </label>
-          <label>
+          <label className="aurora-config-field">
             <span>轮询间隔</span>
             <div className="aurora-config-unit-input">
               <input
@@ -657,7 +657,7 @@ const ConfigManager = ({ adminToken }) => {
             </div>
           </label>
         </div>
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="aurora-config-document-switches">
           {[
             ['启用公式解析', 'MINERU_ENABLE_FORMULA'],
             ['启用表格解析', 'MINERU_ENABLE_TABLE'],
@@ -665,7 +665,7 @@ const ConfigManager = ({ adminToken }) => {
           ].map(([title, key]) => {
             const enabled = Boolean(formData[key]);
             return (
-              <div key={key} className="aurora-config-feature-switch rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+              <div key={key} className="aurora-config-feature-switch aurora-config-document-switch">
                 <div><strong>{title}</strong></div>
                 <button
                   type="button"
@@ -679,7 +679,7 @@ const ConfigManager = ({ adminToken }) => {
             );
           })}
         </div>
-        <p className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-xs leading-6 text-blue-700">
+        <p className="aurora-config-document-note">
           MinerU 官方支持 PDF、DOCX、PPTX、XLSX、图片和网页；当前 GankAIGC 默认仅将 MinerU 用于 PDF，Word(.docx)、Markdown、TXT 使用本地解析链路，速度更快且不消耗 MinerU 额度。
         </p>
       </div>

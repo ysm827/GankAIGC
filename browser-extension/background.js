@@ -104,14 +104,14 @@ async function getZhuqueSessionStatus({ focus = false } = {}) {
   return response?.status || { page_found: true, logged_in: false, status: 'unknown', message: '朱雀页面已打开，暂未识别登录状态' };
 }
 
-async function heartbeat(activeJobId = null) {
+async function heartbeat(activeJobId = null, zhuqueStatusOverride = null) {
   const state = await getState();
   const token = state[STORAGE_KEYS.agentToken];
   const agentId = state[STORAGE_KEYS.agentId];
   if (!token || !agentId) {
     return { ok: false, message: '未配对' };
   }
-  const zhuqueStatus = await getZhuqueSessionStatus().catch((error) => ({
+  const zhuqueStatus = zhuqueStatusOverride || await getZhuqueSessionStatus().catch((error) => ({
     page_found: false,
     logged_in: false,
     status: 'unknown',
@@ -122,6 +122,12 @@ async function heartbeat(activeJobId = null) {
     token,
     body: { agent_id: agentId, status: 'online', active_job_id: activeJobId, metadata: { zhuque: zhuqueStatus } }
   });
+}
+
+async function syncZhuqueStatus({ focus = false } = {}) {
+  const zhuqueStatus = await getZhuqueSessionStatus({ focus });
+  await heartbeat(null, zhuqueStatus);
+  return { ok: true, zhuque: zhuqueStatus };
 }
 
 async function findOrCreateZhuqueTab() {
@@ -201,6 +207,7 @@ async function executeZhuqueJob(job) {
     method: 'POST',
     body: { result: response.result }
   });
+  await syncZhuqueStatus().catch((error) => console.warn('[GankAIGC Browser Agent] sync Zhuque status after job failed:', error));
 }
 
 async function pollJobsOnce() {
@@ -270,6 +277,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const tabId = await findOrCreateZhuqueTab();
       await waitForTabReady(tabId);
       return { ok: true, tabId };
+    }
+    if (message?.type === 'SYNC_ZHUQUE_STATUS') {
+      return await syncZhuqueStatus(message.payload || {});
     }
     if (message?.type === 'FORGET_AGENT') {
       await chrome.storage.local.remove(Object.values(STORAGE_KEYS));

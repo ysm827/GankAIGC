@@ -1256,6 +1256,8 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
     extension_popup = (PACKAGE_ROOT.parents[0] / "browser-extension" / "popup.js").read_text(encoding="utf-8")
     extension_background = (PACKAGE_ROOT.parents[0] / "browser-extension" / "background.js").read_text(encoding="utf-8")
+    extension_manifest = (PACKAGE_ROOT.parents[0] / "browser-extension" / "manifest.json").read_text(encoding="utf-8")
+    extension_page_bridge = (PACKAGE_ROOT.parents[0] / "browser-extension" / "content-gankaigc.js").read_text(encoding="utf-8")
 
     assert "browserAgentAPI" in api
     assert "createPairing" in api
@@ -1277,6 +1279,8 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     assert "打开朱雀登录" in workspace
     assert "朱雀账号" in workspace
     assert "同步朱雀登录和剩余次数" in workspace
+    assert "requestBrowserAgentZhuqueRefresh" in workspace
+    assert "GANKAIGC_SYNC_ZHUQUE_STATUS" in workspace
     assert "browserAgentZhuqueStatus" in workspace
     assert "zhuque_status" in workspace
     assert "朱雀登录状态" in workspace
@@ -1288,6 +1292,12 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     assert "pairingCodeDraft" in extension_background
     assert "GANKAIGC_ZHUQUE_STATUS" in extension_background
     assert "metadata: { zhuque: zhuqueStatus }" in extension_background
+    assert "SYNC_ZHUQUE_STATUS" in extension_background
+    assert "syncZhuqueStatus" in extension_background
+    assert "content-gankaigc.js" in extension_manifest
+    assert "<all_urls>" not in extension_manifest
+    assert "GANKAIGC_SYNC_ZHUQUE_STATUS" in extension_page_bridge
+    assert "chrome.runtime.sendMessage" in extension_page_bridge
     assert "saveDraft" in extension_popup
     assert "status.pairingCode" in extension_popup
 
@@ -1457,6 +1467,7 @@ def test_workspace_supports_word_pdf_markdown_and_txt_document_upload():
     assert "已回退 MarkItDown" in workspace
     assert "结构识别精度会降低" in workspace
     assert "上传 PDF、Word(.docx)、Markdown(.md/.markdown) 或 TXT" in workspace
+    assert "hidden text-[12px] text-slate-400 sm:inline" not in workspace
 
 
 def test_session_detail_shows_zhuque_agent_trace():
@@ -1728,6 +1739,8 @@ def test_config_manager_exposes_document_parse_settings_without_word_formatter_f
     config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")
     admin_routes = (PACKAGE_ROOT / "backend" / "app" / "routes" / "admin.py").read_text(encoding="utf-8")
 
+    index_css = (FRONTEND_SRC / "index.css").read_text(encoding="utf-8")
+
     assert "文档解析设置" in config_manager
     assert "PDF_STRUCTURE_ENGINE" in config_manager
     assert "MINERU_BASE_URL" in config_manager
@@ -1742,6 +1755,12 @@ def test_config_manager_exposes_document_parse_settings_without_word_formatter_f
     assert "getMineruTokenPlaceholder" in config_manager
     assert "支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT" in config_manager
     assert "Word(.docx)、Markdown、TXT 使用本地解析链路" in config_manager
+    assert "aurora-config-document-card" in config_manager
+    assert "aurora-config-document-grid" in config_manager
+    assert "aurora-config-document-switches" in config_manager
+    assert "aurora-config-document-note" in config_manager
+    assert "aurora-config-document-card" in index_css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in index_css
     assert "document_parse" in admin_routes
     assert "mineru_api_token_set" in admin_routes
     assert "mineru_api_token_last4" in admin_routes

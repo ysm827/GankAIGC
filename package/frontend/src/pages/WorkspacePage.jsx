@@ -79,6 +79,43 @@ const ZHUQUE_LOGIN_POLL_INTERVAL_MS = 700;
 const ZHUQUE_READINESS_SOFT_TIMEOUT_MS = 2500;
 const WORKSPACE_QUEUE_POLL_INTERVAL_MS = 15000;
 const ACTIVE_SESSION_POLL_INTERVAL_MS = 6000;
+const BROWSER_AGENT_SYNC_REQUEST_TYPE = 'GANKAIGC_SYNC_ZHUQUE_STATUS';
+const BROWSER_AGENT_SYNC_RESULT_TYPE = 'GANKAIGC_SYNC_ZHUQUE_STATUS_RESULT';
+const BROWSER_AGENT_PAGE_SOURCE = 'GANKAIGC_PAGE';
+const BROWSER_AGENT_EXTENSION_SOURCE = 'GANKAIGC_EXTENSION';
+
+const requestBrowserAgentZhuqueRefresh = ({ focus = false, timeoutMs = 4000 } = {}) => {
+  if (typeof window === 'undefined') {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const requestId = `zhuque-sync-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', handleMessage);
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const handleMessage = (event) => {
+      if (event.source !== window) return;
+      const data = event.data || {};
+      if (data.source !== BROWSER_AGENT_EXTENSION_SOURCE || data.type !== BROWSER_AGENT_SYNC_RESULT_TYPE || data.requestId !== requestId) {
+        return;
+      }
+      finish(data.response || null);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    window.addEventListener('message', handleMessage);
+    window.postMessage({
+      source: BROWSER_AGENT_PAGE_SOURCE,
+      type: BROWSER_AGENT_SYNC_REQUEST_TYPE,
+      requestId,
+      focus,
+    }, window.location.origin);
+  });
+};
 
 const countBillableCharacters = (value) => (value.match(/\S/g) || []).length;
 
@@ -553,6 +590,7 @@ const WorkspacePage = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [isStartingZhuqueLogin, setIsStartingZhuqueLogin] = useState(false);
   const [isRefreshingZhuqueQuota, setIsRefreshingZhuqueQuota] = useState(false);
+  const [isSyncingBrowserAgentZhuque, setIsSyncingBrowserAgentZhuque] = useState(false);
   const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
   const [zhuqueLoginSession, setZhuqueLoginSession] = useState(null);
@@ -992,13 +1030,28 @@ const WorkspacePage = () => {
   }, [browserAgentOnline, handleCreateBrowserAgentPairing]);
 
   const handleSyncBrowserAgentZhuqueStatus = useCallback(async () => {
-    const latestStatus = await loadBrowserAgentStatus();
-    if (latestStatus?.zhuque?.logged_in || latestStatus?.zhuque?.user_name) {
-      toast.success('已同步本机朱雀登录状态');
+    if (isSyncingBrowserAgentZhuque) {
       return;
     }
-    toast('已请求同步；如果刚登录朱雀，请等待插件心跳后再点一次。');
-  }, [loadBrowserAgentStatus]);
+    setIsSyncingBrowserAgentZhuque(true);
+    try {
+      const syncResult = await requestBrowserAgentZhuqueRefresh({ focus: false, timeoutMs: 5000 });
+      const latestStatus = await loadBrowserAgentStatus();
+      const zhuqueStatus = latestStatus?.zhuque || syncResult?.zhuque || {};
+      if (zhuqueStatus?.logged_in || zhuqueStatus?.user_name) {
+        const remaining = parseZhuqueRemainingUses(zhuqueStatus?.remaining_uses ?? zhuqueStatus?.remainingUses ?? zhuqueStatus?.quota_text);
+        toast.success(remaining !== undefined ? `已同步本机朱雀登录状态，剩余 ${remaining} 次` : '已同步本机朱雀登录状态');
+        return;
+      }
+      if (syncResult?.ok === false) {
+        toast.error(syncResult.message || '插件未能同步朱雀状态，请确认已安装最新版插件并刷新页面');
+        return;
+      }
+      toast('已请求同步；如果刚登录朱雀，请确认朱雀页面已打开并等待插件识别。');
+    } finally {
+      setIsSyncingBrowserAgentZhuque(false);
+    }
+  }, [isSyncingBrowserAgentZhuque, loadBrowserAgentStatus]);
 
   const handleOpenZhuqueVerificationWindow = useCallback(async (session, { auto = false } = {}) => {
     if (isStartingZhuqueLogin) {
@@ -1057,6 +1110,11 @@ const WorkspacePage = () => {
         setActiveSession(null);
         loadSessions();
 
+        if (browserAgentRequired) {
+          requestBrowserAgentZhuqueRefresh({ timeoutMs: 5000 })
+            .then(() => loadBrowserAgentStatus())
+            .catch(() => loadBrowserAgentStatus());
+        }
         if (progress.status === 'completed') {
           toast.success('优化完成!');
         } else {
@@ -1080,7 +1138,7 @@ const WorkspacePage = () => {
     } catch (error) {
       console.error('更新进度失败:', error);
     }
-  }, [handleOpenZhuqueVerificationWindow, loadSessions]);
+  }, [browserAgentRequired, handleOpenZhuqueVerificationWindow, loadBrowserAgentStatus, loadSessions]);
 
   // 初始加载 - 只在组件挂载时执行一次
   useEffect(() => {
@@ -1088,7 +1146,8 @@ const WorkspacePage = () => {
     loadQueueStatus();
     loadAccountState();
     loadAnnouncements();
-  }, [loadProjects, loadQueueStatus, loadAccountState, loadAnnouncements]);
+    loadBrowserAgentStatus();
+  }, [loadProjects, loadQueueStatus, loadAccountState, loadAnnouncements, loadBrowserAgentStatus]);
 
   useEffect(() => {
     setSessions([]);
@@ -1137,14 +1196,27 @@ const WorkspacePage = () => {
       hasAutoRefreshedZhuqueQuotaRef.current = false;
       return;
     }
+    if (browserAgentStatus === null) {
+      return;
+    }
 
     let isCancelled = false;
     const loadInitialZhuqueStatus = async () => {
+      if (browserAgentRequired && browserAgentOnline) {
+        await requestBrowserAgentZhuqueRefresh({ timeoutMs: 3000 });
+      }
       await loadZhuqueStatusPanel();
       if (isCancelled || hasAutoRefreshedZhuqueQuotaRef.current) {
         return;
       }
       hasAutoRefreshedZhuqueQuotaRef.current = true;
+      if (browserAgentRequired) {
+        if (browserAgentOnline) {
+          await requestBrowserAgentZhuqueRefresh({ timeoutMs: 3000 });
+          await loadZhuqueStatusPanel();
+        }
+        return;
+      }
       await refreshZhuqueFreeQuota({ silent: true });
     };
     loadInitialZhuqueStatus();
@@ -1162,7 +1234,7 @@ const WorkspacePage = () => {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [loadZhuqueStatusPanel, processingMode, refreshZhuqueFreeQuota, zhuqueFastPollUntil]);
+  }, [browserAgentOnline, browserAgentRequired, browserAgentStatus, loadZhuqueStatusPanel, processingMode, refreshZhuqueFreeQuota, zhuqueFastPollUntil]);
 
   const mergeZhuqueLoginSession = useCallback((payload) => {
     if (!payload) {
@@ -1916,12 +1988,12 @@ const WorkspacePage = () => {
                             <button
                               type="button"
                               onClick={browserAgentRequired ? handleSyncBrowserAgentZhuqueStatus : handleRefreshZhuqueFreeQuota}
-                              disabled={browserAgentRequired ? false : (isRefreshingZhuqueQuota || isStartingZhuqueLogin)}
+                              disabled={browserAgentRequired ? isSyncingBrowserAgentZhuque : (isRefreshingZhuqueQuota || isStartingZhuqueLogin)}
                               className="aurora-zhuque-quota-refresh"
                               aria-label={browserAgentRequired ? '同步朱雀登录和剩余次数' : '刷新朱雀剩余次数'}
                               title={browserAgentRequired ? '同步本机插件上报的朱雀登录状态和剩余次数' : (zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数')}
                             >
-                              <RefreshCw className={!browserAgentRequired && isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
+                              <RefreshCw className={(browserAgentRequired ? isSyncingBrowserAgentZhuque : isRefreshingZhuqueQuota) ? 'animate-spin' : ''} />
                             </button>
                           </div>
                         </div>
@@ -2012,9 +2084,6 @@ const WorkspacePage = () => {
                           {isParsingDocument ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
                           {isParsingDocument ? '解析中' : '上传文件'}
                         </button>
-                        <span className="hidden text-[12px] text-slate-400 sm:inline">
-                          支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT
-                        </span>
                       </div>
                     </div>
                     <textarea
