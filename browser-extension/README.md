@@ -69,17 +69,18 @@ Do not add `<all_urls>`. Do not expose Chrome DevTools Protocol to the public in
 1. In GankAIGC workspace, generate a browser-agent pairing code.
 2. Open the extension popup.
 3. Enter:
-   - GankAIGC server URL, e.g. `https://gankaigc.example.com`.
+   - GankAIGC server URL. The popup defaults to `https://ga.mumubuku.top`.
    - Pairing code, e.g. `GANK-7K29`.
    - Device name.
 4. Click `配对插件`.
 
-The extension stores only the server URL, agent id, and agent token in `chrome.storage.local`.
+The popup saves the server URL, pairing-code draft, and device name while typing so the values survive closing/reopening the popup. The extension stores only the server URL, agent id, agent token, device name, and pairing draft in `chrome.storage.local`.
 
 ## Runtime
 
 - Keep Chrome open while VPS tasks run.
 - The workspace status should show `插件在线` before starting `AI检测 + 降重`.
+- The extension heartbeats compact Zhuque page login state back to GankAIGC so the workspace can show `朱雀登录` separately from `插件在线`.
 - The extension opens or reuses one Zhuque tab in the user's local Chrome.
 - Log in to Zhuque in the local Chrome tab when prompted.
 - If CAPTCHA appears, complete it in the local Zhuque tab; the backend will keep waiting until the job completes or times out.

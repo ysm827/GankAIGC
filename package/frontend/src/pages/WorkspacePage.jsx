@@ -656,22 +656,36 @@ const WorkspacePage = () => {
   const browserAgentPrimary = Array.isArray(browserAgentStatus?.agents) && browserAgentStatus.agents.length > 0
     ? browserAgentStatus.agents[0]
     : null;
+  const browserAgentZhuqueStatus = browserAgentStatus?.zhuque || browserAgentPrimary?.zhuque_status || {};
+  const browserAgentZhuqueConnected = Boolean(
+    browserAgentZhuqueStatus?.logged_in
+    || browserAgentZhuqueStatus?.connected
+    || browserAgentZhuqueStatus?.has_token
+  );
+  const browserAgentZhuqueAccountName = [
+    browserAgentZhuqueStatus?.user_name,
+    browserAgentZhuqueStatus?.userName,
+  ].find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+  const browserAgentZhuqueRemaining = extractZhuqueRemainingUses(browserAgentZhuqueStatus);
   const browserAgentStatusLabel = browserAgentRequired
     ? (browserAgentOnline ? '插件在线' : '插件未连接')
     : '本地浏览器模式';
   const browserAgentStatusMessage = browserAgentRequired
     ? (browserAgentStatus?.message || (browserAgentOnline ? '本机 Chrome 插件在线，朱雀检测将在用户浏览器执行。' : 'VPS 模式需要连接本机 Chrome 插件。'))
     : '本地部署继续使用内置/本机浏览器检测链路，无需安装插件。';
-  const zhuqueDisplayConnected = browserAgentRequired ? browserAgentOnline : zhuqueConnected;
+  const zhuqueDisplayConnected = browserAgentRequired ? browserAgentZhuqueConnected : zhuqueConnected;
   const zhuqueDisplayAccountLabel = browserAgentRequired
-    ? (browserAgentOnline ? '插件在线' : '等待插件')
+    ? (browserAgentZhuqueConnected ? `登录用户：${browserAgentZhuqueAccountName || '朱雀账号'}` : '朱雀未登录')
     : zhuqueAccountLabel;
   const zhuquePrimaryActionLabel = browserAgentRequired
-    ? (browserAgentOnline ? '打开朱雀登录' : '生成配对码')
+    ? (browserAgentOnline ? (browserAgentZhuqueConnected ? '打开朱雀页面' : '打开朱雀登录') : '生成配对码')
     : (zhuqueConnected ? '已登录' : '扫码登录');
   const zhuquePrimaryActionTitle = browserAgentRequired
     ? (browserAgentOnline ? '打开本机 Chrome 的朱雀检测页，先完成朱雀登录或验证码；插件执行任务时会复用该页面' : '生成 Chrome 插件配对码')
     : (zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码');
+  const zhuqueRemainingDisplayLabel = browserAgentRequired
+    ? (browserAgentZhuqueRemaining !== undefined ? formatZhuqueRemainingUses(browserAgentZhuqueRemaining) : '检测后同步')
+    : zhuqueRemainingLabel;
 
   const handleProcessingModeChange = useCallback((event) => {
     const nextMode = event.target.value;
@@ -1826,7 +1840,7 @@ const WorkspacePage = () => {
                           <p>朱雀 AI 检测</p>
                           <span
                             className={`aurora-zhuque-account ${zhuqueDisplayConnected ? 'is-connected' : ''}`}
-                            title={browserAgentRequired ? browserAgentStatusMessage : (zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录')}
+                            title={browserAgentRequired ? `朱雀登录状态：${zhuqueDisplayAccountLabel}；${browserAgentStatusMessage}` : (zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录')}
                           >
                             {zhuqueDisplayAccountLabel}
                           </span>
@@ -1863,6 +1877,28 @@ const WorkspacePage = () => {
                             </>
                           )}
                         </button>
+                        {browserAgentRequired && (
+                          <button
+                            type="button"
+                            onClick={handleStartOptimization}
+                            disabled={!text.trim() || activeSession || isSubmitting || !browserAgentOnline}
+                            className="aurora-zhuque-run-button"
+                            aria-label="开始检测降重"
+                            title={browserAgentOnline ? '使用本机 Chrome 插件执行朱雀检测并开始降重' : '请先连接本机 Chrome 插件'}
+                          >
+                            {isSubmitting ? (
+                              <>
+                                <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                                提交中
+                              </>
+                            ) : (
+                              <>
+                                <Wand2 className="h-5 w-5" />
+                                开始检测降重
+                              </>
+                            )}
+                          </button>
+                        )}
                         {!browserAgentRequired && zhuqueConnected && (
                           <button
                             type="button"
@@ -1878,16 +1914,16 @@ const WorkspacePage = () => {
                       </div>
                       <div className="aurora-zhuque-metrics gank-glass-status-grid">
                         <div className="aurora-zhuque-metric">
-                          <span>连接状态</span>
+                          <span>{browserAgentRequired ? '朱雀登录' : '连接状态'}</span>
                           <strong className={zhuqueDisplayConnected ? 'is-connected' : 'is-disconnected'}>
                             <i />
-                            {zhuqueDisplayConnected ? '已连接' : '未连接'}
+                            {browserAgentRequired ? (zhuqueDisplayConnected ? '已登录' : '未登录') : (zhuqueDisplayConnected ? '已连接' : '未连接')}
                           </strong>
                         </div>
                         <div className="aurora-zhuque-metric">
                           <span>剩余次数</span>
                           <div className="aurora-zhuque-quota-inline">
-                            <strong>{browserAgentRequired ? '检测后同步' : zhuqueRemainingLabel}</strong>
+                            <strong>{zhuqueRemainingDisplayLabel}</strong>
                             {!browserAgentRequired && (
                               <button
                                 type="button"
@@ -1903,8 +1939,8 @@ const WorkspacePage = () => {
                           </div>
                         </div>
                       </div>
-                      <div className={`aurora-browser-agent-card mt-4 rounded-[18px] border px-4 py-3 ${browserAgentRequired ? 'border-blue-100 bg-blue-50/70' : 'border-slate-200 bg-white/70'}`}>
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className={`aurora-browser-agent-card mt-1 rounded-[14px] border px-3 py-2 ${browserAgentRequired ? 'border-blue-100 bg-blue-50/70' : 'border-slate-200 bg-white/70'}`}>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-[13px] font-semibold text-slate-500">检测传输</span>
@@ -1912,13 +1948,15 @@ const WorkspacePage = () => {
                                 {browserAgentStatusLabel}
                               </span>
                               <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-500">{browserAgentTransport}</span>
+                              {browserAgentPrimary && (
+                                <span className="truncate text-[12px] text-slate-400">
+                                  当前设备：{browserAgentPrimary.name || browserAgentPrimary.agent_id}
+                                  {browserAgentPrimary.extension_version ? ` · v${browserAgentPrimary.extension_version}` : ''}
+                                </span>
+                              )}
                             </div>
-                            <p className="mt-2 text-[13px] leading-5 text-slate-500">{browserAgentStatusMessage}</p>
-                            {browserAgentPrimary && (
-                              <p className="mt-1 truncate text-[12px] text-slate-400">
-                                当前设备：{browserAgentPrimary.name || browserAgentPrimary.agent_id}
-                                {browserAgentPrimary.extension_version ? ` · v${browserAgentPrimary.extension_version}` : ''}
-                              </p>
+                            {(!browserAgentOnline || !browserAgentZhuqueConnected) && (
+                              <p className="mt-1 text-[12px] leading-5 text-slate-500">{browserAgentStatusMessage}</p>
                             )}
                           </div>
                           {browserAgentRequired && browserAgentPrimary && (

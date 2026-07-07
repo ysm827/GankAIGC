@@ -19,6 +19,115 @@ function visibleInViewport(el) {
   return rect.width >= 20 && rect.height >= 20 && rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
 }
 
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function findStringInObject(value, depth = 0) {
+  if (!value || depth > 4) return '';
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text.length >= 1 && text.length <= 40 ? text : '';
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findStringInObject(item, depth + 1);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof value === 'object') {
+    const preferredKeys = ['nickName', 'nickname', 'userName', 'username', 'name', 'displayName'];
+    for (const key of preferredKeys) {
+      const found = findStringInObject(value[key], depth + 1);
+      if (found) return found;
+    }
+    for (const item of Object.values(value)) {
+      const found = findStringInObject(item, depth + 1);
+      if (found) return found;
+    }
+  }
+  return '';
+}
+
+function normalizeAccountName(text) {
+  const value = String(text || '').trim().replace(/\s+/g, ' ');
+  if (!value || value.length > 40) return '';
+  if (/登录|扫码|注册|退出|检测|上传|清空|示例|人工|疑似|AI特征|Benchmark|产品|腾讯朱雀/i.test(value)) return '';
+  if (/^https?:\/\//i.test(value) || /^[A-Za-z0-9_-]{24,}$/.test(value)) return '';
+  return value;
+}
+
+function extractZhuqueAccountName() {
+  const storageKeys = [...Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))]
+    .filter(Boolean)
+    .filter((key) => /user|account|profile|login|auth|wechat|wx|matrix/i.test(key));
+  for (const key of storageKeys) {
+    const parsed = safeJsonParse(localStorage.getItem(key));
+    const found = normalizeAccountName(findStringInObject(parsed));
+    if (found) return found;
+  }
+  const selectors = [
+    '[class*="user"]',
+    '[class*="avatar"]',
+    '[class*="account"]',
+    '[class*="profile"]',
+    '[class*="nickname"]',
+    '[aria-label*="用户"]',
+    '[title*="用户"]'
+  ];
+  for (const selector of selectors) {
+    const found = [...document.querySelectorAll(selector)]
+      .filter(visible)
+      .map((el) => normalizeAccountName(el.getAttribute('title') || el.getAttribute('aria-label') || el.textContent || ''))
+      .find(Boolean);
+    if (found) return found;
+  }
+  return '';
+}
+
+function detectZhuqueSessionStatus() {
+  const manual = detectCaptchaOrLogin();
+  if (manual?.error_code === 'zhuque_not_logged_in') {
+    return {
+      page_found: true,
+      logged_in: false,
+      connected: false,
+      has_token: false,
+      status: 'not_logged_in',
+      user_name: '',
+      message: '朱雀页面未登录'
+    };
+  }
+  const userName = extractZhuqueAccountName();
+  if (userName) {
+    return {
+      page_found: true,
+      logged_in: true,
+      connected: true,
+      has_token: true,
+      status: 'logged_in',
+      user_name: userName,
+      message: `朱雀已登录：${userName}`
+    };
+  }
+  const input = findInput();
+  const detectButton = findDetectButton();
+  return {
+    page_found: Boolean(input || detectButton || document.body),
+    logged_in: false,
+    connected: false,
+    has_token: false,
+    status: input || detectButton ? 'page_ready' : 'unknown',
+    user_name: '',
+    message: input || detectButton ? '朱雀页面可用，暂未识别登录用户' : '暂未识别朱雀页面状态'
+  };
+}
+
 function detectCaptchaOrLogin() {
   const captchaFrames = [...document.querySelectorAll('iframe[src*="captcha"], iframe[src*="tcaptcha"], iframe[src*="gtimg"]')]
     .filter(visibleInViewport);
@@ -247,6 +356,10 @@ async function runZhuqueDetect(job) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'GANKAIGC_ZHUQUE_STATUS') {
+    sendResponse({ success: true, status: detectZhuqueSessionStatus() });
+    return true;
+  }
   if (message?.type !== 'GANKAIGC_ZHUQUE_DETECT') return false;
   runZhuqueDetect(message.job || {})
     .then((result) => {

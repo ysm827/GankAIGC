@@ -90,7 +90,7 @@ async def browser_agent_heartbeat(
 ):
     service = BrowserAgentService(db)
     agent = service.authenticate_agent(bearer_token_from_authorization(authorization))
-    service.heartbeat(agent=agent, agent_id=payload.agent_id, reported_status=payload.status)
+    service.heartbeat(agent=agent, agent_id=payload.agent_id, reported_status=payload.status, metadata=payload.metadata)
     return BrowserAgentHeartbeatResponse(ok=True, server_time=utcnow())
 
 

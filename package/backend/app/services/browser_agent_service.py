@@ -69,6 +69,51 @@ def issue_agent_token() -> IssuedAgentToken:
     return IssuedAgentToken(token=token, token_hash=hash_agent_token(token))
 
 
+def _coerce_int(value: Any, default: int = -1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _load_agent_capabilities(agent: BrowserAgent) -> dict[str, Any]:
+    try:
+        payload = json.loads(agent.capabilities_json or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def sanitize_zhuque_runtime_status(payload: Any, *, updated_at: str | None = None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    user_name = str(payload.get("user_name") or payload.get("userName") or payload.get("nickname") or "").strip()[:80]
+    status_value = str(payload.get("status") or "unknown").strip()[:40] or "unknown"
+    logged_in = bool(payload.get("logged_in") or payload.get("connected") or payload.get("has_token"))
+    page_found = bool(payload.get("page_found") or payload.get("pageFound"))
+    remaining_uses = _coerce_int(payload.get("remaining_uses", payload.get("remainingUses")), -1)
+    message = str(payload.get("message") or "").strip()[:240]
+    sanitized = {
+        "page_found": page_found,
+        "logged_in": logged_in,
+        "connected": logged_in,
+        "has_token": logged_in,
+        "status": "logged_in" if logged_in else status_value,
+        "user_name": user_name if logged_in else "",
+        "remaining_uses": remaining_uses,
+        "message": message,
+    }
+    if updated_at:
+        sanitized["updated_at"] = updated_at
+    return sanitized
+
+
+def zhuque_runtime_status_from_agent(agent: BrowserAgent) -> dict[str, Any]:
+    capabilities = _load_agent_capabilities(agent)
+    runtime = capabilities.get("_runtime") if isinstance(capabilities.get("_runtime"), dict) else {}
+    return sanitize_zhuque_runtime_status(runtime.get("zhuque"), updated_at=runtime.get("updated_at"))
+
+
 class BrowserAgentService:
     def __init__(self, db: Session):
         self.db = db
@@ -153,7 +198,14 @@ class BrowserAgentService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="浏览器插件令牌无效或已撤销")
         return agent
 
-    def heartbeat(self, *, agent: BrowserAgent, agent_id: str, reported_status: str = BROWSER_AGENT_STATUS_ONLINE) -> BrowserAgent:
+    def heartbeat(
+        self,
+        *,
+        agent: BrowserAgent,
+        agent_id: str,
+        reported_status: str = BROWSER_AGENT_STATUS_ONLINE,
+        metadata: dict[str, Any] | None = None,
+    ) -> BrowserAgent:
         if agent.agent_id != agent_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="浏览器插件身份不匹配")
         if agent.revoked_at is not None:
@@ -162,6 +214,13 @@ class BrowserAgentService:
         agent.last_seen_at = now
         agent.updated_at = now
         agent.status = BROWSER_AGENT_STATUS_ONLINE if reported_status != BROWSER_AGENT_STATUS_OFFLINE else BROWSER_AGENT_STATUS_OFFLINE
+        if isinstance(metadata, dict) and metadata.get("zhuque") is not None:
+            capabilities = _load_agent_capabilities(agent)
+            runtime = capabilities.get("_runtime") if isinstance(capabilities.get("_runtime"), dict) else {}
+            runtime["zhuque"] = sanitize_zhuque_runtime_status(metadata.get("zhuque"), updated_at=now.isoformat())
+            runtime["updated_at"] = now.isoformat()
+            capabilities["_runtime"] = runtime
+            agent.capabilities_json = json.dumps(capabilities, ensure_ascii=False, sort_keys=True)
         self.db.commit()
         self.db.refresh(agent)
         return agent
@@ -177,6 +236,7 @@ class BrowserAgentService:
         timeout = max(5, settings.ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT)
         items = []
         online = False
+        current_zhuque_status: dict[str, Any] = {}
         for agent in agents:
             is_revoked = agent.revoked_at is not None or agent.status == BROWSER_AGENT_STATUS_REVOKED
             is_online = bool(
@@ -184,8 +244,11 @@ class BrowserAgentService:
                 and agent.last_seen_at
                 and (now - agent.last_seen_at).total_seconds() <= timeout
             )
+            zhuque_status = zhuque_runtime_status_from_agent(agent)
             if is_online:
                 online = True
+                if not current_zhuque_status and zhuque_status:
+                    current_zhuque_status = zhuque_status
             display_status = BROWSER_AGENT_STATUS_REVOKED if is_revoked else (BROWSER_AGENT_STATUS_ONLINE if is_online else BROWSER_AGENT_STATUS_OFFLINE)
             items.append(
                 {
@@ -196,12 +259,17 @@ class BrowserAgentService:
                     "last_seen_at": agent.last_seen_at,
                     "extension_version": agent.extension_version,
                     "revoked_at": agent.revoked_at,
+                    "zhuque_status": zhuque_status,
                 }
             )
         transport = (settings.ZHUQUE_DETECT_TRANSPORT or "auto").strip().lower()
         required = transport == "browser_agent"
-        if online:
-            message = "本机浏览器插件在线"
+        zhuque_logged_in = bool(current_zhuque_status.get("logged_in"))
+        if online and zhuque_logged_in:
+            user_name = current_zhuque_status.get("user_name") or "朱雀账号"
+            message = f"本机浏览器插件在线，朱雀已登录：{user_name}"
+        elif online:
+            message = "本机浏览器插件在线；请在本机朱雀页面登录后再检测"
         elif items:
             message = "本机浏览器插件离线，请打开 Chrome 并保持插件在线"
         else:
@@ -212,6 +280,7 @@ class BrowserAgentService:
             "online": online,
             "agents": items,
             "message": message,
+            "zhuque": current_zhuque_status,
         }
 
     def create_zhuque_job(

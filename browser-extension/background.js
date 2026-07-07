@@ -2,9 +2,12 @@ const STORAGE_KEYS = {
   serverUrl: 'gankaigc.serverUrl',
   agentToken: 'gankaigc.agentToken',
   agentId: 'gankaigc.agentId',
-  agentName: 'gankaigc.agentName'
+  agentName: 'gankaigc.agentName',
+  pairingCodeDraft: 'gankaigc.pairingCodeDraft'
 };
 
+const DEFAULT_SERVER_URL = 'https://ga.mumubuku.top';
+const DEFAULT_AGENT_NAME = 'Chrome on Windows';
 const MATRIX_URL = 'https://matrix.tencent.com/ai-detect/';
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 let polling = false;
@@ -27,7 +30,7 @@ async function setState(values) {
 
 async function apiFetch(path, { method = 'GET', body, token } = {}) {
   const state = await getState();
-  const serverUrl = normalizeServerUrl(state[STORAGE_KEYS.serverUrl]);
+  const serverUrl = normalizeServerUrl(state[STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL);
   if (!serverUrl) {
     throw new Error('请先配置 GankAIGC 服务地址');
   }
@@ -49,7 +52,7 @@ async function apiFetch(path, { method = 'GET', body, token } = {}) {
 }
 
 async function claimPairing({ serverUrl, pairingCode, agentName }) {
-  const normalizedUrl = normalizeServerUrl(serverUrl);
+  const normalizedUrl = normalizeServerUrl(serverUrl || DEFAULT_SERVER_URL);
   if (!normalizedUrl) {
     throw new Error('GankAIGC 服务地址不能为空');
   }
@@ -58,14 +61,15 @@ async function claimPairing({ serverUrl, pairingCode, agentName }) {
   await setState({
     [STORAGE_KEYS.serverUrl]: normalizedUrl,
     [STORAGE_KEYS.agentId]: agentId,
-    [STORAGE_KEYS.agentName]: agentName || navigator.userAgent
+    [STORAGE_KEYS.agentName]: agentName || DEFAULT_AGENT_NAME,
+    [STORAGE_KEYS.pairingCodeDraft]: pairingCode || ''
   });
   const payload = await apiFetch('/api/browser-agent/claim', {
     method: 'POST',
     body: {
       pairing_code: pairingCode,
       agent_id: agentId,
-      name: agentName || 'Chrome Browser Agent',
+      name: agentName || DEFAULT_AGENT_NAME,
       extension_version: EXTENSION_VERSION,
       capabilities: { zhuque_detect: true, manual_verification: true },
       user_agent: navigator.userAgent
@@ -80,6 +84,26 @@ async function claimPairing({ serverUrl, pairingCode, agentName }) {
   return { ok: true, agentId: payload.agent_id };
 }
 
+async function getZhuqueSessionStatus({ focus = false } = {}) {
+  const tabs = await chrome.tabs.query({ url: 'https://matrix.tencent.com/*' });
+  const tab = tabs.find((item) => item.url && item.url.includes('/ai-detect')) || tabs[0];
+  if (!tab?.id) {
+    return { page_found: false, logged_in: false, status: 'not_open', message: '未打开本机朱雀页面' };
+  }
+  if (focus) {
+    await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
+    if (tab.windowId !== undefined) {
+      await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+    }
+  }
+  let response = await chrome.tabs.sendMessage(tab.id, { type: 'GANKAIGC_ZHUQUE_STATUS' }).catch(() => null);
+  if (!response) {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-zhuque.js'] }).catch(() => undefined);
+    response = await chrome.tabs.sendMessage(tab.id, { type: 'GANKAIGC_ZHUQUE_STATUS' }).catch(() => null);
+  }
+  return response?.status || { page_found: true, logged_in: false, status: 'unknown', message: '朱雀页面已打开，暂未识别登录状态' };
+}
+
 async function heartbeat(activeJobId = null) {
   const state = await getState();
   const token = state[STORAGE_KEYS.agentToken];
@@ -87,10 +111,16 @@ async function heartbeat(activeJobId = null) {
   if (!token || !agentId) {
     return { ok: false, message: '未配对' };
   }
+  const zhuqueStatus = await getZhuqueSessionStatus().catch((error) => ({
+    page_found: false,
+    logged_in: false,
+    status: 'unknown',
+    message: String(error?.message || error || '无法检测朱雀登录状态')
+  }));
   return await apiFetch('/api/browser-agent/heartbeat', {
     method: 'POST',
     token,
-    body: { agent_id: agentId, status: 'online', active_job_id: activeJobId }
+    body: { agent_id: agentId, status: 'online', active_job_id: activeJobId, metadata: { zhuque: zhuqueStatus } }
   });
 }
 
@@ -218,10 +248,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'GET_STATUS') {
       const state = await getState();
       return {
-        serverUrl: state[STORAGE_KEYS.serverUrl] || '',
+        serverUrl: state[STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL,
+        pairingCode: state[STORAGE_KEYS.pairingCodeDraft] || '',
+        agentName: state[STORAGE_KEYS.agentName] || DEFAULT_AGENT_NAME,
         agentId: state[STORAGE_KEYS.agentId] || '',
-        paired: Boolean(state[STORAGE_KEYS.agentToken])
+        paired: Boolean(state[STORAGE_KEYS.agentToken]),
+        extensionVersion: EXTENSION_VERSION,
+        zhuque: await getZhuqueSessionStatus().catch(() => null)
       };
+    }
+    if (message?.type === 'SAVE_POPUP_DRAFT') {
+      const payload = message.payload || {};
+      await setState({
+        [STORAGE_KEYS.serverUrl]: normalizeServerUrl(payload.serverUrl || DEFAULT_SERVER_URL),
+        [STORAGE_KEYS.pairingCodeDraft]: payload.pairingCode || '',
+        [STORAGE_KEYS.agentName]: payload.agentName || DEFAULT_AGENT_NAME
+      });
+      return { ok: true };
+    }
+    if (message?.type === 'OPEN_ZHUQUE_PAGE') {
+      const tabId = await findOrCreateZhuqueTab();
+      await waitForTabReady(tabId);
+      return { ok: true, tabId };
     }
     if (message?.type === 'FORGET_AGENT') {
       await chrome.storage.local.remove(Object.values(STORAGE_KEYS));

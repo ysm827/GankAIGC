@@ -524,13 +524,14 @@ class ZhuqueService:
             return {
                 **status,
                 "page_found": status.get("connected", False),
-                "has_token": False,
+                "has_token": bool(status.get("has_token")),
                 "has_anonymous_fp": False,
                 "text_length": text_length,
                 "text_length_ok": text_length_ok,
                 "estimated_first_round_credits": 10 if text else 0,
                 "estimated_max_round_credits": (10 * settings.ZHUQUE_MAX_REDUCE_ROUNDS) if text else 0,
                 "credential_file": str(self.credentials_file) if self.credentials_file else "",
+                "user_name": status.get("user_name", ""),
                 "actions": [] if status.get("ready") else ["connect_browser_agent"],
             }
         base = {

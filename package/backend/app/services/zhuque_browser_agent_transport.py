@@ -16,7 +16,7 @@ from app.models.browser_agent_constants import (
     ZHUQUE_AGENT_JOB_STATUS_MANUAL_REQUIRED,
 )
 from app.models.models import BrowserAgent, ZhuqueAgentJob
-from app.services.browser_agent_service import BrowserAgentService
+from app.services.browser_agent_service import BrowserAgentService, zhuque_runtime_status_from_agent
 from app.services.zhuque_api import normalize_zhuque_result
 from app.utils.time import utcnow
 
@@ -72,16 +72,27 @@ class BrowserAgentZhuqueTransport:
                     "remaining_uses": -1,
                     "button_enabled": False,
                 }
+            zhuque_status = zhuque_runtime_status_from_agent(agent)
+            zhuque_logged_in = bool(zhuque_status.get("logged_in"))
+            zhuque_user_name = str(zhuque_status.get("user_name") or "").strip()
+            message = (
+                f"本机浏览器插件在线，朱雀已登录：{zhuque_user_name or '朱雀账号'}。"
+                if zhuque_logged_in
+                else "本机浏览器插件在线；请在本机朱雀页面登录/完成验证码后再检测。"
+            )
             return {
                 "ready": True,
                 "connected": True,
                 "auth_mode": "browser_agent",
                 "login_mode": "local_browser_agent",
-                "message": "本机浏览器插件在线，朱雀检测将在用户本地 Chrome 执行。",
-                "remaining_uses": -1,
+                "message": message,
+                "remaining_uses": int(zhuque_status.get("remaining_uses", -1)),
                 "button_enabled": True,
+                "has_token": zhuque_logged_in,
+                "user_name": zhuque_user_name,
                 "agent_id": agent.agent_id,
                 "agent_name": agent.name or "本机浏览器插件",
+                "zhuque_status": zhuque_status,
             }
         finally:
             db.close()

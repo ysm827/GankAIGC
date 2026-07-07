@@ -187,10 +187,32 @@ def test_browser_agent_pairing_claim_heartbeat_status_and_revoke(client, monkeyp
     heartbeat_response = client.post(
         "/api/browser-agent/heartbeat",
         headers={"Authorization": f"Bearer {claim_body['agent_token']}"},
-        json={"agent_id": "agent-flow-1", "status": "online"},
+        json={
+            "agent_id": "agent-flow-1",
+            "status": "online",
+            "metadata": {
+                "zhuque": {
+                    "page_found": True,
+                    "logged_in": True,
+                    "user_name": "木木",
+                    "remaining_uses": 7,
+                    "message": "朱雀已登录：木木",
+                }
+            },
+        },
     )
     assert heartbeat_response.status_code == 200
     assert heartbeat_response.json()["ok"] is True
+
+    status_after_heartbeat = client.get(
+        "/api/browser-agent/status",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert status_after_heartbeat.status_code == 200
+    heartbeat_status_body = status_after_heartbeat.json()
+    assert heartbeat_status_body["zhuque"]["logged_in"] is True
+    assert heartbeat_status_body["zhuque"]["user_name"] == "木木"
+    assert heartbeat_status_body["agents"][0]["zhuque_status"]["remaining_uses"] == 7
 
     revoke_response = client.post(
         "/api/browser-agent/revoke",

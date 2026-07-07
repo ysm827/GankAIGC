@@ -80,6 +80,7 @@ class BrowserAgentInfo(BaseModel):
     last_seen_at: Optional[datetime] = None
     extension_version: Optional[str] = None
     revoked_at: Optional[datetime] = None
+    zhuque_status: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BrowserAgentStatusResponse(BaseModel):
@@ -88,6 +89,7 @@ class BrowserAgentStatusResponse(BaseModel):
     online: bool = False
     agents: List[BrowserAgentInfo] = Field(default_factory=list)
     message: str = ""
+    zhuque: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BrowserAgentRevokeRequest(BaseModel):
@@ -115,6 +117,7 @@ class BrowserAgentHeartbeatRequest(BaseModel):
     agent_id: str = Field(..., min_length=1, max_length=128)
     status: str = "online"
     active_job_id: Optional[str] = Field(None, max_length=128)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BrowserAgentHeartbeatResponse(BaseModel):

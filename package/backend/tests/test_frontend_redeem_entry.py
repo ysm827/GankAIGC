@@ -1254,6 +1254,8 @@ def test_session_detail_shows_zhuque_report_and_process_timeline():
 def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
+    extension_popup = (PACKAGE_ROOT.parents[0] / "browser-extension" / "popup.js").read_text(encoding="utf-8")
+    extension_background = (PACKAGE_ROOT.parents[0] / "browser-extension" / "background.js").read_text(encoding="utf-8")
 
     assert "browserAgentAPI" in api
     assert "createPairing" in api
@@ -1272,8 +1274,21 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     assert "生成配对码" in workspace
     assert "撤销插件" in workspace
     assert "配对码" in workspace
+    assert "打开朱雀登录" in workspace
+    assert "开始检测降重" in workspace
+    assert "browserAgentZhuqueStatus" in workspace
+    assert "zhuque_status" in workspace
+    assert "朱雀登录状态" in workspace
     assert "VPS 朱雀检测需要先连接本机 Chrome 插件" in workspace
     assert "本地部署继续使用内置/本机浏览器检测链路，无需安装插件" in workspace
+    assert "https://ga.mumubuku.top" in extension_background
+    assert "DEFAULT_SERVER_URL" in extension_background
+    assert "SAVE_POPUP_DRAFT" in extension_background
+    assert "pairingCodeDraft" in extension_background
+    assert "GANKAIGC_ZHUQUE_STATUS" in extension_background
+    assert "metadata: { zhuque: zhuqueStatus }" in extension_background
+    assert "saveDraft" in extension_popup
+    assert "status.pairingCode" in extension_popup
 
 
 def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
