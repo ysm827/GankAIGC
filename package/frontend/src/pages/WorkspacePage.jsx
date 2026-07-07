@@ -71,6 +71,7 @@ const PROCESSING_MODE_DESCRIPTIONS = {
 };
 
 const ZHUQUE_PROCESS_STEPS = ['朱雀检测', '论文重构', '全文复检'];
+const ZHUQUE_DETECT_PAGE_URL = 'https://matrix.tencent.com/ai-detect/';
 const ZHUQUE_STATUS_POLL_INTERVAL_MS = 5000;
 const ZHUQUE_STATUS_FAST_POLL_INTERVAL_MS = 1500;
 const ZHUQUE_STATUS_FAST_POLL_DURATION_MS = 8000;
@@ -666,10 +667,10 @@ const WorkspacePage = () => {
     ? (browserAgentOnline ? '插件在线' : '等待插件')
     : zhuqueAccountLabel;
   const zhuquePrimaryActionLabel = browserAgentRequired
-    ? (browserAgentOnline ? '插件在线' : '生成配对码')
+    ? (browserAgentOnline ? '打开朱雀登录' : '生成配对码')
     : (zhuqueConnected ? '已登录' : '扫码登录');
   const zhuquePrimaryActionTitle = browserAgentRequired
-    ? 'VPS 插件模式不使用服务器扫码登录；朱雀登录/验证码请在本机 Chrome 插件打开的朱雀页面完成'
+    ? (browserAgentOnline ? '打开本机 Chrome 的朱雀检测页，先完成朱雀登录或验证码；插件执行任务时会复用该页面' : '生成 Chrome 插件配对码')
     : (zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码');
 
   const handleProcessingModeChange = useCallback((event) => {
@@ -966,6 +967,15 @@ const WorkspacePage = () => {
       setIsRevokingBrowserAgent(false);
     }
   }, [isRevokingBrowserAgent, loadBrowserAgentStatus]);
+
+  const handleBrowserAgentPrimaryAction = useCallback(async () => {
+    if (!browserAgentOnline) {
+      await handleCreateBrowserAgentPairing();
+      return;
+    }
+    window.open(ZHUQUE_DETECT_PAGE_URL, '_blank', 'noopener,noreferrer');
+    toast('已打开本机朱雀页面；请先在该页面完成登录/验证码，插件执行检测时会复用它。');
+  }, [browserAgentOnline, handleCreateBrowserAgentPairing]);
 
   const handleOpenZhuqueVerificationWindow = useCallback(async (session, { auto = false } = {}) => {
     if (isStartingZhuqueLogin) {
@@ -1825,8 +1835,8 @@ const WorkspacePage = () => {
                       <div className="aurora-zhuque-actions">
                         <button
                           type="button"
-                          onClick={browserAgentRequired ? handleCreateBrowserAgentPairing : handleStartZhuqueLogin}
-                          disabled={browserAgentRequired ? (browserAgentOnline || isCreatingBrowserAgentPairing) : isStartingZhuqueLogin}
+                          onClick={browserAgentRequired ? handleBrowserAgentPrimaryAction : handleStartZhuqueLogin}
+                          disabled={browserAgentRequired ? isCreatingBrowserAgentPairing : isStartingZhuqueLogin}
                           className={`aurora-zhuque-login-button ${zhuqueDisplayConnected ? 'is-ready' : ''}`}
                           aria-label={zhuquePrimaryActionLabel}
                           title={zhuquePrimaryActionTitle}
@@ -1835,6 +1845,11 @@ const WorkspacePage = () => {
                             <>
                               <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
                               处理中
+                            </>
+                          ) : browserAgentRequired && browserAgentOnline ? (
+                            <>
+                              <ExternalLink className="h-5 w-5" />
+                              {zhuquePrimaryActionLabel}
                             </>
                           ) : zhuqueDisplayConnected ? (
                             <>
