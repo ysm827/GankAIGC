@@ -81,7 +81,7 @@ class BrowserAgentZhuqueTransport:
                 "remaining_uses": -1,
                 "button_enabled": True,
                 "agent_id": agent.agent_id,
-                "user_name": agent.name or "本机浏览器插件",
+                "agent_name": agent.name or "本机浏览器插件",
             }
         finally:
             db.close()
