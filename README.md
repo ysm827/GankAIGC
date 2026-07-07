@@ -365,6 +365,20 @@ POLISH_BASE_URL=http://host.docker.internal:8317/v1
 
 修改 `SERVER_HOST` 或 `ALLOW_LOCAL_MODEL_PROXY` 后建议重启服务；本地代理安全边界按服务启动时的绑定地址判断。
 
+VPS 正式部署如果要使用朱雀 `AI检测 + 降重`，不要让服务器无头浏览器跑朱雀检测，建议在 `.env.docker` 明确使用 browser-agent：
+
+```env
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT=900
+ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=120
+ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS=600
+ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
+INLINE_TASK_WORKER_ENABLED=false
+```
+
+> `.env.docker` 是生产私有配置，`git pull` 不会覆盖它。升级后如发现插件状态闪断或剩余次数同步慢，先确认 `ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=120` 已写入当前 VPS 的 `.env.docker`。
+
 #### 3）启动
 
 ```bash
@@ -415,9 +429,12 @@ docker compose --env-file .env.docker down
 
 ```bash
 git fetch --tags origin main
+git checkout main
 git pull --ff-only origin main
 docker compose --env-file .env.docker up -d --build
 ```
+
+如果这次更新包含 Chrome 插件变更，还需要在用户本机刷新插件：复制最新 `browser-extension/`，到 `chrome://extensions` 点击「重新加载」，确认插件版本号。例如当前 VPS browser-agent 推荐插件版本为 `0.1.6`。
 
 进入管理后台，点击左上角版本号，可以检查 GitHub 最新 Release 并复制 SSH 升级命令。后台不会直接控制 Docker；需要 SSH 到 VPS 的项目目录手动执行上面的命令。
 
@@ -601,6 +618,8 @@ zhuque_pkg/users/user_<id>/browser_state.json
 
 VPS 上不要把朱雀检测交给服务器无头 Chromium。朱雀会识别 VPS/headless 环境并触发验证码/风控，导致 `AI检测 + 降重` 不稳定。VPS 推荐使用 browser-agent：服务器只创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面并把结果回传。
 
+当前 browser-agent 插件推荐版本：`0.1.6`。该版本支持从 GankAIGC 页面主动请求插件同步朱雀登录状态和剩余次数：页面刷新、手动点击「同步/刷新」和检测任务消耗次数后，都会尽快刷新工作台的 `朱雀账号` / `剩余次数`。
+
 VPS `.env.docker` 推荐配置：
 
 ```properties
@@ -616,11 +635,15 @@ INLINE_TASK_WORKER_ENABLED=false
 用户连接流程：
 
 1. 在 Chrome 打开 `chrome://extensions`，开启开发者模式。
-2. 加载项目里的 `browser-extension/` 目录。
-3. 在 GankAIGC 工作台选择 `AI检测 + 降重`，点击「生成配对码」。
-4. 打开插件弹窗，填写 VPS 站点地址、配对码和设备名。
-5. 工作台显示「插件在线」后再提交任务。
-6. 插件会打开或复用本机 `https://matrix.tencent.com/ai-detect/`；如朱雀要求登录或验证码，在该本机页面完成即可。
+2. 加载项目里的 `browser-extension/` 目录；若已经加载旧插件，先点击「重新加载」，确认版本是 `0.1.6` 或更高。
+3. 如果你的 VPS 域名不是 `https://ga.mumubuku.top`，需要先把你的站点 Origin 加进 `browser-extension/manifest.json` 的 `host_permissions`，例如 `https://你的域名/*`，再重新加载插件；不要使用 `<all_urls>`。
+4. 在 GankAIGC 工作台选择 `AI检测 + 降重`，点击「生成配对码」。
+5. 打开插件弹窗，填写 VPS 站点地址、配对码和设备名。
+6. 工作台显示「插件在线」后，点击「打开朱雀登录」或「打开朱雀页面」，在本机 Chrome 的朱雀页面完成登录/验证码。
+7. 回到 GankAIGC 工作台，确认 `朱雀账号` 和 `剩余次数`；如未立即显示，点击剩余次数右侧刷新按钮同步。
+8. 提交任务。插件会打开或复用本机 `https://matrix.tencent.com/ai-detect/` 执行检测；检测消耗次数后，插件会主动回传最新剩余次数。
+
+注意：`插件在线` 只代表 Chrome 插件已连接 VPS，不等于朱雀已登录。VPS 模式下朱雀登录、验证码和剩余次数都以用户本机 Chrome 的朱雀页面为准。
 
 安全边界：browser-agent 不需要公开 Chrome DevTools Protocol，不需要在用户电脑上手动启动 `--remote-debugging-port`，插件权限只应覆盖你的 GankAIGC 站点和 `https://matrix.tencent.com/*`，不要配置 `<all_urls>`。
 

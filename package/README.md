@@ -165,7 +165,7 @@ zhuque_pkg/users/user_<id>/browser_state.json
 
 后续朱雀检测会把这份凭证注入到自动管理的检测浏览器，并尽量复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。
 
-VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。
+VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。当前推荐插件版本为 `0.1.6`，支持页面刷新、手动同步和检测消耗后主动刷新朱雀账号/剩余次数。
 
 VPS `.env.docker` 推荐：
 
@@ -181,7 +181,7 @@ INLINE_TASK_WORKER_ENABLED=false
 
 本机源码运行、Windows 一键包或带桌面的个人电脑部署继续使用 `ZHUQUE_DETECT_TRANSPORT=auto` 或 `local_browser`，无需安装插件。
 
-插件连接流程：在 Chrome `chrome://extensions` 加载 `browser-extension/`，进入工作台选择 `AI检测 + 降重`，点击「生成配对码」，在插件弹窗填写站点地址、配对码和设备名。工作台显示「插件在线」后即可提交任务；如朱雀登录或验证码出现，在本机朱雀页面完成。
+插件连接流程：在 Chrome `chrome://extensions` 加载 `browser-extension/`，进入工作台选择 `AI检测 + 降重`，点击「生成配对码」，在插件弹窗填写站点地址、配对码和设备名。工作台显示「插件在线」后，再点击「打开朱雀登录/页面」并在本机 Chrome 完成朱雀登录或验证码；`插件在线` 不等于 `朱雀已登录`，提交前应确认工作台的 `朱雀账号` 和 `剩余次数`。
 
 普通用户不需要手动设置 Chrome `--remote-debugging-port` 或 Profile。VPS browser-agent 模式也不要公开 CDP 端口；插件权限只应包含你的 GankAIGC 站点和 `https://matrix.tencent.com/*`。高级本机部署可在 `.env` 中覆盖：
 

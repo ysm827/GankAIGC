@@ -1,6 +1,6 @@
 # GankAIGC Zhuque Browser Agent
 
-Chrome extension MVP for VPS deployments where Zhuque detects/fights server-side headless browsers. Local desktop/source deployments can keep `ZHUQUE_DETECT_TRANSPORT=auto` or `local_browser` and do not need this extension.
+Chrome extension for VPS deployments where Zhuque detects/fights server-side headless browsers. Current recommended unpacked-extension version: `0.1.6`. Local desktop/source deployments can keep `ZHUQUE_DETECT_TRANSPORT=auto` or `local_browser` and do not need this extension.
 
 ## Purpose
 
@@ -34,7 +34,7 @@ ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
 INLINE_TASK_WORKER_ENABLED=false
 ```
 
-The VPS must be reachable by the user's Chrome browser over HTTPS or trusted HTTP during local testing.
+The VPS must be reachable by the user's Chrome browser over HTTPS or trusted HTTP during local testing. `.env.docker` is a private runtime file and is not overwritten by `git pull`; after upgrades, verify the heartbeat timeout is still `120` seconds.
 
 ## Load unpacked extension
 
@@ -42,6 +42,7 @@ The VPS must be reachable by the user's Chrome browser over HTTPS or trusted HTT
 2. Enable `Developer mode`.
 3. Click `Load unpacked`.
 4. Select this `browser-extension/` directory.
+5. If the extension was already installed, click `Reload` after pulling new code and confirm the version is `0.1.6` or newer.
 
 ## Host permissions
 
@@ -76,11 +77,14 @@ Do not add `<all_urls>`. Do not expose Chrome DevTools Protocol to the public in
 
 The popup saves the server URL, pairing-code draft, and device name while typing so the values survive closing/reopening the popup. The extension stores only the server URL, agent id, agent token, device name, and pairing draft in `chrome.storage.local`.
 
+`插件在线` only means the extension is paired and heartbeating; it does not guarantee Zhuque is logged in. Use the workspace button to open the local Zhuque page, log in or pass CAPTCHA there, then refresh/sync status in the workspace.
+
 ## Runtime
 
 - Keep Chrome open while VPS tasks run.
 - The workspace status should show `插件在线` before starting `AI检测 + 降重`.
-- The extension heartbeats compact Zhuque page login state back to GankAIGC so the workspace can show `朱雀登录` separately from `插件在线`.
+- The extension heartbeats compact Zhuque page login state back to GankAIGC so the workspace can show `朱雀账号` / `剩余次数` separately from `插件在线`.
+- Version `0.1.6` also supports immediate page-to-extension status sync: page refresh, manual quota refresh, and a completed Zhuque detection can update remaining uses without waiting for the next heartbeat.
 - The extension opens or reuses one Zhuque tab in the user's local Chrome.
 - Log in to Zhuque in the local Chrome tab when prompted.
 - If CAPTCHA appears, complete it in the local Zhuque tab; the backend will keep waiting until the job completes or times out.
