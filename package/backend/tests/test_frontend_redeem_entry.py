@@ -1324,7 +1324,7 @@ def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     assert zhuque_panel.index("aurora-zhuque-login-button") < zhuque_panel.index("连接状态")
     assert zhuque_panel.index("连接状态") < zhuque_panel.index("剩余次数")
     assert "aurora-zhuque-account" in zhuque_panel
-    assert "登录用户" in zhuque_panel
+    assert "朱雀账号" in zhuque_panel
     assert "aurora-zhuque-login-modal" in workspace
     assert "aurora-zhuque-qr-frame" in workspace
     assert "qr_image_data" in workspace

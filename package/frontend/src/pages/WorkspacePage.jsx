@@ -1847,12 +1847,14 @@ const WorkspacePage = () => {
                         {/* source aliases kept for static contracts: startZhuqueBrowser loadZhuqueBrowserStatus zhuqueBrowserStatus?.connected */}
                         <div className="aurora-zhuque-title-copy">
                           <p>朱雀 AI 检测</p>
-                          <span
-                            className={`aurora-zhuque-account ${zhuqueDisplayConnected ? 'is-connected' : ''}`}
-                            title={browserAgentRequired ? `朱雀登录状态：${zhuqueDisplayAccountLabel}；${browserAgentStatusMessage}` : (zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录')}
-                          >
-                            {zhuqueDisplayAccountLabel}
-                          </span>
+                          {!browserAgentRequired && (
+                            <span
+                              className={`aurora-zhuque-account ${zhuqueDisplayConnected ? 'is-connected' : ''}`}
+                              title={zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录'}
+                            >
+                              {zhuqueDisplayAccountLabel}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="aurora-zhuque-actions">
