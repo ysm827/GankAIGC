@@ -175,6 +175,19 @@ export const optimizationAPI = {
     api.get('/optimization/zhuque/readiness', {
       timeout: 5000, // 5秒超时
     }),
+  openZhuqueLocalBrowser: ({ syncSession = true } = {}) =>
+    api.post('/optimization/zhuque/local/open', null, {
+      params: { sync_session: syncSession },
+      timeout: 10000,
+    }),
+  syncZhuqueLocalBrowser: () =>
+    api.post('/optimization/zhuque/local/sync', null, {
+      timeout: 10000,
+    }),
+  focusZhuqueLocalBrowser: () =>
+    api.post('/optimization/zhuque/local/focus', null, {
+      timeout: 5000,
+    }),
   refreshZhuqueFreeQuota: () =>
     api.post('/optimization/zhuque/free-quota/refresh', null, {
       timeout: 10000, // 真实页面/无文本探测可能需要等朱雀前端渲染

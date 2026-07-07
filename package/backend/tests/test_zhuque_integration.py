@@ -2198,6 +2198,113 @@ def test_zhuque_browser_start_endpoint_reuses_existing_detection_window(client, 
     assert calls == [("for_user", user_id), "focus"]
 
 
+def test_zhuque_local_open_endpoint_reuses_or_launches_local_browser(client, monkeypatch, tmp_path):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+    calls = []
+
+    class FakeLocalTransport:
+        async def open_page(self, *, open_capture=None):
+            calls.append("open_page")
+            launched = open_capture()
+            calls.append(launched["status"])
+            return {
+                "status": launched["status"],
+                "transport": "local_browser",
+                "auth_mode": "local_browser",
+                "login_mode": "local_browser",
+                "credential_file": launched["credential_file"],
+                "sync_session": launched["sync_session"],
+                "command": launched["command"],
+                "message": "已打开本机朱雀页面",
+                "connected": False,
+                "ready": False,
+                "has_token": False,
+                "has_anonymous_fp": False,
+                "remaining_uses": -1,
+                "button_enabled": True,
+                "user_name": "",
+                "quota_text": "",
+            }
+
+    def fake_local_transport(current_user):
+        assert current_user.id == user_id
+        return FakeLocalTransport()
+
+    def fake_start_zhuque_wechat_capture(*, sync_session=True, user=None):
+        assert user.id == user_id
+        return {
+            "status": "started",
+            "credential_file": str(tmp_path / "creds_latest.json"),
+            "sync_session": sync_session,
+            "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
+            "message": "legacy launcher",
+        }
+
+    class FakeZhuqueService:
+        def reset_user(self, current_user_id):
+            calls.append(("reset", current_user_id))
+
+    monkeypatch.setattr(optimization_route, "_zhuque_local_transport_for_user", fake_local_transport)
+    monkeypatch.setattr(optimization_route, "_start_zhuque_wechat_capture", fake_start_zhuque_wechat_capture)
+    monkeypatch.setattr(optimization_route, "zhuque_service", FakeZhuqueService())
+
+    response = client.post(
+        "/api/optimization/zhuque/local/open",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "started"
+    assert body["transport"] == "local_browser"
+    assert body["login_mode"] == "local_browser"
+    assert body["sync_session"] is True
+    assert body["command"] == "python zhuque_pkg/capture_zhuque_creds.py --sync-session"
+    assert calls == ["open_page", ("reset", user_id), "started"]
+
+
+def test_zhuque_local_sync_endpoint_returns_local_browser_status(client, monkeypatch):
+    import app.routes.optimization as optimization_route
+
+    user_id = _create_user(credit_balance=20, zhuque_free_uses_remaining=20)
+    token = create_user_access_token(user_id, "zhuque-user")
+
+    class FakeLocalTransport:
+        async def sync_status(self):
+            return {
+                "status": "synced",
+                "transport": "local_browser",
+                "auth_mode": "local_browser",
+                "login_mode": "local_browser",
+                "ready": True,
+                "connected": True,
+                "page_found": True,
+                "has_token": True,
+                "has_anonymous_fp": False,
+                "remaining_uses": 18,
+                "button_enabled": True,
+                "user_name": "木木",
+                "message": "本机朱雀状态已同步",
+            }
+
+    monkeypatch.setattr(optimization_route, "_zhuque_local_transport_for_user", lambda _user: FakeLocalTransport())
+
+    response = client.post(
+        "/api/optimization/zhuque/local/sync",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "synced"
+    assert body["transport"] == "local_browser"
+    assert body["remaining_uses"] == 18
+    assert body["user_name"] == "木木"
+
+
 def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 

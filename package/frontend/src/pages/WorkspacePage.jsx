@@ -717,10 +717,10 @@ const WorkspacePage = () => {
     : zhuqueAccountLabel;
   const zhuquePrimaryActionLabel = browserAgentRequired
     ? (browserAgentOnline ? (browserAgentZhuqueConnected ? '打开朱雀页面' : '打开朱雀登录') : '生成配对码')
-    : (zhuqueConnected ? '已登录' : '扫码登录');
+    : '打开朱雀页面';
   const zhuquePrimaryActionTitle = browserAgentRequired
     ? (browserAgentOnline ? '打开本机 Chrome 的朱雀检测页，先完成朱雀登录或验证码；插件执行任务时会复用该页面' : '生成 Chrome 插件配对码')
-    : (zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码');
+    : '打开或聚焦本机托管的朱雀页面，完成登录/验证码后回到工作台同步状态';
   const zhuqueRemainingDisplayLabel = browserAgentRequired
     ? (browserAgentZhuqueRemaining !== undefined ? formatZhuqueRemainingUses(browserAgentZhuqueRemaining) : '检测后同步')
     : zhuqueRemainingLabel;
@@ -960,19 +960,22 @@ const WorkspacePage = () => {
     isRefreshingZhuqueQuotaRef.current = true;
     try {
       setIsRefreshingZhuqueQuota(true);
-      const response = await optimizationAPI.refreshZhuqueFreeQuota();
+      const response = browserAgentRequired
+        ? await optimizationAPI.refreshZhuqueFreeQuota()
+        : await optimizationAPI.syncZhuqueLocalBrowser();
       const remaining = extractZhuqueRemainingUses(response.data);
       if (remaining === undefined && response.data?.connected === false && response.data?.has_token === false) {
         clearZhuqueLoggedOutRemaining();
       }
+      mergeZhuqueAuthStatus(response.data);
       mergeZhuqueReadiness(response.data);
       if (!silent) {
         if (remaining !== undefined) {
           toast.success(`${response.data?.has_token ? '朱雀剩余次数' : '朱雀免费次数'}：${remaining} 次`);
         } else if (response.data?.button_enabled || response.data?.ready) {
-          toast.success(response.data?.message || '朱雀免费检测入口可用，剩余次数将在检测后同步');
+          toast.success(response.data?.message || '朱雀检测入口可用，剩余次数将在检测后同步');
         } else {
-          toast.error(response.data?.message || '暂未探测到朱雀免费次数，请扫码登录或稍后再刷新');
+          toast.error(response.data?.message || '暂未探测到朱雀次数，请打开朱雀页面登录或稍后再刷新');
         }
       }
       setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
@@ -984,7 +987,7 @@ const WorkspacePage = () => {
       isRefreshingZhuqueQuotaRef.current = false;
       setIsRefreshingZhuqueQuota(false);
     }
-  }, [clearZhuqueLoggedOutRemaining, isStartingZhuqueLogin, mergeZhuqueReadiness]);
+  }, [browserAgentRequired, clearZhuqueLoggedOutRemaining, isStartingZhuqueLogin, mergeZhuqueAuthStatus, mergeZhuqueReadiness]);
 
   const handleCreateBrowserAgentPairing = useCallback(async () => {
     if (isCreatingBrowserAgentPairing) {
@@ -1587,33 +1590,27 @@ const WorkspacePage = () => {
       toast('VPS 插件模式不使用服务器扫码登录；请保持本机 Chrome 插件在线，并在插件打开的朱雀页面完成登录/验证码。');
       return;
     }
-    if (zhuqueConnected) {
-      toast('朱雀已登录；如需使用免费次数或换号，请先点右侧退出');
-      return;
-    }
 
     try {
       setIsStartingZhuqueLogin(true);
-      setShowZhuqueLoginModal(true);
-      const response = await optimizationAPI.startZhuqueLogin({ syncSession: true, mode: 'remote_qr' });
-      mergeZhuqueLoginSession(response.data);
+      setShowZhuqueLoginModal(false);
+      const response = await optimizationAPI.openZhuqueLocalBrowser({ syncSession: true });
+      mergeZhuqueAuthStatus(response.data);
+      mergeZhuqueReadiness(response.data);
       setZhuqueFastPollUntil(Date.now() + ZHUQUE_STATUS_FAST_POLL_DURATION_MS);
       await loadZhuqueStatusPanel();
-      const launchMessage = response.data?.message || '请使用微信扫描页面中的朱雀登录二维码';
-      if (response.data?.status === 'logged_in') {
-        toast.success('朱雀已登录');
-      } else if (response.data?.status === 'manual_required' || response.data?.status === 'error') {
+      const launchMessage = response.data?.message || '已打开本机朱雀页面，请在该窗口完成登录/验证码后回到工作台同步状态';
+      if (response.data?.status === 'manual_required' || response.data?.status === 'error' || response.data?.status === 'missing_script') {
         toast.error(launchMessage);
       } else {
-        toast(launchMessage);
+        toast.success(launchMessage);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || '微信扫码登录朱雀失败');
-      setShowZhuqueLoginModal(false);
+      toast.error(error.response?.data?.detail || '打开本机朱雀页面失败');
     } finally {
       setIsStartingZhuqueLogin(false);
     }
-  }, [browserAgentRequired, isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueLoginSession, zhuqueConnected]);
+  }, [browserAgentRequired, isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueAuthStatus, mergeZhuqueReadiness]);
 
   const handleLogoutZhuque = useCallback(async () => {
     if (isStartingZhuqueLogin) {
@@ -1975,10 +1972,10 @@ const WorkspacePage = () => {
                       </div>
                       <div className="aurora-zhuque-metrics gank-glass-status-grid">
                         <div className="aurora-zhuque-metric">
-                          <span>{browserAgentRequired ? '朱雀账号' : '连接状态'}</span>
+                          <span>朱雀账号</span>
                           <strong className={zhuqueDisplayConnected ? 'is-connected' : 'is-disconnected'}>
                             <i />
-                            {browserAgentRequired ? (zhuqueDisplayConnected ? (browserAgentZhuqueAccountName || '已登录') : '未登录') : (zhuqueDisplayConnected ? '已连接' : '未连接')}
+                            {browserAgentRequired ? (zhuqueDisplayConnected ? (browserAgentZhuqueAccountName || '已登录') : '未登录') : (zhuqueDisplayConnected ? (zhuqueAccountName || '已登录') : '未登录')}
                           </strong>
                         </div>
                         <div className="aurora-zhuque-metric">

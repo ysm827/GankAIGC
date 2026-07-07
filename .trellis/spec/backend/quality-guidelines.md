@@ -612,7 +612,7 @@ python-docx>=1.1.0
 
 ### 1. Scope / Trigger
 
-- Trigger: any backend change to Zhuque transport selection, browser-agent pairing/job APIs, extension polling contracts, or VPS Docker configuration.
+- Trigger: any backend change to Zhuque transport selection, local-browser routes, browser-agent pairing/job APIs, extension polling contracts, or VPS Docker configuration.
 - This is an infra and cross-layer contract spanning environment keys, FastAPI routes, SQLAlchemy models, worker transport, Chrome extension payloads, and workspace status UI.
 
 ### 2. Signatures
@@ -621,7 +621,11 @@ python-docx>=1.1.0
   - `ZHUQUE_DETECT_TRANSPORT`: `auto | local_browser | browser_agent | server_headless`.
   - `ZHUQUE_SERVER_HEADLESS_FALLBACK`: boolean; VPS browser-agent mode should keep this `false`.
   - `ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS`, `ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS`.
-- Web-user API:
+- Local-browser web-user API:
+  - `POST /api/optimization/zhuque/local/open` opens or focuses the managed local Zhuque visible browser page and returns a `transport="local_browser"` status payload.
+  - `POST /api/optimization/zhuque/local/sync` refreshes local Zhuque login/quota status without submitting detection text.
+  - `POST /api/optimization/zhuque/local/focus` focuses an existing local Zhuque detect page when present.
+- Browser-agent web-user API:
   - `POST /api/browser-agent/pairings` -> `{pairing_id, pairing_code, expires_at}` for the authenticated GankAIGC user.
   - `GET /api/browser-agent/status` -> `{required, transport, online, agents, message}`.
   - `POST /api/browser-agent/revoke` accepts `{agent_id}` and revokes only the current user's agent.
@@ -636,7 +640,7 @@ python-docx>=1.1.0
 ### 3. Contracts
 
 - VPS mode must use `ZHUQUE_DETECT_TRANSPORT=browser_agent` and `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`; do not silently launch server-side Playwright/Chromium for Zhuque detection in this mode.
-- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension.
+- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension. Local routes must prefer focusing/reusing an existing Zhuque page before invoking the legacy visible-window launcher, and must not require users to manually run PowerShell/CDP/Profile commands.
 - Pairing codes and agent tokens are secret material. Store only HMAC/hash values server-side; return the agent token only from the claim response; support revocation.
 - `BrowserAgentZhuqueTransport.detect()` creates a `zhuque_agent_jobs` row, waits for completion, and normalizes the extension result through the same Zhuque result normalizer used by local detection. Extension payloads with placeholder scores (`rate < 0` or `> 100`), benchmark-table labels, empty segment labels, or example/card text must be rejected before the reduce pipeline consumes them.
 - Extension/manual states are progress states, not immediate failures. `manual_required` should keep the job alive until the user solves Zhuque login/CAPTCHA locally or the configured timeout expires.
@@ -658,14 +662,14 @@ python-docx>=1.1.0
 - Good: VPS worker creates one persistent browser-agent job, the user's Chrome extension claims it, reuses the Zhuque tab, returns normalized `rate/labels_ratio/segment_labels`, and the reduce pipeline continues.
 - Good: Workspace shows browser-agent `required=true`, generates a pairing code, then flips from offline to online after heartbeat.
 - Good: User sees a visible Zhuque CAPTCHA in local Chrome; extension sends `manual_required`, the task waits, and completion resumes after the user solves it.
-- Base: Local `python main.py` with `ZHUQUE_DETECT_TRANSPORT=auto` uses the existing local browser path and `GET /api/browser-agent/status` returns `required=false`.
+- Base: Local `python main.py` with `ZHUQUE_DETECT_TRANSPORT=auto` uses the local visible-browser path, `POST /api/optimization/zhuque/local/open` can open/focus a local page, and `GET /api/browser-agent/status` returns `required=false`.
 - Bad: VPS uses `server_headless` or hidden fallback by default, requires public CDP, or asks users to start Chrome with `--remote-debugging-port`.
 - Bad: Extension host permissions use `<all_urls>` or backend logs include full paper text from `payload_text`.
 
 ### 6. Tests Required
 
 - Backend tests must cover pairing creation/claim expiry/reuse, token auth, heartbeat freshness, status online/offline, revoke, job claim/progress/complete/fail/expire, ownership checks, and browser-agent transport selection.
-- Zhuque integration tests must keep local-window, remote QR, and local browser behavior passing when browser-agent code exists.
+- Zhuque integration tests must keep local-window, local `/zhuque/local/open|sync|focus`, remote QR, and browser-agent behavior passing when transport code exists.
 - Frontend/static tests must assert `browserAgentAPI`, pairing/status/revoke UI strings, `required/offline/online` copy, local-mode copy, and offline preflight blocking.
 - Manual VPS validation must prove no server-headless Zhuque detection starts in `browser_agent` mode and the user's local Chrome performs the Zhuque interaction.
 

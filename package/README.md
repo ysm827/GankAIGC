@@ -154,16 +154,18 @@ Docker 部署默认还会启动 `backup` 服务，每天自动备份 PostgreSQL 
 
 模型 Base URL 默认要求公网 HTTPS 地址。Windows 一键包本机使用 `cliproxy`、`new-api` 等本地代理时，后台把 `SERVER_HOST` 设为 `127.0.0.1`，打开“允许本地 HTTP 模型代理”，Base URL 填 `http://127.0.0.1:端口/v1`。不要写成 `https://127.0.0.1:端口/v1`。公网或 VPS 部署不要开启本地代理模式，必须使用公网 HTTPS Base URL。
 
-### 朱雀扫码登录与检测浏览器
+### 朱雀登录与检测浏览器
 
-前端「朱雀扫码登录」不是读取用户默认 Chrome 的个人登录态，而是后端打开朱雀登录页、截取微信二维码给前端展示，扫码成功后将朱雀 cookie/localStorage 保存到当前 GankAIGC 用户目录：
+GankAIGC 不读取用户默认 Chrome 的个人登录态。本机源码运行和 Windows 一键包默认使用本机可见浏览器托管链路：工作台点击「打开朱雀页面」后，后端会优先聚焦已存在的朱雀窗口，没有窗口才自动打开一个专用 Chrome/Edge/Brave 朱雀窗口。用户在该窗口里登录或完成验证码后，工作台同步 `朱雀账号` / `剩余次数`。
+
+朱雀 cookie/localStorage 与页面状态保存在当前 GankAIGC 用户目录：
 
 ```text
 zhuque_pkg/users/user_<id>/creds_latest.json
 zhuque_pkg/users/user_<id>/browser_state.json
 ```
 
-后续朱雀检测会把这份凭证注入到自动管理的检测浏览器，并尽量复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。
+后续朱雀检测会复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。
 
 VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。当前推荐插件版本为 `0.1.6`，支持页面刷新、手动同步和检测消耗后主动刷新朱雀账号/剩余次数。
 

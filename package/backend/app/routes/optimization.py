@@ -29,6 +29,7 @@ from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
 from app.services.optimization_service import parse_zhuque_segment_position
 from app.services.zhuque_service import zhuque_service, zhuque_user_dir
+from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
 from app.services.document_structure_service import (
@@ -859,6 +860,10 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True, user: Optional[Us
         }
 
 
+def _zhuque_local_transport_for_user(user: User) -> LocalBrowserZhuqueTransport:
+    return LocalBrowserZhuqueTransport(_zhuque_service_for_user(user), user_id=user.id)
+
+
 async def _reuse_zhuque_detection_window(user: User, *, sync_session: bool = True) -> Optional[dict]:
     """Focus the user's existing Zhuque detect page instead of opening another window."""
     service = _zhuque_service_for_user(user)
@@ -1220,6 +1225,37 @@ async def get_zhuque_browser_connection_status(
 ):
     """兼容旧路径：返回当前用户自己的朱雀凭证 / 无头 API 状态。"""
     return _get_zhuque_headless_status(user)
+
+
+@router.post("/zhuque/local/open")
+async def open_zhuque_local_browser(
+    sync_session: bool = True,
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """Open or focus the managed local Zhuque visible browser page."""
+    transport = _zhuque_local_transport_for_user(user)
+
+    def open_capture() -> dict:
+        getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
+        return _start_zhuque_wechat_capture(sync_session=sync_session, user=user)
+
+    return await transport.open_page(open_capture=open_capture)
+
+
+@router.post("/zhuque/local/sync")
+async def sync_zhuque_local_browser_status(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """Synchronize local Zhuque login/quota status without submitting detection text."""
+    return await _zhuque_local_transport_for_user(user).sync_status()
+
+
+@router.post("/zhuque/local/focus")
+async def focus_zhuque_local_browser(
+    user: User = Depends(get_current_user_with_legacy_fallback),
+):
+    """Focus the existing managed local Zhuque detect window when available."""
+    return await _zhuque_local_transport_for_user(user).focus_window()
 
 
 @router.get("/zhuque/browser/login-status", response_model=ZhuqueBrowserStatusResponse)

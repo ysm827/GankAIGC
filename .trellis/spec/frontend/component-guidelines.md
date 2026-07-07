@@ -620,9 +620,9 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 
 ### 3. Contracts
 
-- The compact Zhuque card remains ordered as `朱雀 AI 检测` -> `扫码登录/已登录` -> `连接状态` -> `剩余次数`; browser-agent transport information is a secondary block below those core metrics.
+- The compact Zhuque card remains ordered as `朱雀 AI 检测` -> primary action -> `朱雀账号` -> `剩余次数`; browser-agent transport information is a secondary block below those core metrics. Older `连接状态` copy must not be reintroduced as the main local metric because local/browser-agent modes both need to show Zhuque account separately from transport state.
 - When `required=true` or `transport="browser_agent"`, show VPS/plugin copy: `插件在线` or `插件未连接`, pairing-code generation, and optional revoke action for the connected device.
-- When browser-agent is not required, show local copy such as `本地浏览器模式` and explicitly say local deployment continues using the built-in/local browser path without mandatory plugin installation.
+- When browser-agent is not required, show local copy such as `本地浏览器模式` and explicitly say local deployment continues using the built-in/local browser path without mandatory plugin installation. The primary action should open/focus the managed local Zhuque page via `openZhuqueLocalBrowser`, not remote QR login.
 - Starting `AI检测 + 降重` while browser-agent is required but offline must fail fast in the workspace with actionable copy before the normal Zhuque preflight/start chain.
 - Pairing codes are short-lived secrets. Render them only after explicit user action, not in passive page load. Do not store them in localStorage.
 - In browser-agent mode, page load, manual quota refresh, and task completion should request an immediate extension-side Zhuque status sync instead of waiting for the next 15-second MV3 heartbeat. The UI must still fall back to backend status if the bridge is unavailable or the extension is stale.
@@ -646,7 +646,7 @@ const riskRate = Math.max(aiRate, suspiciousRate);
 
 ### 6. Tests Required
 
-- Static tests must assert `browserAgentAPI`, `/browser-agent/pairings`, `/browser-agent/status`, `/browser-agent/revoke`, `browserAgentRequired`, `browserAgentOnline`, `requestBrowserAgentZhuqueRefresh`, `GANKAIGC_SYNC_ZHUQUE_STATUS`, `检测传输`, `插件在线`, `插件未连接`, `生成配对码`, `撤销插件`, `配对码`, local-mode copy, offline start-blocking copy, and manifest absence of `<all_urls>`.
+- Static tests must assert `browserAgentAPI`, `/browser-agent/pairings`, `/browser-agent/status`, `/browser-agent/revoke`, local Zhuque API functions (`openZhuqueLocalBrowser`, `syncZhuqueLocalBrowser`), `browserAgentRequired`, `browserAgentOnline`, `requestBrowserAgentZhuqueRefresh`, `GANKAIGC_SYNC_ZHUQUE_STATUS`, `检测传输`, `插件在线`, `插件未连接`, `生成配对码`, `撤销插件`, `配对码`, local-mode copy, offline start-blocking copy, and manifest absence of `<all_urls>`.
 - Existing static tests for the compact Zhuque card order and CSS tokens must continue to pass.
 - Run `cd package/frontend && npm run build`, sync `package/frontend/dist` into `package/static`, and force-stage new ignored static assets.
 
