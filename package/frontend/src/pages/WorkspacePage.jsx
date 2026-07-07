@@ -8,7 +8,7 @@ import {
   Filter, ChevronDown, Wand2, Plus, Archive, CircleDollarSign, X, FolderInput, QrCode, RefreshCw,
   UploadCloud, Loader2
 } from 'lucide-react';
-import { optimizationAPI, projectAPI, userAPI } from '../api';
+import { browserAgentAPI, optimizationAPI, projectAPI, userAPI } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import UserMenu from '../components/UserMenu';
 import MarkdownPreview from '../components/MarkdownPreview';
@@ -555,6 +555,10 @@ const WorkspacePage = () => {
   const [zhuqueAuthStatus, setZhuqueAuthStatus] = useState(null);
   const [zhuqueReadiness, setZhuqueReadiness] = useState(null);
   const [zhuqueLoginSession, setZhuqueLoginSession] = useState(null);
+  const [browserAgentStatus, setBrowserAgentStatus] = useState(null);
+  const [browserAgentPairing, setBrowserAgentPairing] = useState(null);
+  const [isCreatingBrowserAgentPairing, setIsCreatingBrowserAgentPairing] = useState(false);
+  const [isRevokingBrowserAgent, setIsRevokingBrowserAgent] = useState(false);
   const [showZhuqueLoginModal, setShowZhuqueLoginModal] = useState(false);
   const [zhuqueLastKnownLoggedOutRemaining, setZhuqueLastKnownLoggedOutRemaining] = useState(undefined);
   const [zhuqueFastPollUntil, setZhuqueFastPollUntil] = useState(0);
@@ -645,6 +649,18 @@ const WorkspacePage = () => {
     zhuqueAuthStatus?.userName,
   ].find((value) => typeof value === 'string' && value.trim())?.trim() || '';
   const zhuqueAccountLabel = zhuqueConnected ? (zhuqueAccountName || '已登录') : '未登录';
+  const browserAgentRequired = Boolean(browserAgentStatus?.required || browserAgentStatus?.transport === 'browser_agent');
+  const browserAgentOnline = Boolean(browserAgentStatus?.online);
+  const browserAgentTransport = browserAgentStatus?.transport || 'auto';
+  const browserAgentPrimary = Array.isArray(browserAgentStatus?.agents) && browserAgentStatus.agents.length > 0
+    ? browserAgentStatus.agents[0]
+    : null;
+  const browserAgentStatusLabel = browserAgentRequired
+    ? (browserAgentOnline ? '插件在线' : '插件未连接')
+    : '本地浏览器模式';
+  const browserAgentStatusMessage = browserAgentRequired
+    ? (browserAgentStatus?.message || (browserAgentOnline ? '本机 Chrome 插件在线，朱雀检测将在用户浏览器执行。' : 'VPS 模式需要连接本机 Chrome 插件。'))
+    : '本地部署继续使用内置/本机浏览器检测链路，无需安装插件。';
 
   const handleProcessingModeChange = useCallback((event) => {
     const nextMode = event.target.value;
@@ -838,6 +854,21 @@ const WorkspacePage = () => {
     }
   }, [mergeZhuqueReadiness]);
 
+  const loadBrowserAgentStatus = useCallback(async () => {
+    try {
+      const response = await browserAgentAPI.getStatus();
+      setBrowserAgentStatus(response.data);
+    } catch (error) {
+      setBrowserAgentStatus({
+        required: false,
+        transport: 'auto',
+        online: false,
+        agents: [],
+        message: '无法检测浏览器插件状态',
+      });
+    }
+  }, []);
+
   const loadZhuqueStatusPanel = useCallback(async () => {
     if (isLoadingZhuqueStatusRef.current) {
       return;
@@ -848,11 +879,12 @@ const WorkspacePage = () => {
       await Promise.all([
         loadZhuqueAuthStatus(),
         withSoftTimeout(loadZhuqueReadiness(), ZHUQUE_READINESS_SOFT_TIMEOUT_MS),
+        loadBrowserAgentStatus(),
       ]);
     } finally {
       isLoadingZhuqueStatusRef.current = false;
     }
-  }, [loadZhuqueAuthStatus, loadZhuqueReadiness]);
+  }, [loadBrowserAgentStatus, loadZhuqueAuthStatus, loadZhuqueReadiness]);
 
   const refreshZhuqueFreeQuota = useCallback(async ({ silent = false } = {}) => {
     if (isRefreshingZhuqueQuotaRef.current || isStartingZhuqueLogin) {
@@ -887,6 +919,40 @@ const WorkspacePage = () => {
       setIsRefreshingZhuqueQuota(false);
     }
   }, [clearZhuqueLoggedOutRemaining, isStartingZhuqueLogin, mergeZhuqueReadiness]);
+
+  const handleCreateBrowserAgentPairing = useCallback(async () => {
+    if (isCreatingBrowserAgentPairing) {
+      return;
+    }
+    setIsCreatingBrowserAgentPairing(true);
+    try {
+      const response = await browserAgentAPI.createPairing();
+      setBrowserAgentPairing(response.data);
+      toast.success('浏览器插件配对码已生成，请在 Chrome 插件中输入');
+      await loadBrowserAgentStatus();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '生成浏览器插件配对码失败');
+    } finally {
+      setIsCreatingBrowserAgentPairing(false);
+    }
+  }, [isCreatingBrowserAgentPairing, loadBrowserAgentStatus]);
+
+  const handleRevokeBrowserAgent = useCallback(async (agentId) => {
+    if (!agentId || isRevokingBrowserAgent) {
+      return;
+    }
+    setIsRevokingBrowserAgent(true);
+    try {
+      await browserAgentAPI.revoke(agentId);
+      setBrowserAgentPairing(null);
+      await loadBrowserAgentStatus();
+      toast.success('已撤销浏览器插件连接');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || '撤销浏览器插件失败');
+    } finally {
+      setIsRevokingBrowserAgent(false);
+    }
+  }, [isRevokingBrowserAgent, loadBrowserAgentStatus]);
 
   const handleOpenZhuqueVerificationWindow = useCallback(async (session, { auto = false } = {}) => {
     if (isStartingZhuqueLogin) {
@@ -1345,6 +1411,11 @@ const WorkspacePage = () => {
 
     try {
       setIsSubmitting(true);
+      if (processingMode === 'ai_detect_reduce' && browserAgentRequired && !browserAgentOnline) {
+        await loadBrowserAgentStatus();
+        toast.error('VPS 朱雀检测需要先连接本机 Chrome 插件');
+        return;
+      }
       if (processingMode === 'ai_detect_reduce') {
         const preflightResponse = await optimizationAPI.preflightZhuqueTask({
           original_text: text,
@@ -1386,7 +1457,7 @@ const WorkspacePage = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, mergeZhuqueReadiness, navigate, documentParse]);
+  }, [activeProjectId, taskTitle, text, processingMode, billingMode, credits, estimatedCredits, hasProviderConfig, isSubmitting, loadSessions, loadAccountState, mergeZhuqueReadiness, navigate, documentParse, browserAgentOnline, browserAgentRequired, loadBrowserAgentStatus]);
 
   const handleStartZhuqueLogin = useCallback(async () => {
     if (isStartingZhuqueLogin) {
@@ -1795,6 +1866,58 @@ const WorkspacePage = () => {
                             </button>
                           </div>
                         </div>
+                      </div>
+                      <div className={`mt-4 rounded-[18px] border px-4 py-3 ${browserAgentRequired ? 'border-blue-100 bg-blue-50/70' : 'border-slate-200 bg-white/70'}`}>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[13px] font-semibold text-slate-500">检测传输</span>
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${browserAgentRequired ? (browserAgentOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700') : 'bg-slate-100 text-slate-600'}`}>
+                                {browserAgentStatusLabel}
+                              </span>
+                              <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-slate-500">{browserAgentTransport}</span>
+                            </div>
+                            <p className="mt-2 text-[13px] leading-5 text-slate-500">{browserAgentStatusMessage}</p>
+                            {browserAgentPrimary && (
+                              <p className="mt-1 truncate text-[12px] text-slate-400">
+                                当前设备：{browserAgentPrimary.name || browserAgentPrimary.agent_id}
+                                {browserAgentPrimary.extension_version ? ` · v${browserAgentPrimary.extension_version}` : ''}
+                              </p>
+                            )}
+                          </div>
+                          {browserAgentRequired && (
+                            <div className="flex shrink-0 flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleCreateBrowserAgentPairing}
+                                disabled={isCreatingBrowserAgentPairing}
+                                className="apple-ghost-pill rounded-full border border-blue-100 bg-white/90 px-3 py-2 text-[13px] font-semibold text-[#0066cc] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isCreatingBrowserAgentPairing ? '生成中…' : '生成配对码'}
+                              </button>
+                              {browserAgentPrimary && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeBrowserAgent(browserAgentPrimary.agent_id)}
+                                  disabled={isRevokingBrowserAgent}
+                                  className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-[13px] font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  撤销插件
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {browserAgentRequired && browserAgentPairing?.pairing_code && (
+                          <div className="mt-3 rounded-2xl border border-blue-100 bg-white px-4 py-3 text-[13px] leading-6 text-slate-600">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-slate-900">配对码</span>
+                              <code className="rounded-xl bg-slate-950 px-3 py-1.5 text-sm font-bold tracking-[0.12em] text-white">{browserAgentPairing.pairing_code}</code>
+                              <span>在 Chrome 插件中填写当前站点地址和此配对码。</span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-400">有效期至 {browserAgentPairing.expires_at ? formatChinaDate(browserAgentPairing.expires_at) : '10 分钟后'}；插件连上后工作区会显示在线。</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

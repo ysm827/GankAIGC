@@ -66,6 +66,101 @@ class UserPasswordUpdateRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
 
 
+class BrowserAgentPairingResponse(BaseModel):
+    pairing_id: int
+    pairing_code: str
+    expires_at: datetime
+
+
+class BrowserAgentInfo(BaseModel):
+    agent_id: str
+    name: Optional[str] = None
+    status: str
+    online: bool = False
+    last_seen_at: Optional[datetime] = None
+    extension_version: Optional[str] = None
+    revoked_at: Optional[datetime] = None
+
+
+class BrowserAgentStatusResponse(BaseModel):
+    required: bool = False
+    transport: str = "auto"
+    online: bool = False
+    agents: List[BrowserAgentInfo] = Field(default_factory=list)
+    message: str = ""
+
+
+class BrowserAgentRevokeRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=128)
+
+
+class BrowserAgentClaimRequest(BaseModel):
+    pairing_code: str = Field(..., min_length=4, max_length=32)
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    name: Optional[str] = Field(None, max_length=255)
+    extension_version: Optional[str] = Field(None, max_length=64)
+    capabilities: Dict[str, Any] = Field(default_factory=dict)
+    user_agent: Optional[str] = Field(None, max_length=512)
+
+
+class BrowserAgentClaimResponse(BaseModel):
+    agent_token: str
+    agent_id: str
+    user_id: int
+    heartbeat_interval_seconds: int
+    job_poll_seconds: int
+
+
+class BrowserAgentHeartbeatRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    status: str = "online"
+    active_job_id: Optional[str] = Field(None, max_length=128)
+
+
+class BrowserAgentHeartbeatResponse(BaseModel):
+    ok: bool
+    server_time: datetime
+
+
+class BrowserAgentJobClaimRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    wait_seconds: Optional[int] = Field(None, ge=0, le=60)
+
+
+class BrowserAgentJobPayload(BaseModel):
+    job_id: str
+    kind: str = "zhuque_detect"
+    text: str
+    timeout_seconds: int
+    session_id: Optional[int] = None
+    segment_id: Optional[int] = None
+
+
+class BrowserAgentJobClaimResponse(BaseModel):
+    job: Optional[BrowserAgentJobPayload] = None
+
+
+class BrowserAgentJobProgressRequest(BaseModel):
+    status: Literal["running", "manual_required"]
+    message: str = Field("", max_length=500)
+    progress: Optional[float] = Field(None, ge=0, le=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BrowserAgentJobCompleteRequest(BaseModel):
+    result: Dict[str, Any]
+
+
+class BrowserAgentJobFailRequest(BaseModel):
+    error_code: str = Field(..., min_length=1, max_length=64)
+    message: str = Field(..., min_length=1, max_length=1000)
+    retryable: bool = True
+
+
+class BrowserAgentOkResponse(BaseModel):
+    ok: bool
+
+
 class InviteCreateRequest(BaseModel):
     code: Optional[str] = None
     expires_at: Optional[datetime] = None

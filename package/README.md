@@ -154,6 +154,47 @@ Docker 部署默认还会启动 `backup` 服务，每天自动备份 PostgreSQL 
 
 模型 Base URL 默认要求公网 HTTPS 地址。Windows 一键包本机使用 `cliproxy`、`new-api` 等本地代理时，后台把 `SERVER_HOST` 设为 `127.0.0.1`，打开“允许本地 HTTP 模型代理”，Base URL 填 `http://127.0.0.1:端口/v1`。不要写成 `https://127.0.0.1:端口/v1`。公网或 VPS 部署不要开启本地代理模式，必须使用公网 HTTPS Base URL。
 
+### 朱雀扫码登录与检测浏览器
+
+前端「朱雀扫码登录」不是读取用户默认 Chrome 的个人登录态，而是后端打开朱雀登录页、截取微信二维码给前端展示，扫码成功后将朱雀 cookie/localStorage 保存到当前 GankAIGC 用户目录：
+
+```text
+zhuque_pkg/users/user_<id>/creds_latest.json
+zhuque_pkg/users/user_<id>/browser_state.json
+```
+
+后续朱雀检测会把这份凭证注入到自动管理的检测浏览器，并尽量复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。
+
+VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。
+
+VPS `.env.docker` 推荐：
+
+```properties
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT=900
+ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=30
+ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS=600
+ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
+INLINE_TASK_WORKER_ENABLED=false
+```
+
+本机源码运行、Windows 一键包或带桌面的个人电脑部署继续使用 `ZHUQUE_DETECT_TRANSPORT=auto` 或 `local_browser`，无需安装插件。
+
+插件连接流程：在 Chrome `chrome://extensions` 加载 `browser-extension/`，进入工作台选择 `AI检测 + 降重`，点击「生成配对码」，在插件弹窗填写站点地址、配对码和设备名。工作台显示「插件在线」后即可提交任务；如朱雀登录或验证码出现，在本机朱雀页面完成。
+
+普通用户不需要手动设置 Chrome `--remote-debugging-port` 或 Profile。VPS browser-agent 模式也不要公开 CDP 端口；插件权限只应包含你的 GankAIGC 站点和 `https://matrix.tencent.com/*`。高级本机部署可在 `.env` 中覆盖：
+
+```properties
+ZHUQUE_DETECT_HEADLESS=false
+ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true
+ZHUQUE_DETECT_CDP_ENDPOINT=
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=
+ZHUQUE_DETECT_BROWSER_USER_DATA_DIR=
+```
+
+GankAIGC 不会无授权读取默认浏览器的个人 Cookie，避免误读或泄露其他网站登录态。
+
 Docker 更新采用手动 SSH 模式：后台只检测 GitHub Release 并提供复制命令，不直接控制 Docker，也不挂载 Docker socket。VPS 上升级通常执行：
 
 ```bash

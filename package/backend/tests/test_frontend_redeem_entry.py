@@ -1251,6 +1251,31 @@ def test_session_detail_shows_zhuque_report_and_process_timeline():
     assert "全文复检" in session_detail
 
 
+def test_workspace_guides_browser_agent_pairing_for_vps_mode():
+    workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
+    api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
+
+    assert "browserAgentAPI" in api
+    assert "createPairing" in api
+    assert "/browser-agent/pairings" in api
+    assert "getStatus" in api
+    assert "/browser-agent/status" in api
+    assert "revoke" in api
+    assert "/browser-agent/revoke" in api
+    assert "browserAgentStatus" in workspace
+    assert "browserAgentRequired" in workspace
+    assert "browserAgentOnline" in workspace
+    assert "检测传输" in workspace
+    assert "插件在线" in workspace
+    assert "插件未连接" in workspace
+    assert "本地浏览器模式" in workspace
+    assert "生成配对码" in workspace
+    assert "撤销插件" in workspace
+    assert "配对码" in workspace
+    assert "VPS 朱雀检测需要先连接本机 Chrome 插件" in workspace
+    assert "本地部署继续使用内置/本机浏览器检测链路，无需安装插件" in workspace
+
+
 def test_workspace_guides_zhuque_browser_launch_from_ai_detect_mode():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")

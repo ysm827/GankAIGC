@@ -60,7 +60,7 @@ from app.config import (
     settings,
 )
 from app.database import check_database_connection, init_db
-from app.routes import admin, auth, prompts, optimization, user
+from app.routes import admin, auth, browser_agent, prompts, optimization, user
 from app.runtime import refresh_cors_middleware
 from app.services.rate_limit import SlidingWindowLimiter
 from app.services.update_service import get_current_app_version
@@ -149,6 +149,7 @@ async def add_no_cache_headers(request: Request, call_next):
 app.include_router(admin.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
+app.include_router(browser_agent.router, prefix="/api")
 app.include_router(prompts.router, prefix="/api")
 app.include_router(optimization.router, prefix="/api")
 if settings.WORD_FORMATTER_ENABLED:

@@ -83,6 +83,13 @@ export const projectAPI = {
   archive: (projectId) => api.delete(`/user/projects/${projectId}`),
 };
 
+// Browser-agent API
+export const browserAgentAPI = {
+  createPairing: () => api.post('/browser-agent/pairings', null, { timeout: 10000 }),
+  getStatus: () => api.get('/browser-agent/status', { timeout: 5000 }),
+  revoke: (agentId) => api.post('/browser-agent/revoke', { agent_id: agentId }, { timeout: 10000 }),
+};
+
 // Optimization API
 export const optimizationAPI = {
   parseDocument: (formData) => api.post('/optimization/documents/parse', formData, {

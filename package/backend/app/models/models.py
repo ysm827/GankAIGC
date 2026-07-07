@@ -2,6 +2,10 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.config import settings
+from app.models.browser_agent_constants import (
+    BROWSER_AGENT_STATUS_OFFLINE,
+    ZHUQUE_AGENT_JOB_STATUS_PENDING,
+)
 from app.utils.time import utcnow
 
 
@@ -39,6 +43,77 @@ class User(Base):
     credit_transactions = relationship("CreditTransaction", back_populates="user", cascade="all, delete-orphan")
     provider_config = relationship("UserProviderConfig", back_populates="user", uselist=False, cascade="all, delete-orphan")
     paper_projects = relationship("PaperProject", back_populates="user", cascade="all, delete-orphan")
+    browser_agent_pairings = relationship("BrowserAgentPairing", back_populates="user", cascade="all, delete-orphan")
+    browser_agents = relationship("BrowserAgent", back_populates="user", cascade="all, delete-orphan")
+    zhuque_agent_jobs = relationship("ZhuqueAgentJob", back_populates="user", cascade="all, delete-orphan")
+
+
+class BrowserAgentPairing(Base):
+    """Short-lived pairing code for connecting a user's local browser agent."""
+    __tablename__ = "browser_agent_pairings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    pairing_code_hash = Column(String(128), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    claimed_at = Column(DateTime, nullable=True)
+    claimed_by_agent_id = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+
+    user = relationship("User", back_populates="browser_agent_pairings")
+
+
+class BrowserAgent(Base):
+    """Paired Chrome extension identity for local-browser Zhuque detection."""
+    __tablename__ = "browser_agents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_id = Column(String(128), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    token_hash = Column(String(255), nullable=False)
+    status = Column(String(32), nullable=False, default=BROWSER_AGENT_STATUS_OFFLINE, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    revoked_at = Column(DateTime, nullable=True, index=True)
+    capabilities_json = Column(Text, nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    extension_version = Column(String(64), nullable=True)
+
+    user = relationship("User", back_populates="browser_agents")
+    zhuque_jobs = relationship("ZhuqueAgentJob", back_populates="claimed_agent", foreign_keys="ZhuqueAgentJob.claimed_by_agent_id")
+
+
+class ZhuqueAgentJob(Base):
+    """Durable Zhuque detection job claimed by a user's local browser agent."""
+    __tablename__ = "zhuque_agent_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(128), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(Integer, ForeignKey("optimization_sessions.id"), nullable=True, index=True)
+    segment_id = Column(Integer, ForeignKey("optimization_segments.id"), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default=ZHUQUE_AGENT_JOB_STATUS_PENDING, index=True)
+    payload_text = Column(Text, nullable=False)
+    payload_hash = Column(String(64), nullable=False, index=True)
+    result_json = Column(Text, nullable=True)
+    progress_json = Column(Text, nullable=True)
+    error_code = Column(String(64), nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    claimed_by_agent_id = Column(String(128), ForeignKey("browser_agents.agent_id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    claimed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    heartbeat_at = Column(DateTime, nullable=True, index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+
+    user = relationship("User", back_populates="zhuque_agent_jobs")
+    session = relationship("OptimizationSession", back_populates="zhuque_agent_jobs")
+    segment = relationship("OptimizationSegment", back_populates="zhuque_agent_jobs")
+    claimed_agent = relationship("BrowserAgent", back_populates="zhuque_jobs", foreign_keys=[claimed_by_agent_id])
 
 
 class CustomPrompt(Base):
@@ -132,6 +207,7 @@ class OptimizationSession(Base):
     project = relationship("PaperProject", back_populates="sessions")
     segments = relationship("OptimizationSegment", back_populates="session", cascade="all, delete-orphan")
     history = relationship("SessionHistory", back_populates="session", cascade="all, delete-orphan")
+    zhuque_agent_jobs = relationship("ZhuqueAgentJob", back_populates="session")
 
     @property
     def completed_segments(self) -> int:
@@ -177,6 +253,7 @@ class OptimizationSegment(Base):
     page_number = Column(Integer, nullable=True)
     bbox_json = Column(Text, nullable=True)
     session = relationship("OptimizationSession", back_populates="segments")
+    zhuque_agent_jobs = relationship("ZhuqueAgentJob", back_populates="segment")
 
 
 class SessionHistory(Base):

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GankAIGC 朱雀插件</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="popup-shell">
+    <header>
+      <h1>GankAIGC 朱雀插件</h1>
+      <p>让 VPS 任务使用本机 Chrome 执行朱雀检测。</p>
+    </header>
+
+    <section class="status-card">
+      <div class="status-line"><span>状态</span><strong id="statusText">读取中...</strong></div>
+      <div class="status-line"><span>Agent</span><code id="agentId">--</code></div>
+    </section>
+
+    <label>
+      GankAIGC 地址
+      <input id="serverUrl" placeholder="https://你的域名" />
+    </label>
+
+    <label>
+      配对码
+      <input id="pairingCode" placeholder="GANK-7K29" />
+    </label>
+
+    <label>
+      设备名
+      <input id="agentName" placeholder="Chrome on Windows" />
+    </label>
+
+    <button id="pairButton" class="primary">配对插件</button>
+    <button id="forgetButton" class="secondary">清除本机配对</button>
+
+    <p id="message" class="message"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

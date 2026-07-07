@@ -1,0 +1,92 @@
+# GankAIGC Zhuque Browser Agent
+
+Chrome extension MVP for VPS deployments where Zhuque detects/fights server-side headless browsers. Local desktop/source deployments can keep `ZHUQUE_DETECT_TRANSPORT=auto` or `local_browser` and do not need this extension.
+
+## Purpose
+
+When GankAIGC runs on a VPS, Zhuque detection should execute in the user's local Chrome instead of the VPS Chromium process.
+
+Flow:
+
+```text
+GankAIGC VPS creates Zhuque browser-agent job
+↓
+Chrome extension claims job
+↓
+Extension opens/reuses https://matrix.tencent.com/ai-detect/
+↓
+User's local Chrome session/IP/login state performs Zhuque detection
+↓
+Extension returns result to VPS
+```
+
+## Backend configuration
+
+On the VPS, use browser-agent mode and disable server-headless fallback:
+
+```env
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT=900
+ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=30
+ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS=600
+ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
+INLINE_TASK_WORKER_ENABLED=false
+```
+
+The VPS must be reachable by the user's Chrome browser over HTTPS or trusted HTTP during local testing.
+
+## Load unpacked extension
+
+1. Open Chrome: `chrome://extensions`.
+2. Enable `Developer mode`.
+3. Click `Load unpacked`.
+4. Select this `browser-extension/` directory.
+
+## Host permissions
+
+MVP manifest includes:
+
+```json
+"host_permissions": [
+  "https://matrix.tencent.com/*",
+  "https://ga.mumubuku.top/*",
+  "http://127.0.0.1:9800/*",
+  "http://localhost:9800/*"
+]
+```
+
+For another real VPS domain, add your GankAIGC origin before loading the extension, for example:
+
+```json
+"https://gankaigc.example.com/*"
+```
+
+Do not add `<all_urls>`. Do not expose Chrome DevTools Protocol to the public internet and do not ask users to run Chrome with `--remote-debugging-port`; the extension communicates with GankAIGC over normal HTTPS API calls.
+
+## Pairing
+
+1. In GankAIGC workspace, generate a browser-agent pairing code.
+2. Open the extension popup.
+3. Enter:
+   - GankAIGC server URL, e.g. `https://gankaigc.example.com`.
+   - Pairing code, e.g. `GANK-7K29`.
+   - Device name.
+4. Click `配对插件`.
+
+The extension stores only the server URL, agent id, and agent token in `chrome.storage.local`.
+
+## Runtime
+
+- Keep Chrome open while VPS tasks run.
+- The workspace status should show `插件在线` before starting `AI检测 + 降重`.
+- The extension opens or reuses one Zhuque tab in the user's local Chrome.
+- Log in to Zhuque in the local Chrome tab when prompted.
+- If CAPTCHA appears, complete it in the local Zhuque tab; the backend will keep waiting until the job completes or times out.
+
+## Current MVP limitations
+
+- Developer-mode/unpacked extension only.
+- One recent online agent is selected by backend.
+- DOM/network extraction is best-effort and may need adjustments if Zhuque changes page structure.
+- Official Chrome Web Store packaging is out of scope for the MVP.

@@ -195,6 +195,7 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Real-page detection must keep the previous traffic-payload terminal-result normalization: if the page observes a terminal Zhuque payload in WebSocket frames or `/user/detect/result`, return it without requiring the old `.ai-detection-result.__vue__.type/rate` DOM shape. This prevents a false timeout after Zhuque has already consumed a detection use. Empty transient payloads such as `{"segment_labels":[]}` are not terminal results and must not be normalized into `"朱雀检测响应缺少有效检测分数"`; keep polling until a payload contains `confidence`/`rate`/`labels_ratio` or non-empty `segment_labels`, or until timeout.
 - Real-page detection must fail fast when Tencent CAPTCHA UI is visible (`tcaptcha`, `captcha.gtimg.com`, `Verification Code`, `Choose all similar`, or Chinese captcha copy). In headless mode there is no human to solve the challenge, so the pipeline must return an actionable Zhuque failure instead of waiting for the full detect timeout or retrying the same blocked click three times. CAPTCHA failures must carry compact action metadata: `error_code="zhuque_captcha_required"`, `manual_verification_required=true`, `manual_verification_mode="local_window"`, and `manual_verification_action="open_zhuque_local_window"`. `_detect_full_text_once()` must persist these fields in `zhuque_detect_result` and include them in compact trace/SSE metadata so the detail page can open the explicit real-browser verification path.
 - `POST /zhuque/browser/start?mode=local_window` must first ask the current user's `ZhuqueService.focus_detection_window()` to bring the cached real-page detector tab forward. If a visible detector page exists, return `status="reused"` and do not launch `capture_zhuque_creds.py`, reset credentials, or open a second Chrome window. Only fall back to the compatibility capture window when no visible cached detect page is available.
+- In visible local detection (`ZHUQUE_DETECT_HEADLESS=false`), `ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true` should automatically discover Chrome/Edge/Brave and connect through CDP before falling back to Playwright-launched Chromium. This auto path must use a dedicated reusable browser data directory (`ZHUQUE_DETECT_BROWSER_USER_DATA_DIR` override, otherwise per-user/project default) and may also honor `ZHUQUE_DETECT_CDP_ENDPOINT` / `ZHUQUE_DETECT_BROWSER_EXECUTABLE` for advanced deployments. It must not require ordinary users to manually run PowerShell or edit Chrome profile flags.
 - `POST /zhuque/browser/start` may return `manual_required` when the Python `playwright` package or a controllable Chromium/Chrome browser is missing. On WSL, a Windows-installed Chrome/Edge/Brave under `/mnt/c/.../*.exe` counts as controllable: the capture script must launch it as a small app window with a dedicated `--remote-debugging-port` and connect via Chrome DevTools Protocol so the visible QR window appears on the user's Windows desktop while GankAIGC can still sync cookies/localStorage. It must not return `started` if the real-page sync window cannot open; otherwise users see a false positive while no login/logout state can be synced.
 - If WSL cannot reach the Windows Chrome CDP port directly but Windows itself can access `http://127.0.0.1:<ZHUQUE_CDP_PORT>`, `capture_zhuque_creds.py --sync-session` must switch to the Windows PowerShell CDP bridge instead of falling back to Playwright's Chromium. The bridge reads the real Windows Chrome page state, cookies, and localStorage from the Windows side and writes repo-level `creds_latest.json` plus non-secret `session_status.json`.
 - Windows Chrome may ignore a new `--remote-debugging-port` launch when the dedicated GankAIGC profile is already open without CDP. The capture script may stop only Chrome processes whose command line references the dedicated `ZHUQUE_WINDOWS_CHROME_USER_DATA_DIR`/`GankAIGC\ZhuqueChromeProfile` profile or the configured debug port, then relaunch with CDP. It must never kill the user's normal Chrome profile.
@@ -234,12 +235,13 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - 微信扫码凭证 missing/expired -> task `failed`, error mentions WeChat QR login and credential capture guidance.
 - Readiness endpoint credential missing/browser setup incomplete -> HTTP 200 with `ready=false`, `connected=false`, message/actions; it must not throw a blocking 500 for normal user setup issues.
 - Start default remote QR session with missing Playwright package -> `{status:"manual_required", login_mode:"remote_wechat_qr"}` and the frontend modal shows an actionable error instead of pretending a QR exists.
-- Start default remote QR session succeeds -> response includes a per-user `session_id`, `credential_file` under `zhuque_pkg/users/user_<id>/`, and later `login-status` returns `qr_image_data` until `status="logged_in"`; once logged in, `browser/status` reports connected from that same per-user credential file.
+- Start default remote QR session succeeds -> response includes a per-user `session_id`, `credential_file` under `zhuque_pkg/users/user_<id>/`, and later `login-status` returns `qr_image_data` until `status="logged_in"`; once logged in, `browser/status` reports connected from that same per-user credential file. Zhuque can navigate during WeChat OAuth; transient `Page.evaluate: Execution context was destroyed` errors must be retried after `domcontentloaded` instead of failing the QR session.
 - Start real-page session sync with missing Playwright package in `mode="local_window"` -> `{status:"manual_required"}` and command includes `pip install playwright`.
 - Start real-page session sync with missing Chromium/Chrome -> `{status:"manual_required"}` and command includes `playwright install chromium`; do not report `started`. On WSL with Windows Chrome installed, this case should not fire; the launch env should include `ZHUQUE_CHROME_EXECUTABLE=/mnt/c/.../chrome.exe` and `ZHUQUE_CDP_PORT`.
 - Start real-page session sync on WSL with Windows Chrome installed but WSL cannot connect to CDP while Windows can -> enter `windows-powershell-bridge`, keep the Windows Chrome window, and synchronize `connected/ready/user_name/remaining_uses` from PowerShell CDP snapshots.
 - Dedicated Windows Chrome profile already open without CDP -> stop only that dedicated profile, relaunch with `--remote-debugging-port=<ZHUQUE_CDP_PORT>`, and do not fall back to Playwright Chromium.
 - `mode="local_window"` while a visible real-page detector tab is alive -> return `status="reused"` and focus that tab; do not call the capture script or reset the user's cached detector context. No cached visible detector tab -> fall back to the old local-window capture path.
+- Visible local detection with no configured CDP endpoint -> auto-launch/connect system Chrome/Edge/Brave through CDP when available; if no supported browser is found or CDP does not become ready, fall back to the existing Playwright persistent-profile path instead of failing startup.
 - Workspace passive readiness with saved `remaining_uses=20` -> return immediately with `remaining_uses=20`; unknown saved quota -> return `-1` immediately; do not run `peek_remaining_uses()` just to render the status panel. Preflight with valid text -> force a live peek and use the live value when available.
 - User clicks the workspace `已登录` button -> backend starts a remote QR session by default; the current user's `creds_latest.json` remains until a new logged-in snapshot replaces it. Only `mode="local_window"` uses `capture_zhuque_creds.py --sync-session` and deletes credentials after a real Zhuque-page logout.
 - Zhuque page is observed logged out but the immediate snapshot has no quota text -> write logged-out `session_status.json` with the previous known non-negative quota for UI smoothing only; once `Detect now(16 left)` or similar appears, replace it with the live parsed anonymous quota. If the current page only shows a clickable `Detect now` button with no number, treat it as usable-but-sync-pending (`remaining_uses=-1`, `button_enabled=true`) rather than inventing a count.
@@ -270,6 +272,7 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Good: logout sync removes `creds_latest.json` only after real page logout, but keeps `session_status.json.remaining_uses=16` during a transient quota-text gap so the workspace immediately shows `16 次`.
 - Good: WSL launches Windows Chrome, WSL cannot access `127.0.0.1:<port>`, Windows PowerShell can; the bridge reads `userName`, `aiGenAccessToken`, `fp`, cookies, and quota from the Windows page and the workspace updates to connected without opening a second Playwright browser.
 - Good: a Tencent CAPTCHA appears in the visible real-page detector window; clicking the manual verification action focuses that same detector tab and returns `status="reused"` instead of opening a separate Zhuque sync window.
+- Good: on a normal local computer, visible Zhuque detection automatically opens one reusable system Chrome/Edge/Brave CDP window with a stable GankAIGC data directory; the user does not need to know CDP, profile names, or PowerShell commands.
 - Good: passive workspace polling returns the saved quota instantly and does not hang on WebSocket close; task preflight still refreshes the quota before creating a session.
 - Good: QR capture is needed only before credentials exist; subsequent detections use WebSocket API and never need a local browser/debug port.
 - Good: A high-risk session records trace events for initial detect and each reduce/recheck round, including strategy and risk-rate change.
@@ -294,10 +297,11 @@ meta: `↑ ${status?.system?.network?.tx_rate_label || '不可用'} ↓ ${status
 - Retry trace: retrying a failed/stopped `ai_detect_reduce` session removes stale `zhuque_agent_trace.final` but preserves existing compact trace `events`.
 - Pipeline: low-risk skip, high-risk selective rewrite by `segment_labels`, suspicious-label rewrite, no-label fallback, max-round failure, retry from latest reduced text, cumulative retry rounds, and length repair for bloated reduce output.
 - Zhuque API: WebSocket success parsing, label mapping (`0=AI`, `1=human`, `2=suspicious`), and non-terminal frame ignore.
-- Remote QR login: default `browser/start` returns `login_mode="remote_wechat_qr"`, `session_id`, and per-user `credential_file`; `login-status` returns QR image and terminal logged-in/error/expired states; `cancel` closes the session; tests must prove user A/B paths are isolated.
+- Remote QR login: default `browser/start` returns `login_mode="remote_wechat_qr"`, `session_id`, and per-user `credential_file`; `login-status` returns QR image and terminal logged-in/error/expired states; `cancel` closes the session; tests must prove user A/B paths are isolated and OAuth navigation-time `Execution context was destroyed` evaluate failures are retried.
 - Local-window compatibility capture: missing script, missing Playwright, missing browser runtime, subprocess env (`PLAYWRIGHT_BROWSERS_PATH`, per-user `ZHUQUE_CAPTURE_DIR`), explicit `mode="local_window"`, and credential status endpoint connected/disconnected shapes.
 - WSL Windows Chrome capture: test the PowerShell bridge branch does not start Playwright, the dedicated GankAIGC Chrome profile restart targets only that profile/debug port, and no fallback to Playwright occurs after Windows Chrome CDP setup fails.
 - Local-window reuse: test `ZhuqueAPI.focus_cached_page()` selects the live `matrix.tencent.com/ai-detect` tab and that `POST /zhuque/browser/start?mode=local_window` returns `status="reused"` without invoking the capture launcher when a visible detect page exists.
+- Auto system browser detection: test configured `ZHUQUE_DETECT_CDP_ENDPOINT` wins, visible local mode can prefer auto system browser CDP, and disabling `ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER` returns to the previous persistent-profile fallback.
 - API/detail/export: `zhuque_detect_result` is serialized and final text prefers `zhuque_reduced_text`.
 - Project assignment: tests must cover unfiled -> project, project -> unfiled, and rejection of another user's/archived project.
 - AIGC report export: `aigc_report_docx` and `aigc_report_md` return distinct filenames, MIME types, and per-segment AI-rate rows mapped from `segment_labels[].position`; non-Zhuque sessions and missing report metadata return HTTP 400.
@@ -592,4 +596,85 @@ pip install docling torch torchvision
 httpx[socks]==0.27.0
 markitdown[docx,pdf]>=0.1.3,<1.0.0
 python-docx>=1.1.0
+```
+
+---
+
+## Scenario: Zhuque Browser-Agent Transport for VPS
+
+### 1. Scope / Trigger
+
+- Trigger: any backend change to Zhuque transport selection, browser-agent pairing/job APIs, extension polling contracts, or VPS Docker configuration.
+- This is an infra and cross-layer contract spanning environment keys, FastAPI routes, SQLAlchemy models, worker transport, Chrome extension payloads, and workspace status UI.
+
+### 2. Signatures
+
+- Env:
+  - `ZHUQUE_DETECT_TRANSPORT`: `auto | local_browser | browser_agent | server_headless`.
+  - `ZHUQUE_SERVER_HEADLESS_FALLBACK`: boolean; VPS browser-agent mode should keep this `false`.
+  - `ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT`, `ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS`, `ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS`.
+- Web-user API:
+  - `POST /api/browser-agent/pairings` -> `{pairing_id, pairing_code, expires_at}` for the authenticated GankAIGC user.
+  - `GET /api/browser-agent/status` -> `{required, transport, online, agents, message}`.
+  - `POST /api/browser-agent/revoke` accepts `{agent_id}` and revokes only the current user's agent.
+- Extension API:
+  - `POST /api/browser-agent/claim` accepts `{pairing_code, name?, extension_version?, capabilities?}` and returns `{agent_id, agent_token}` exactly once per pairing.
+  - `POST /api/browser-agent/heartbeat` authenticates with the agent token.
+  - `POST /api/browser-agent/jobs/claim` long-polls pending Zhuque jobs for the paired user.
+  - `POST /api/browser-agent/jobs/{job_id}/progress|complete|fail` updates only jobs owned by that agent/user.
+- DB:
+  - `browser_agent_pairings`, `browser_agents`, `zhuque_agent_jobs` are persistent handoff tables. Docker app/worker must never depend on an in-memory queue for browser-agent Zhuque work.
+
+### 3. Contracts
+
+- VPS mode must use `ZHUQUE_DETECT_TRANSPORT=browser_agent` and `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`; do not silently launch server-side Playwright/Chromium for Zhuque detection in this mode.
+- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension.
+- Pairing codes and agent tokens are secret material. Store only HMAC/hash values server-side; return the agent token only from the claim response; support revocation.
+- `BrowserAgentZhuqueTransport.detect()` creates a `zhuque_agent_jobs` row, waits for completion, and normalizes the extension result through the same Zhuque result normalizer used by local detection. Extension payloads with placeholder scores (`rate < 0` or `> 100`), benchmark-table labels, empty segment labels, or example/card text must be rejected before the reduce pipeline consumes them.
+- Extension/manual states are progress states, not immediate failures. `manual_required` should keep the job alive until the user solves Zhuque login/CAPTCHA locally or the configured timeout expires.
+- The extension may open/reuse `https://matrix.tencent.com/ai-detect/` in the user's local Chrome, but backend code must not require public CDP, remote desktop, or `--remote-debugging-port` for VPS browser-agent mode.
+- Full paper text can live in `zhuque_agent_jobs.payload_text` for MVP handoff, but application logs, traces, and progress JSON must avoid logging the full payload.
+
+### 4. Validation & Error Matrix
+
+- No fresh online agent and transport is `browser_agent` -> preflight/start returns an actionable error before spending Zhuque quota or LLM credits.
+- Pairing expired/claimed/invalid -> HTTP 400/404 style error; no token is issued.
+- Revoked agent token -> heartbeat and job claim fail; status reports offline/revoked.
+- Concurrent extension claims -> one job can be claimed once; row lock/atomic update prevents double execution.
+- Job remains `pending/claimed/running/manual_required` beyond timeout -> backend marks it `expired` and returns a timeout message that tells the user to keep Chrome/plugin online and finish Zhuque manual verification.
+- Extension completes with invalid result -> backend normalization rejects it and the session fails with a Zhuque result error rather than saving fake `-100`, `Benchmark`, or `检测中` payloads.
+- VPS browser-agent mode logs show server-side Playwright Zhuque detection -> deployment/config regression.
+
+### 5. Good/Base/Bad Cases
+
+- Good: VPS worker creates one persistent browser-agent job, the user's Chrome extension claims it, reuses the Zhuque tab, returns normalized `rate/labels_ratio/segment_labels`, and the reduce pipeline continues.
+- Good: Workspace shows browser-agent `required=true`, generates a pairing code, then flips from offline to online after heartbeat.
+- Good: User sees a visible Zhuque CAPTCHA in local Chrome; extension sends `manual_required`, the task waits, and completion resumes after the user solves it.
+- Base: Local `python main.py` with `ZHUQUE_DETECT_TRANSPORT=auto` uses the existing local browser path and `GET /api/browser-agent/status` returns `required=false`.
+- Bad: VPS uses `server_headless` or hidden fallback by default, requires public CDP, or asks users to start Chrome with `--remote-debugging-port`.
+- Bad: Extension host permissions use `<all_urls>` or backend logs include full paper text from `payload_text`.
+
+### 6. Tests Required
+
+- Backend tests must cover pairing creation/claim expiry/reuse, token auth, heartbeat freshness, status online/offline, revoke, job claim/progress/complete/fail/expire, ownership checks, and browser-agent transport selection.
+- Zhuque integration tests must keep local-window, remote QR, and local browser behavior passing when browser-agent code exists.
+- Frontend/static tests must assert `browserAgentAPI`, pairing/status/revoke UI strings, `required/offline/online` copy, local-mode copy, and offline preflight blocking.
+- Manual VPS validation must prove no server-headless Zhuque detection starts in `browser_agent` mode and the user's local Chrome performs the Zhuque interaction.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```env
+# VPS default that tends to trigger Zhuque CAPTCHA/fraud controls.
+ZHUQUE_DETECT_TRANSPORT=server_headless
+ZHUQUE_SERVER_HEADLESS_FALLBACK=true
+```
+
+#### Correct
+
+```env
+# VPS recommended path: dispatch to a paired user-local Chrome extension.
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
 ```

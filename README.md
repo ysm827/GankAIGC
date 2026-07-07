@@ -507,6 +507,14 @@ REGISTRATION_ENABLED=true
 WORD_FORMATTER_ENABLED=false
 ADMIN_DATABASE_MANAGER_ENABLED=true
 ADMIN_DATABASE_WRITE_ENABLED=false
+
+# 朱雀检测传输：本机源码/一键包保持 auto；VPS/Docker 推荐 browser_agent。
+ZHUQUE_DETECT_TRANSPORT=auto
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT=900
+ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=30
+ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS=600
+ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
 ```
 
 关键说明：
@@ -515,6 +523,9 @@ ADMIN_DATABASE_WRITE_ENABLED=false
 - `WORD_FORMATTER_ENABLED=false`：不挂载 Word 排版 API，也不会出现在 OpenAPI 文档中。
 - `ADMIN_DATABASE_WRITE_ENABLED=false`：仅控制保留的管理员数据库 API 写入能力；当前后台界面不暴露数据诊断/数据库管理页，生产环境建议保持关闭。
 - `ENCRYPTION_KEY`：用于加密用户保存的自带 API 配置，必须妥善保存。
+- `ZHUQUE_DETECT_TRANSPORT=auto`：本机源码/Windows 一键包默认，自动使用本机可见浏览器检测链路。
+- `ZHUQUE_DETECT_TRANSPORT=browser_agent`：VPS/Docker 推荐模式，朱雀检测由用户本机 Chrome 插件执行。
+- `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`：VPS 推荐保持关闭，避免服务器无头浏览器触发朱雀验证码/风控。
 
 </details>
 
@@ -528,8 +539,90 @@ ADMIN_DATABASE_WRITE_ENABLED=false
 4. 管理员创建或批量生成啤酒兑换码，用户在前台兑换啤酒。
 5. 管理员可在「公告」中用 Markdown 发布维护通知、模型切换通知或使用说明。
 6. 用户进入工作台，选择平台啤酒模式或自带 API 模式。
-7. 提交论文文本，等待任务处理完成。
-8. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
+7. 如使用朱雀 AI 检测/降 AI：本机部署先在工作台点击「朱雀扫码登录」；VPS/browser-agent 部署先按工作台提示生成配对码并连接 Chrome 插件。
+8. 提交论文文本，等待任务处理完成。
+9. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
+
+---
+
+## 🐦 朱雀扫码登录与检测浏览器
+
+GankAIGC 的朱雀登录不是读取用户本机默认 Chrome 的个人 Cookie，而是通过当前 GankAIGC 用户独立保存一份朱雀凭证：
+
+```text
+前端点击「朱雀扫码登录」
+↓
+后端打开朱雀登录页并截取微信二维码
+↓
+前端弹窗展示二维码
+↓
+用户用微信扫码
+↓
+后端保存朱雀 cookie / localStorage 到当前用户目录
+↓
+检测时自动注入这份凭证并复用检测浏览器
+```
+
+凭证默认保存在：
+
+```text
+zhuque_pkg/users/user_<id>/creds_latest.json
+zhuque_pkg/users/user_<id>/browser_state.json
+```
+
+本机可见检测时，系统会自动探测 Chrome / Edge / Brave：
+
+- Windows / WSL：优先使用可控的 Windows Chrome / Edge / Brave 检测窗口。
+- Linux 桌面：自动查找 `/usr/bin/google-chrome`、`chromium`、`microsoft-edge`、`brave-browser` 等常见浏览器。
+- Linux 服务器 / 无桌面：会回退到 Playwright/Chromium；如果朱雀要求人工验证码，需要 VNC/X11/远程桌面等可视化环境。
+
+普通用户不需要手动运行 `--remote-debugging-port`，也不需要查 Chrome Profile。日常只需：
+
+1. 在前端扫码登录朱雀。
+2. 直接开始检测/降 AI。
+3. 如遇验证码，在自动打开的朱雀检测窗口里完成验证；该窗口会尽量复用。
+4. 如果检测窗口卡住或状态异常，关闭该检测窗口后重新开始检测即可。
+
+### VPS / Docker：使用 Chrome 插件执行朱雀检测
+
+VPS 上不要把朱雀检测交给服务器无头 Chromium。朱雀会识别 VPS/headless 环境并触发验证码/风控，导致 `AI检测 + 降重` 不稳定。VPS 推荐使用 browser-agent：服务器只创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面并把结果回传。
+
+VPS `.env.docker` 推荐配置：
+
+```properties
+ZHUQUE_DETECT_TRANSPORT=browser_agent
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+ZHUQUE_BROWSER_AGENT_JOB_TIMEOUT=900
+ZHUQUE_BROWSER_AGENT_HEARTBEAT_TIMEOUT=30
+ZHUQUE_BROWSER_AGENT_PAIRING_TTL_SECONDS=600
+ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
+INLINE_TASK_WORKER_ENABLED=false
+```
+
+用户连接流程：
+
+1. 在 Chrome 打开 `chrome://extensions`，开启开发者模式。
+2. 加载项目里的 `browser-extension/` 目录。
+3. 在 GankAIGC 工作台选择 `AI检测 + 降重`，点击「生成配对码」。
+4. 打开插件弹窗，填写 VPS 站点地址、配对码和设备名。
+5. 工作台显示「插件在线」后再提交任务。
+6. 插件会打开或复用本机 `https://matrix.tencent.com/ai-detect/`；如朱雀要求登录或验证码，在该本机页面完成即可。
+
+安全边界：browser-agent 不需要公开 Chrome DevTools Protocol，不需要在用户电脑上手动启动 `--remote-debugging-port`，插件权限只应覆盖你的 GankAIGC 站点和 `https://matrix.tencent.com/*`，不要配置 `<all_urls>`。
+
+本机源码运行、Windows 一键包或带桌面的个人电脑部署，继续使用 `ZHUQUE_DETECT_TRANSPORT=auto` 或显式 `local_browser`，无需安装插件。
+
+高级部署可通过环境变量覆盖自动行为：
+
+```properties
+ZHUQUE_DETECT_HEADLESS=false
+ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true
+ZHUQUE_DETECT_CDP_ENDPOINT=
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=
+ZHUQUE_DETECT_BROWSER_USER_DATA_DIR=
+```
+
+安全说明：GankAIGC 不会无授权读取用户默认浏览器的个人登录态，避免误读或泄露其他网站 Cookie。
 
 ---
 
