@@ -144,6 +144,26 @@ Windows 一键整合包：
 4. 后台密码会显示在窗口中，并保存到 `logs/first-run-admin.txt`。
 5. 停止服务双击 `stop.bat`。
 
+源码本地测试常用命令：
+
+```bash
+cd /home/dev/code/GankAIGC
+docker compose --env-file .env.docker -f docker-compose.yml -f docker-compose.local.yml up -d postgres
+
+cd /home/dev/code/GankAIGC/package
+source venv/bin/activate
+lsof -ti :9800 | xargs -r kill
+sleep 1
+lsof -ti :9800 | xargs -r kill -9
+python main.py
+```
+
+访问：
+
+```text
+http://127.0.0.1:9800
+```
+
 ### 配置文件说明
 
 `.env` 文件会保存在可执行文件同目录下。数据库只支持 PostgreSQL，请在 `.env` 中配置 `DATABASE_URL`。

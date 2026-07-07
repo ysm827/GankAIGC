@@ -264,6 +264,16 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 #### 5）启动项目
 
+如果 `9800` 已被旧进程占用，先释放端口：
+
+```bash
+lsof -ti :9800 | xargs -r kill
+sleep 1
+lsof -ti :9800 | xargs -r kill -9
+```
+
+启动：
+
 ```bash
 python main.py
 ```
@@ -272,7 +282,46 @@ python main.py
 
 ```text
 http://localhost:9800
+# 或
+http://127.0.0.1:9800
 ```
+
+#### 6）本地测试朱雀 AI 检测/降重
+
+本机源码运行和 Windows 一键包默认不需要安装 Chrome 插件。建议确认 `package/.env` 中朱雀配置如下：
+
+```env
+ZHUQUE_DETECT_TRANSPORT=auto
+ZHUQUE_DETECT_HEADLESS=false
+ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true
+ZHUQUE_SERVER_HEADLESS_FALLBACK=false
+```
+
+进入工作台后：
+
+```text
+选择「AI检测 + 降重」
+↓
+点击「打开朱雀页面」
+↓
+系统会打开/聚焦一个本机可见朱雀窗口，默认优先 Windows Chrome / Edge / Brave
+↓
+在朱雀窗口登录或完成验证码
+↓
+回到 GankAIGC，点击剩余次数右侧刷新按钮
+↓
+确认「朱雀账号」和「剩余次数」已同步，再提交任务
+```
+
+如果想强制指定浏览器，可在 `package/.env` 写入：
+
+```env
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe
+# 或
+ZHUQUE_DETECT_BROWSER_EXECUTABLE=/mnt/c/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe
+```
+
+本地打开的朱雀窗口是 GankAIGC 托管的检测窗口，不是 VPS browser-agent 插件窗口，也不会要求安装插件。
 
 </details>
 
