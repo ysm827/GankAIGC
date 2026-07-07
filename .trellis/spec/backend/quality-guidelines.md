@@ -472,15 +472,16 @@ response = await client.post(
 
 ### 1. Scope / Trigger
 
-- Trigger: any change to document upload parsing, `POST /api/optimization/parse-document`, `POST /api/optimization/start`, Zhuque detect/reduce segment selection, `OptimizationSession`/`OptimizationSegment` metadata, PDF/DOCX dependencies, or trace events for `ai_detect_reduce`.
+- Trigger: any change to document upload parsing, `POST /api/optimization/documents/parse`, `POST /api/optimization/start`, admin document-parse config (`GET/POST /api/admin/config` `document_parse` block), Zhuque detect/reduce segment selection, `OptimizationSession`/`OptimizationSegment` metadata, PDF/DOCX/TXT dependencies, or trace events for `ai_detect_reduce`.
 - This is a cross-layer contract: backend config, API payloads, DB columns, service selection logic, frontend start payloads, static bundle sync, and tests must stay aligned.
 
 ### 2. Signatures
 
 - Config keys:
   - `DOCX_STRUCTURE_ENGINE=python_docx`.
-  - `PDF_STRUCTURE_ENGINE=mineru` by default, with `PDF_STRUCTURE_FALLBACK_ENGINE=markitdown`.
+  - `PDF_STRUCTURE_ENGINE=mineru` by default, with `markitdown` as the supported bypass/fallback engine.
   - MinerU settings are `MINERU_BASE_URL`, `MINERU_API_TOKEN`, `MINERU_MODEL_VERSION`, `MINERU_ENABLE_FORMULA`, `MINERU_ENABLE_TABLE`, `MINERU_IS_OCR`, `MINERU_LANGUAGE`, `MINERU_TIMEOUT_SECONDS`, and `MINERU_POLL_INTERVAL_SECONDS`.
+  - Admin `GET /api/admin/config` exposes these under `document_parse` with token summary fields only: `mineru_api_token_set` and `mineru_api_token_last4`. Full `MINERU_API_TOKEN` must never be returned to the frontend. Admin `POST /api/admin/config` accepts the raw Settings names; an empty `MINERU_API_TOKEN` is a no-op and must not clear the stored token.
 - API response from `POST /api/optimization/parse-document` includes:
   - `text`, `parser`, `segments`, `structure_summary`, `document_format`, `parse_engine`, `parse_fallback_used`, `parse_trace`.
   - Each segment includes `text`, `semantic_type`, `semantic_source`, `semantic_confidence`, `reduce_allowed`, `semantic_reason`, `char_start`, `char_end`, optional `page_number`, optional `bbox_json`.
@@ -508,6 +509,8 @@ response = await client.post(
   - `Heading 1` through `Heading 4` -> `SECTION_HEADING` unless text rules identify a more specific protected semantic type.
   - `TOC 1` through `TOC 4` -> `TOC_ITEM`.
   - headers/footers -> `HEADER_FOOTER`.
+- TXT uploads are first-class lightweight document uploads. They decode via `utf-8-sig`, `utf-8`, then `gb18030`, then replacement mode, and return `parser="plain_text"`, `document_format="txt"`, and `parse_engine="plain_text"`. TXT must not call MinerU or MarkItDown.
+- Old Word `.doc` uploads remain unsupported; reject them with a conversion hint to save as `.docx` rather than introducing LibreOffice or speculative MinerU handling.
 - Allowed rewrite semantic types are only `BODY` and `MIXED_HEADING_BODY`.
 - Protected semantic types include `TITLE`, `SECTION_HEADING`, `ABSTRACT_HEADING`, `ABSTRACT_BODY`, `KEYWORDS`, `TOC_HEADING`, `TOC_ITEM`, `ACK_HEADING`, `ACK_BODY`, `REFERENCE_HEADING`, `REFERENCE_ITEM`, `TABLE`, `CAPTION`, `FORMULA`, `META`, `HEADER_FOOTER`, `SHORT_TEXT`, and `UNKNOWN_PROTECTED`.
 - Zhuque `segment_labels` remain the first gate. Local semantic metadata is the second gate. A segment may be rewritten only when Zhuque maps it as AI/suspicious and `reduce_allowed=true`.
@@ -521,6 +524,8 @@ response = await client.post(
 - PDF MinerU fails -> `parse_engine="markitdown"`, `parse_fallback_used=true`, warning mentions MinerU and MarkItDown fallback, segments carry text-rule semantic metadata.
 - PDF with `PDF_STRUCTURE_ENGINE=markitdown` -> MarkItDown succeeds with `parse_fallback_used=false`. MarkItDown extraction errors should return the existing PDF parse failure.
 - DOCX with Word styles -> styled headings/TOC/header/footer are protected even when the raw text could look like ordinary short paragraphs.
+- TXT upload -> local plain-text parse succeeds with `parse_engine="plain_text"`; a `.doc` upload fails with a specific `.docx` conversion hint.
+- Admin document-parse config -> `GET /api/admin/config` returns no full MinerU token; `POST /api/admin/config` with empty `MINERU_API_TOKEN` preserves the existing token and validates `PDF_STRUCTURE_ENGINE` as `mineru` or `markitdown`.
 - Manual text or legacy sessions without stored semantic fields -> classify with reusable text-rule semantics at runtime; historical sessions must still process.
 - Zhuque label maps to `ABSTRACT_BODY`/`TOC_ITEM`/`REFERENCE_ITEM` only -> selected count is zero and no full-document fallback rewrite occurs.
 - Zhuque label maps to `BODY` with sufficient confidence/overlap -> only that body segment is charged and rewritten.
@@ -532,6 +537,7 @@ response = await client.post(
 - Good: a PDF upload parses through MinerU into paragraph/structure-aware segments; Zhuque reports high AI over the whole document, but only `BODY`/`MIXED_HEADING_BODY` Zhuque-hit segments run polish/enhance.
 - Good: MinerU is unavailable or unconfigured; the UI explicitly shows MarkItDown fallback and lower structure precision instead of hiding the downgrade.
 - Good: a DOCX `Heading 2` paragraph and `TOC 1` entries are protected from rewrite while following body paragraphs remain eligible.
+- Good: a TXT upload imports plain text through the same segment contract without MinerU cost, while `.doc` receives a clear “save as .docx” error.
 - Base: pasted plain text has no structure metadata; start creates fallback parsed segments and applies text-rule semantics.
 - Bad: joining the whole paper as one paragraph before Zhuque selection, then treating one full-text Zhuque hit as permission to rewrite the entire paper.
 - Bad: filtering out abstract/references before Zhuque detection and then presenting the result as the full-text Zhuque rate.
@@ -548,7 +554,9 @@ response = await client.post(
   - MinerU service protocol test covers v4 upload URL, PUT upload, poll result, ZIP download, and `*_content_list.json` extraction without real network.
   - PDF MarkItDown explicit mode returns `parse_engine="markitdown"` and `parse_fallback_used=false`.
   - PDF soft-wrap line merge preserves paragraph-like body segments.
+  - TXT upload returns `parser="plain_text"`, `document_format="txt"`, and `parse_engine="plain_text"`; `.doc` upload returns the `.docx` conversion hint.
   - Manual/plain text fallback classification.
+  - Admin config tests cover `document_parse` token masking, empty `MINERU_API_TOKEN` no-op behavior, and `PDF_STRUCTURE_ENGINE` validation.
 - Zhuque integration tests:
   - `segment_labels` AI/suspicious mapping plus semantic gate selects only body segments.
   - Protected front/back matter is filtered and summarized in trace.

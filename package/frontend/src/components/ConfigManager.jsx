@@ -12,6 +12,7 @@ import {
   Fingerprint,
   Gauge,
   SlidersHorizontal,
+  FileText,
 } from 'lucide-react';
 import ApiConfigGuide from './ApiConfigGuide';
 
@@ -30,7 +31,8 @@ const ConfigManager = ({ adminToken }) => {
     polish: { set: false, last4: '' },
     enhance: { set: false, last4: '' },
     emotion: { set: false, last4: '' },
-    compression: { set: false, last4: '' }
+    compression: { set: false, last4: '' },
+    mineru: { set: false, last4: '' }
   });
 
   const [formData, setFormData] = useState({
@@ -60,7 +62,17 @@ const ConfigManager = ({ adminToken }) => {
     AUTH_RATE_LIMIT_PER_MINUTE: '',
     REDEEM_RATE_LIMIT_PER_MINUTE: '',
     THINKING_MODE_ENABLED: true,
-    THINKING_MODE_EFFORT: 'high'
+    THINKING_MODE_EFFORT: 'high',
+    PDF_STRUCTURE_ENGINE: 'mineru',
+    MINERU_BASE_URL: 'https://mineru.net',
+    MINERU_API_TOKEN: '',
+    MINERU_MODEL_VERSION: 'vlm',
+    MINERU_ENABLE_FORMULA: true,
+    MINERU_ENABLE_TABLE: true,
+    MINERU_IS_OCR: false,
+    MINERU_LANGUAGE: 'ch',
+    MINERU_TIMEOUT_SECONDS: '300',
+    MINERU_POLL_INTERVAL_SECONDS: '2.0'
   });
 
   useEffect(() => {
@@ -90,6 +102,10 @@ const ConfigManager = ({ adminToken }) => {
         compression: {
           set: Boolean(response.data.compression?.api_key_set),
           last4: response.data.compression?.api_key_last4 || ''
+        },
+        mineru: {
+          set: Boolean(response.data.document_parse?.mineru_api_token_set),
+          last4: response.data.document_parse?.mineru_api_token_last4 || ''
         }
       });
 
@@ -120,7 +136,17 @@ const ConfigManager = ({ adminToken }) => {
         AUTH_RATE_LIMIT_PER_MINUTE: response.data.security?.auth_rate_limit_per_minute?.toString() || '',
         REDEEM_RATE_LIMIT_PER_MINUTE: response.data.security?.redeem_rate_limit_per_minute?.toString() || '',
         THINKING_MODE_ENABLED: response.data.thinking?.enabled ?? true,
-        THINKING_MODE_EFFORT: response.data.thinking?.effort || 'high'
+        THINKING_MODE_EFFORT: response.data.thinking?.effort || 'high',
+        PDF_STRUCTURE_ENGINE: response.data.document_parse?.pdf_structure_engine || 'mineru',
+        MINERU_BASE_URL: response.data.document_parse?.mineru_base_url || 'https://mineru.net',
+        MINERU_API_TOKEN: '',
+        MINERU_MODEL_VERSION: response.data.document_parse?.mineru_model_version || 'vlm',
+        MINERU_ENABLE_FORMULA: response.data.document_parse?.mineru_enable_formula ?? true,
+        MINERU_ENABLE_TABLE: response.data.document_parse?.mineru_enable_table ?? true,
+        MINERU_IS_OCR: response.data.document_parse?.mineru_is_ocr ?? false,
+        MINERU_LANGUAGE: response.data.document_parse?.mineru_language || 'ch',
+        MINERU_TIMEOUT_SECONDS: response.data.document_parse?.mineru_timeout_seconds?.toString() || '300',
+        MINERU_POLL_INTERVAL_SECONDS: response.data.document_parse?.mineru_poll_interval_seconds?.toString() || '2.0'
       });
     } catch (error) {
       toast.error('获取配置失败');
@@ -221,6 +247,14 @@ const ConfigManager = ({ adminToken }) => {
     } finally {
       setFetchingModels(false);
     }
+  };
+
+  const getMineruTokenPlaceholder = () => {
+    const status = keyStatus.mineru;
+    if (status?.set) {
+      return status.last4 ? `已配置，后四位 ${status.last4}；留空则不修改` : '已配置；留空则不修改';
+    }
+    return 'mineru API token';
   };
 
   const getApiKeyPlaceholder = (stage) => {
@@ -530,6 +564,124 @@ const ConfigManager = ({ adminToken }) => {
             </label>
           </div>
         </div>
+      </div>
+
+      <div className="aurora-admin-card aurora-config-card p-6">
+        <div className="aurora-config-card-title">
+          <span className="aurora-config-title-icon aurora-config-title-icon-feature">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div>
+            <h3>文档解析设置</h3>
+            <p className="mt-1 text-xs text-slate-500">支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT；MinerU 当前主要用于 PDF 高精度结构解析。</p>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <label>
+            <span>PDF 解析引擎</span>
+            <select
+              value={formData.PDF_STRUCTURE_ENGINE}
+              onChange={(e) => setFormData({ ...formData, PDF_STRUCTURE_ENGINE: e.target.value })}
+              className="aurora-admin-input"
+              aria-label="PDF 解析引擎"
+            >
+              <option value="mineru">MinerU 高精度解析</option>
+              <option value="markitdown">MarkItDown 本地解析</option>
+            </select>
+          </label>
+          <label>
+            <span>MinerU Base URL</span>
+            <input
+              type="text"
+              value={formData.MINERU_BASE_URL}
+              onChange={(e) => setFormData({ ...formData, MINERU_BASE_URL: e.target.value })}
+              placeholder="https://mineru.net"
+              className="aurora-admin-input font-mono"
+            />
+          </label>
+          <label>
+            <span>MinerU API Token</span>
+            <input
+              type="password"
+              value={formData.MINERU_API_TOKEN}
+              onChange={(e) => setFormData({ ...formData, MINERU_API_TOKEN: e.target.value })}
+              placeholder={getMineruTokenPlaceholder()}
+              className="aurora-admin-input font-mono"
+            />
+          </label>
+          <label>
+            <span>MinerU 模型版本</span>
+            <input
+              type="text"
+              value={formData.MINERU_MODEL_VERSION}
+              onChange={(e) => setFormData({ ...formData, MINERU_MODEL_VERSION: e.target.value })}
+              placeholder="vlm"
+              className="aurora-admin-input font-mono"
+            />
+          </label>
+          <label>
+            <span>语言</span>
+            <input
+              type="text"
+              value={formData.MINERU_LANGUAGE}
+              onChange={(e) => setFormData({ ...formData, MINERU_LANGUAGE: e.target.value })}
+              placeholder="ch"
+              className="aurora-admin-input font-mono"
+            />
+          </label>
+          <label>
+            <span>解析超时</span>
+            <div className="aurora-config-unit-input">
+              <input
+                type="number"
+                min="1"
+                value={formData.MINERU_TIMEOUT_SECONDS}
+                onChange={(e) => setFormData({ ...formData, MINERU_TIMEOUT_SECONDS: e.target.value })}
+                className="aurora-admin-input"
+              />
+              <strong>秒</strong>
+            </div>
+          </label>
+          <label>
+            <span>轮询间隔</span>
+            <div className="aurora-config-unit-input">
+              <input
+                type="number"
+                min="0.5"
+                step="0.5"
+                value={formData.MINERU_POLL_INTERVAL_SECONDS}
+                onChange={(e) => setFormData({ ...formData, MINERU_POLL_INTERVAL_SECONDS: e.target.value })}
+                className="aurora-admin-input"
+              />
+              <strong>秒</strong>
+            </div>
+          </label>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[
+            ['启用公式解析', 'MINERU_ENABLE_FORMULA'],
+            ['启用表格解析', 'MINERU_ENABLE_TABLE'],
+            ['OCR 识别', 'MINERU_IS_OCR'],
+          ].map(([title, key]) => {
+            const enabled = Boolean(formData[key]);
+            return (
+              <div key={key} className="aurora-config-feature-switch rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+                <div><strong>{title}</strong></div>
+                <button
+                  type="button"
+                  className={enabled ? 'is-on' : ''}
+                  aria-pressed={enabled}
+                  onClick={() => setFormData({ ...formData, [key]: !formData[key] })}
+                >
+                  <span />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-xs leading-6 text-blue-700">
+          MinerU 官方支持 PDF、DOCX、PPTX、XLSX、图片和网页；当前 GankAIGC 默认仅将 MinerU 用于 PDF，Word(.docx)、Markdown、TXT 使用本地解析链路，速度更快且不消耗 MinerU 额度。
+        </p>
       </div>
 
       <div className="aurora-admin-card aurora-config-feature-card p-6">

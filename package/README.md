@@ -195,6 +195,8 @@ ZHUQUE_DETECT_BROWSER_USER_DATA_DIR=
 
 GankAIGC 不会无授权读取默认浏览器的个人 Cookie，避免误读或泄露其他网站登录态。
 
+文档上传支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT。后台「系统配置 → 文档解析设置」可直接配置 MinerU Token、Base URL、PDF 解析引擎、OCR/表格/公式等选项；MinerU 当前主要用于 PDF 高精度解析，Word(.docx)、Markdown、TXT 默认使用本地解析链路。
+
 Docker 更新采用手动 SSH 模式：后台只检测 GitHub Release 并提供复制命令，不直接控制 Docker，也不挂载 Docker socket。VPS 上升级通常执行：
 
 ```bash

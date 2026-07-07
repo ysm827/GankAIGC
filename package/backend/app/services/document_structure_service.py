@@ -294,11 +294,23 @@ class DocumentStructureService:
                 parse_engine="markdown",
                 trace={"engine": "markdown"},
             )
+        if extension == ".txt":
+            text, warnings = decode_plain_text_upload(content)
+            normalized = normalize_parsed_document_text(text)
+            return build_parsed_document_from_text(
+                normalized,
+                parser="plain_text",
+                document_format="txt",
+                semantic_source=SEMANTIC_SOURCE_MANUAL_TEXT_RULE,
+                warnings=warnings,
+                parse_engine="plain_text",
+                trace={"engine": "plain_text"},
+            )
         if extension == ".docx":
             return self._parse_docx(content)
         if extension == ".pdf":
             return self._parse_pdf(content, filename or "paper.pdf")
-        raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown) 文件")
+        raise HTTPException(status_code=400, detail="仅支持上传 PDF(.pdf)、Word(.docx)、Markdown(.md/.markdown) 和 TXT(.txt) 文件")
 
     def classify_manual_text(self, text: str) -> ParsedDocument:
         normalized = normalize_parsed_document_text(text)
@@ -981,15 +993,23 @@ def mineru_bbox_json(item: Dict[str, Any]) -> str:
     return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
 
 
-def decode_markdown_upload(content: bytes) -> Tuple[str, List[str]]:
+def decode_text_upload(content: bytes, label: str) -> Tuple[str, List[str]]:
     warnings: List[str] = []
     for encoding in ("utf-8-sig", "utf-8", "gb18030"):
         try:
             return content.decode(encoding), warnings
         except UnicodeDecodeError:
             continue
-    warnings.append("Markdown 文件编码无法准确识别，已使用替换模式读取")
+    warnings.append(f"{label} 文件编码无法准确识别，已使用替换模式读取")
     return content.decode("utf-8", errors="replace"), warnings
+
+
+def decode_markdown_upload(content: bytes) -> Tuple[str, List[str]]:
+    return decode_text_upload(content, "Markdown")
+
+
+def decode_plain_text_upload(content: bytes) -> Tuple[str, List[str]]:
+    return decode_text_upload(content, "TXT")
 
 
 def parse_document_with_markitdown(content: bytes, extension: str) -> ParsedDocument:

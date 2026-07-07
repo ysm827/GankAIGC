@@ -1221,6 +1221,65 @@ def test_admin_config_exposes_registration_enabled(client, monkeypatch):
     assert response.json()["system"]["registration_enabled"] is False
 
 
+def test_admin_config_manages_document_parse_settings_without_leaking_mineru_token(client, monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join([
+            "APP_ENV=development",
+            "SECRET_KEY=test-secret-key",
+            "ADMIN_PASSWORD=test-admin-password",
+            "MINERU_API_TOKEN=old-mineru-token",
+            "PDF_STRUCTURE_ENGINE=mineru",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "get_env_file_path", lambda: str(env_file))
+    monkeypatch.setattr(config_module.settings, "APP_ENV", "development")
+    monkeypatch.setattr(config_module.settings, "SECRET_KEY", "test-secret-key")
+    monkeypatch.setattr(config_module.settings, "ADMIN_PASSWORD", "test-admin-password")
+    monkeypatch.setattr(config_module.settings, "MINERU_API_TOKEN", "old-mineru-token", raising=False)
+    monkeypatch.setattr(config_module.settings, "PDF_STRUCTURE_ENGINE", "mineru", raising=False)
+
+    get_response = client.get("/api/admin/config", headers=_admin_auth_headers(client))
+    assert get_response.status_code == 200
+    document_parse = get_response.json()["document_parse"]
+    assert document_parse["mineru_api_token_set"] is True
+    assert document_parse["mineru_api_token_last4"] == "oken"
+    assert "old-mineru-token" not in str(document_parse)
+
+    update_response = client.post(
+        "/api/admin/config",
+        json={
+            "PDF_STRUCTURE_ENGINE": "markitdown",
+            "MINERU_BASE_URL": "https://mineru.example",
+            "MINERU_API_TOKEN": "",
+            "MINERU_MODEL_VERSION": "vlm",
+            "MINERU_ENABLE_FORMULA": "false",
+            "MINERU_ENABLE_TABLE": "true",
+            "MINERU_IS_OCR": "true",
+            "MINERU_LANGUAGE": "ch",
+            "MINERU_TIMEOUT_SECONDS": "180",
+            "MINERU_POLL_INTERVAL_SECONDS": "1.5",
+        },
+        headers=_admin_auth_headers(client),
+    )
+    assert update_response.status_code == 200
+    env_text = env_file.read_text(encoding="utf-8")
+    assert "PDF_STRUCTURE_ENGINE=markitdown" in env_text
+    assert "MINERU_BASE_URL=https://mineru.example" in env_text
+    assert "MINERU_API_TOKEN=old-mineru-token" in env_text
+    assert config_module.settings.PDF_STRUCTURE_ENGINE == "markitdown"
+    assert config_module.settings.MINERU_API_TOKEN == "old-mineru-token"
+
+    invalid_response = client.post(
+        "/api/admin/config",
+        json={"PDF_STRUCTURE_ENGINE": "docx_mineru"},
+        headers=_admin_auth_headers(client),
+    )
+    assert invalid_response.status_code == 400
+    assert invalid_response.json()["detail"] == "PDF 解析引擎仅支持 mineru 或 markitdown"
+
+
 def test_admin_database_manager_reports_read_only_and_sanitizes_records(client):
     from app.database import SessionLocal
     from app.models.models import OptimizationSession, User

@@ -508,6 +508,18 @@ WORD_FORMATTER_ENABLED=false
 ADMIN_DATABASE_MANAGER_ENABLED=true
 ADMIN_DATABASE_WRITE_ENABLED=false
 
+# 文档解析：PDF 默认使用 MinerU 精准解析；Word(.docx)/Markdown/TXT 使用本地解析。
+PDF_STRUCTURE_ENGINE=mineru
+MINERU_BASE_URL=https://mineru.net
+MINERU_API_TOKEN=
+MINERU_MODEL_VERSION=vlm
+MINERU_ENABLE_FORMULA=true
+MINERU_ENABLE_TABLE=true
+MINERU_IS_OCR=false
+MINERU_LANGUAGE=ch
+MINERU_TIMEOUT_SECONDS=300
+MINERU_POLL_INTERVAL_SECONDS=2.0
+
 # 朱雀检测传输：本机源码/一键包保持 auto；VPS/Docker 推荐 browser_agent。
 ZHUQUE_DETECT_TRANSPORT=auto
 ZHUQUE_SERVER_HEADLESS_FALLBACK=false
@@ -523,6 +535,7 @@ ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
 - `WORD_FORMATTER_ENABLED=false`：不挂载 Word 排版 API，也不会出现在 OpenAPI 文档中。
 - `ADMIN_DATABASE_WRITE_ENABLED=false`：仅控制保留的管理员数据库 API 写入能力；当前后台界面不暴露数据诊断/数据库管理页，生产环境建议保持关闭。
 - `ENCRYPTION_KEY`：用于加密用户保存的自带 API 配置，必须妥善保存。
+- 后台「系统配置 → 文档解析设置」可直接配置 MinerU Token、Base URL、PDF 解析引擎、OCR/表格/公式等选项；MinerU 当前主要用于 PDF，Word(.docx)、Markdown、TXT 使用本地解析链路。
 - `ZHUQUE_DETECT_TRANSPORT=auto`：本机源码/Windows 一键包默认，自动使用本机可见浏览器检测链路。
 - `ZHUQUE_DETECT_TRANSPORT=browser_agent`：VPS/Docker 推荐模式，朱雀检测由用户本机 Chrome 插件执行。
 - `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`：VPS 推荐保持关闭，避免服务器无头浏览器触发朱雀验证码/风控。
@@ -540,8 +553,9 @@ ZHUQUE_BROWSER_AGENT_LONG_POLL_SECONDS=25
 5. 管理员可在「公告」中用 Markdown 发布维护通知、模型切换通知或使用说明。
 6. 用户进入工作台，选择平台啤酒模式或自带 API 模式。
 7. 如使用朱雀 AI 检测/降 AI：本机部署先在工作台点击「朱雀扫码登录」；VPS/browser-agent 部署先按工作台提示生成配对码并连接 Chrome 插件。
-8. 提交论文文本，等待任务处理完成。
-9. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
+8. 可直接粘贴论文，或上传 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT 文档自动解析到输入框。
+9. 提交论文文本，等待任务处理完成。
+10. 查看分段结果、改写记录，并导出 `.docx` 或 `.md`。
 
 ---
 

@@ -95,6 +95,25 @@ def test_parse_markdown_document_upload_returns_editable_text(client):
     assert payload["char_count"] > 0
 
 
+def test_parse_txt_document_upload_returns_plain_text(client):
+    _, token = _create_user(credit_balance=0)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.txt", "标题\n\n正文段落".encode("gb18030"), "text/plain")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"] == "paper.txt"
+    assert payload["parser"] == "plain_text"
+    assert payload["document_format"] == "txt"
+    assert payload["parse_engine"] == "plain_text"
+    assert payload["text"] == "标题\n\n正文段落"
+    assert payload["char_count"] > 0
+
+
 def test_parse_document_upload_zero_config_falls_back_to_default_limit(client, monkeypatch):
     from app.routes import optimization
 
@@ -712,12 +731,25 @@ def test_parse_document_upload_rejects_unsupported_file_type(client):
 
     response = client.post(
         "/api/optimization/documents/parse",
-        files={"file": ("paper.txt", b"text", "text/plain")},
+        files={"file": ("paper.xlsx", b"xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 400
-    assert "Word(.docx)、PDF(.pdf) 和 Markdown" in response.json()["detail"]
+    assert "PDF(.pdf)、Word(.docx)、Markdown(.md/.markdown) 和 TXT(.txt)" in response.json()["detail"]
+
+
+def test_parse_doc_document_upload_rejects_with_conversion_hint(client):
+    _, token = _create_user(credit_balance=0)
+
+    response = client.post(
+        "/api/optimization/documents/parse",
+        files={"file": ("paper.doc", b"doc", "application/msword")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "暂不支持老版 Word(.doc)，请另存为 .docx 后上传"
 
 
 def test_platform_mode_holds_character_based_credits_before_processing(client, monkeypatch):

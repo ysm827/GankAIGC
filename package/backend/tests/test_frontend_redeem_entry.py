@@ -1439,7 +1439,7 @@ def test_workspace_shows_zhuque_readiness_and_preflight_agent_state():
     assert "检测后同步|未知|不可用" in workspace
 
 
-def test_workspace_supports_word_pdf_and_markdown_document_upload():
+def test_workspace_supports_word_pdf_markdown_and_txt_document_upload():
     workspace = (FRONTEND_SRC / "pages" / "WorkspacePage.jsx").read_text(encoding="utf-8")
     api = (FRONTEND_SRC / "api" / "index.js").read_text(encoding="utf-8")
 
@@ -1447,15 +1447,16 @@ def test_workspace_supports_word_pdf_and_markdown_document_upload():
     assert "/optimization/documents/parse" in api
     assert "FormData" in workspace
     assert "optimizationAPI.parseDocument(formData)" in workspace
-    assert "accept=\".docx,.pdf,.md,.markdown" in workspace
+    assert "accept=\".pdf,.docx,.md,.markdown,.txt" in workspace
     assert "上传文件" in workspace
-    assert "仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown)" in workspace
+    assert "仅支持上传 PDF(.pdf)、Word(.docx)、Markdown(.md/.markdown) 和 TXT(.txt)" in workspace
     assert "setText(parsed.text || '')" in workspace
     assert "getDocumentTitleFromFilename" in workspace
     assert "application/pdf" in workspace
     assert "已使用 MinerU 高精度解析" in workspace
     assert "已回退 MarkItDown" in workspace
     assert "结构识别精度会降低" in workspace
+    assert "上传 PDF、Word(.docx)、Markdown(.md/.markdown) 或 TXT" in workspace
 
 
 def test_session_detail_shows_zhuque_agent_trace():
@@ -1722,6 +1723,31 @@ def test_config_manager_security_card_uses_real_settings_not_fake_switches():
     assert '"user_token_expire_minutes": settings.USER_ACCESS_TOKEN_EXPIRE_MINUTES' in admin_routes
     assert '"auth_rate_limit_per_minute": settings.AUTH_RATE_LIMIT_PER_MINUTE' in admin_routes
     assert '"redeem_rate_limit_per_minute": settings.REDEEM_RATE_LIMIT_PER_MINUTE' in admin_routes
+
+def test_config_manager_exposes_document_parse_settings_without_word_formatter_file_size():
+    config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")
+    admin_routes = (PACKAGE_ROOT / "backend" / "app" / "routes" / "admin.py").read_text(encoding="utf-8")
+
+    assert "文档解析设置" in config_manager
+    assert "PDF_STRUCTURE_ENGINE" in config_manager
+    assert "MINERU_BASE_URL" in config_manager
+    assert "MINERU_API_TOKEN" in config_manager
+    assert "MINERU_MODEL_VERSION" in config_manager
+    assert "MINERU_ENABLE_FORMULA" in config_manager
+    assert "MINERU_ENABLE_TABLE" in config_manager
+    assert "MINERU_IS_OCR" in config_manager
+    assert "MINERU_LANGUAGE" in config_manager
+    assert "MINERU_TIMEOUT_SECONDS" in config_manager
+    assert "MINERU_POLL_INTERVAL_SECONDS" in config_manager
+    assert "getMineruTokenPlaceholder" in config_manager
+    assert "支持 PDF、Word(.docx)、Markdown(.md/.markdown)、TXT" in config_manager
+    assert "Word(.docx)、Markdown、TXT 使用本地解析链路" in config_manager
+    assert "document_parse" in admin_routes
+    assert "mineru_api_token_set" in admin_routes
+    assert "mineru_api_token_last4" in admin_routes
+    assert "SECRET_CONFIG_FIELDS" in admin_routes
+    assert "PDF 解析引擎仅支持 mineru 或 markitdown" in admin_routes
+
 
 def test_config_manager_hides_word_formatter_file_size_setting_until_feature_is_ready():
     config_manager = (FRONTEND_SRC / "components" / "ConfigManager.jsx").read_text(encoding="utf-8")

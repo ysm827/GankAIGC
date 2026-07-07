@@ -54,7 +54,7 @@ router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 ONLINE_USER_WINDOW_SECONDS = 60
 DOCUMENT_UPLOAD_READ_CHUNK_SIZE = 1024 * 1024
-DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".pdf", ".md", ".markdown"}
+DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".pdf", ".md", ".markdown", ".txt"}
 DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
@@ -166,12 +166,14 @@ def _document_upload_extension(filename: str | None) -> str:
 def _validate_document_upload(file: UploadFile) -> tuple[str, str]:
     filename = Path(file.filename or "").name
     extension = _document_upload_extension(filename)
+    if extension == ".doc":
+        raise HTTPException(status_code=400, detail="暂不支持老版 Word(.doc)，请另存为 .docx 后上传")
     if extension not in DOCUMENT_UPLOAD_ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="仅支持上传 Word(.docx)、PDF(.pdf) 和 Markdown(.md/.markdown) 文件")
+        raise HTTPException(status_code=400, detail="仅支持上传 PDF(.pdf)、Word(.docx)、Markdown(.md/.markdown) 和 TXT(.txt) 文件")
 
     content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
     if content_type and content_type not in DOCUMENT_UPLOAD_ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail="文件类型不受支持，请上传 Word(.docx)、PDF(.pdf) 或 Markdown(.md/.markdown)")
+        raise HTTPException(status_code=400, detail="文件类型不受支持，请上传 PDF(.pdf)、Word(.docx)、Markdown(.md/.markdown) 或 TXT(.txt)")
     return filename or f"paper{extension}", extension
 
 

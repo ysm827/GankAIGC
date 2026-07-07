@@ -214,6 +214,9 @@ MODEL_API_KEY_FIELDS = {
     "COMPRESSION_API_KEY",
 }
 
+SECRET_CONFIG_FIELDS = MODEL_API_KEY_FIELDS | {"MINERU_API_TOKEN"}
+PDF_STRUCTURE_ENGINE_OPTIONS = {"mineru", "markitdown"}
+
 MODEL_BASE_URL_FIELDS = {
     "OPENAI_BASE_URL",
     "POLISH_BASE_URL",
@@ -336,6 +339,19 @@ def _api_key_summary(value: str | None) -> Dict[str, Any]:
         "api_key_set": bool(api_key),
         "api_key_last4": api_key[-4:] if api_key else "",
     }
+
+
+def _validate_document_parse_updates(updates: Dict[str, str]) -> Dict[str, str]:
+    sanitized = dict(updates)
+    if "PDF_STRUCTURE_ENGINE" in sanitized:
+        engine = str(sanitized["PDF_STRUCTURE_ENGINE"] or "").strip().lower()
+        if engine not in PDF_STRUCTURE_ENGINE_OPTIONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="PDF 解析引擎仅支持 mineru 或 markitdown",
+            )
+        sanitized["PDF_STRUCTURE_ENGINE"] = engine
+    return sanitized
 
 
 def _validate_model_base_url_updates(updates: Dict[str, str]) -> Dict[str, str]:
@@ -2185,6 +2201,19 @@ async def get_config(_: str = Depends(get_admin_from_token)) -> Dict[str, Any]:
             **_api_key_summary(settings.COMPRESSION_API_KEY),
             "base_url": settings.COMPRESSION_BASE_URL or "",
         },
+        "document_parse": {
+            "pdf_structure_engine": (settings.PDF_STRUCTURE_ENGINE or "mineru").strip().lower(),
+            "mineru_base_url": settings.MINERU_BASE_URL or "",
+            "mineru_api_token_set": _api_key_summary(settings.MINERU_API_TOKEN)["api_key_set"],
+            "mineru_api_token_last4": _api_key_summary(settings.MINERU_API_TOKEN)["api_key_last4"],
+            "mineru_model_version": settings.MINERU_MODEL_VERSION or "",
+            "mineru_enable_formula": settings.MINERU_ENABLE_FORMULA,
+            "mineru_enable_table": settings.MINERU_ENABLE_TABLE,
+            "mineru_is_ocr": settings.MINERU_IS_OCR,
+            "mineru_language": settings.MINERU_LANGUAGE or "",
+            "mineru_timeout_seconds": settings.MINERU_TIMEOUT_SECONDS,
+            "mineru_poll_interval_seconds": settings.MINERU_POLL_INTERVAL_SECONDS,
+        },
         "thinking": {
             "enabled": settings.THINKING_MODE_ENABLED,
             "effort": settings.THINKING_MODE_EFFORT,
@@ -2222,8 +2251,9 @@ async def update_config(
     updates = {
         key: value
         for key, value in updates.items()
-        if not (key in MODEL_API_KEY_FIELDS and not str(value or "").strip())
+        if not (key in SECRET_CONFIG_FIELDS and not str(value or "").strip())
     }
+    updates = _validate_document_parse_updates(updates)
     updates = _validate_model_base_url_updates(updates)
     if "MODEL_API_FORMAT" in updates:
         try:
