@@ -1586,8 +1586,7 @@ code {
   order: 1;
 }
 
-.aurora-zhuque-login-button,
-.aurora-zhuque-run-button {
+.aurora-zhuque-login-button {
   display: inline-flex;
   flex: 0 0 auto;
   min-width: 96px;
@@ -1611,42 +1610,27 @@ code {
   background: linear-gradient(180deg, #0b7cff 0%, #0066cc 100%);
 }
 
-.aurora-zhuque-login-button svg,
-.aurora-zhuque-run-button svg {
+.aurora-zhuque-login-button svg {
   width: 0.95rem;
   height: 0.95rem;
 }
 
-.aurora-zhuque-run-button {
-  min-width: 116px;
-  background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
-  box-shadow: 0 10px 22px rgba(22, 163, 74, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.26);
-}
-
-.aurora-zhuque-login-button:hover:not(:disabled),
-.aurora-zhuque-run-button:hover:not(:disabled) {
+.aurora-zhuque-login-button:hover:not(:disabled) {
   filter: brightness(1.04);
   box-shadow: 0 14px 26px rgba(0, 102, 204, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.28);
   transform: translateY(-1px);
 }
 
-.aurora-zhuque-run-button:hover:not(:disabled) {
-  box-shadow: 0 14px 26px rgba(22, 163, 74, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-}
-
-.aurora-zhuque-login-button:active:not(:disabled),
-.aurora-zhuque-run-button:active:not(:disabled) {
+.aurora-zhuque-login-button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-.aurora-zhuque-login-button:focus-visible,
-.aurora-zhuque-run-button:focus-visible {
+.aurora-zhuque-login-button:focus-visible {
   outline: 2px solid rgba(0, 102, 204, 0.45);
   outline-offset: 3px;
 }
 
-.aurora-zhuque-login-button:disabled,
-.aurora-zhuque-run-button:disabled {
+.aurora-zhuque-login-button:disabled {
   cursor: not-allowed;
   filter: saturate(0.94);
   opacity: 0.62;
@@ -1725,7 +1709,6 @@ code {
   }
 
   .aurora-zhuque-login-button,
-  .aurora-zhuque-run-button,
   .aurora-zhuque-logout-button {
     flex: 1 1 0;
   }

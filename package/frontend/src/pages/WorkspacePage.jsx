@@ -991,6 +991,15 @@ const WorkspacePage = () => {
     toast('已打开本机朱雀页面；请先在该页面完成登录/验证码，插件执行检测时会复用它。');
   }, [browserAgentOnline, handleCreateBrowserAgentPairing]);
 
+  const handleSyncBrowserAgentZhuqueStatus = useCallback(async () => {
+    const latestStatus = await loadBrowserAgentStatus();
+    if (latestStatus?.zhuque?.logged_in || latestStatus?.zhuque?.user_name) {
+      toast.success('已同步本机朱雀登录状态');
+      return;
+    }
+    toast('已请求同步；如果刚登录朱雀，请等待插件心跳后再点一次。');
+  }, [loadBrowserAgentStatus]);
+
   const handleOpenZhuqueVerificationWindow = useCallback(async (session, { auto = false } = {}) => {
     if (isStartingZhuqueLogin) {
       return;
@@ -1877,28 +1886,6 @@ const WorkspacePage = () => {
                             </>
                           )}
                         </button>
-                        {browserAgentRequired && (
-                          <button
-                            type="button"
-                            onClick={handleStartOptimization}
-                            disabled={!text.trim() || activeSession || isSubmitting || !browserAgentOnline}
-                            className="aurora-zhuque-run-button"
-                            aria-label="开始检测降重"
-                            title={browserAgentOnline ? '使用本机 Chrome 插件执行朱雀检测并开始降重' : '请先连接本机 Chrome 插件'}
-                          >
-                            {isSubmitting ? (
-                              <>
-                                <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-                                提交中
-                              </>
-                            ) : (
-                              <>
-                                <Wand2 className="h-5 w-5" />
-                                开始检测降重
-                              </>
-                            )}
-                          </button>
-                        )}
                         {!browserAgentRequired && zhuqueConnected && (
                           <button
                             type="button"
@@ -1914,28 +1901,26 @@ const WorkspacePage = () => {
                       </div>
                       <div className="aurora-zhuque-metrics gank-glass-status-grid">
                         <div className="aurora-zhuque-metric">
-                          <span>{browserAgentRequired ? '朱雀登录' : '连接状态'}</span>
+                          <span>{browserAgentRequired ? '朱雀账号' : '连接状态'}</span>
                           <strong className={zhuqueDisplayConnected ? 'is-connected' : 'is-disconnected'}>
                             <i />
-                            {browserAgentRequired ? (zhuqueDisplayConnected ? '已登录' : '未登录') : (zhuqueDisplayConnected ? '已连接' : '未连接')}
+                            {browserAgentRequired ? (zhuqueDisplayConnected ? (browserAgentZhuqueAccountName || '已登录') : '未登录') : (zhuqueDisplayConnected ? '已连接' : '未连接')}
                           </strong>
                         </div>
                         <div className="aurora-zhuque-metric">
                           <span>剩余次数</span>
                           <div className="aurora-zhuque-quota-inline">
                             <strong>{zhuqueRemainingDisplayLabel}</strong>
-                            {!browserAgentRequired && (
-                              <button
-                                type="button"
-                                onClick={handleRefreshZhuqueFreeQuota}
-                                disabled={isRefreshingZhuqueQuota || isStartingZhuqueLogin}
-                                className="aurora-zhuque-quota-refresh"
-                                aria-label="刷新朱雀剩余次数"
-                                title={zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数'}
-                              >
-                                <RefreshCw className={isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={browserAgentRequired ? handleSyncBrowserAgentZhuqueStatus : handleRefreshZhuqueFreeQuota}
+                              disabled={browserAgentRequired ? false : (isRefreshingZhuqueQuota || isStartingZhuqueLogin)}
+                              className="aurora-zhuque-quota-refresh"
+                              aria-label={browserAgentRequired ? '同步朱雀登录和剩余次数' : '刷新朱雀剩余次数'}
+                              title={browserAgentRequired ? '同步本机插件上报的朱雀登录状态和剩余次数' : (zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数')}
+                            >
+                              <RefreshCw className={!browserAgentRequired && isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
+                            </button>
                           </div>
                         </div>
                       </div>

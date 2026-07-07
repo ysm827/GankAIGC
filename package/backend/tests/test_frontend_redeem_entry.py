@@ -1275,7 +1275,8 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     assert "撤销插件" in workspace
     assert "配对码" in workspace
     assert "打开朱雀登录" in workspace
-    assert "开始检测降重" in workspace
+    assert "朱雀账号" in workspace
+    assert "同步朱雀登录和剩余次数" in workspace
     assert "browserAgentZhuqueStatus" in workspace
     assert "zhuque_status" in workspace
     assert "朱雀登录状态" in workspace

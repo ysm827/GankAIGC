@@ -62,6 +62,24 @@ function normalizeAccountName(text) {
   return value;
 }
 
+function extractRemainingUsesFromPage() {
+  const pageText = String(document.body?.innerText || document.body?.textContent || '').slice(0, 8000);
+  const patterns = [
+    /剩余\s*(\d{1,4})\s*次/,
+    /还可(?:检测)?\s*(\d{1,4})\s*次/,
+    /Detect\s*now\s*\(\s*(\d{1,4})\s*left\s*\)/i,
+    /(\d{1,4})\s*left/i,
+    /left\s*(\d{1,4})/i
+  ];
+  for (const pattern of patterns) {
+    const match = pageText.match(pattern);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isInteger(value) && value >= 0 && value <= 9999) return value;
+  }
+  return -1;
+}
+
 function extractZhuqueAccountName() {
   const storageKeys = [...Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))]
     .filter(Boolean)
@@ -104,6 +122,7 @@ function detectZhuqueSessionStatus() {
     };
   }
   const userName = extractZhuqueAccountName();
+  const remainingUses = extractRemainingUsesFromPage();
   if (userName) {
     return {
       page_found: true,
@@ -112,6 +131,7 @@ function detectZhuqueSessionStatus() {
       has_token: true,
       status: 'logged_in',
       user_name: userName,
+      remaining_uses: remainingUses,
       message: `朱雀已登录：${userName}`
     };
   }
@@ -124,6 +144,7 @@ function detectZhuqueSessionStatus() {
     has_token: false,
     status: input || detectButton ? 'page_ready' : 'unknown',
     user_name: '',
+    remaining_uses: remainingUses,
     message: input || detectButton ? '朱雀页面可用，暂未识别登录用户' : '暂未识别朱雀页面状态'
   };
 }
