@@ -661,6 +661,16 @@ const WorkspacePage = () => {
   const browserAgentStatusMessage = browserAgentRequired
     ? (browserAgentStatus?.message || (browserAgentOnline ? '本机 Chrome 插件在线，朱雀检测将在用户浏览器执行。' : 'VPS 模式需要连接本机 Chrome 插件。'))
     : '本地部署继续使用内置/本机浏览器检测链路，无需安装插件。';
+  const zhuqueDisplayConnected = browserAgentRequired ? browserAgentOnline : zhuqueConnected;
+  const zhuqueDisplayAccountLabel = browserAgentRequired
+    ? (browserAgentOnline ? '插件在线' : '等待插件')
+    : zhuqueAccountLabel;
+  const zhuquePrimaryActionLabel = browserAgentRequired
+    ? (browserAgentOnline ? '插件在线' : '生成配对码')
+    : (zhuqueConnected ? '已登录' : '扫码登录');
+  const zhuquePrimaryActionTitle = browserAgentRequired
+    ? 'VPS 插件模式不使用服务器扫码登录；朱雀登录/验证码请在本机 Chrome 插件打开的朱雀页面完成'
+    : (zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码');
 
   const handleProcessingModeChange = useCallback((event) => {
     const nextMode = event.target.value;
@@ -858,14 +868,17 @@ const WorkspacePage = () => {
     try {
       const response = await browserAgentAPI.getStatus();
       setBrowserAgentStatus(response.data);
+      return response.data;
     } catch (error) {
-      setBrowserAgentStatus({
+      const fallbackStatus = {
         required: false,
         transport: 'auto',
         online: false,
         agents: [],
         message: '无法检测浏览器插件状态',
-      });
+      };
+      setBrowserAgentStatus(fallbackStatus);
+      return fallbackStatus;
     }
   }, []);
 
@@ -1412,9 +1425,11 @@ const WorkspacePage = () => {
     try {
       setIsSubmitting(true);
       if (processingMode === 'ai_detect_reduce' && browserAgentRequired && !browserAgentOnline) {
-        await loadBrowserAgentStatus();
-        toast.error('VPS 朱雀检测需要先连接本机 Chrome 插件');
-        return;
+        const latestAgentStatus = await loadBrowserAgentStatus();
+        if (!latestAgentStatus?.online) {
+          toast.error('VPS 朱雀检测需要先连接本机 Chrome 插件');
+          return;
+        }
       }
       if (processingMode === 'ai_detect_reduce') {
         const preflightResponse = await optimizationAPI.preflightZhuqueTask({
@@ -1463,6 +1478,10 @@ const WorkspacePage = () => {
     if (isStartingZhuqueLogin) {
       return;
     }
+    if (browserAgentRequired) {
+      toast('VPS 插件模式不使用服务器扫码登录；请保持本机 Chrome 插件在线，并在插件打开的朱雀页面完成登录/验证码。');
+      return;
+    }
     if (zhuqueConnected) {
       toast('朱雀已登录；如需使用免费次数或换号，请先点右侧退出');
       return;
@@ -1489,7 +1508,7 @@ const WorkspacePage = () => {
     } finally {
       setIsStartingZhuqueLogin(false);
     }
-  }, [isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueLoginSession, zhuqueConnected]);
+  }, [browserAgentRequired, isStartingZhuqueLogin, loadZhuqueStatusPanel, mergeZhuqueLoginSession, zhuqueConnected]);
 
   const handleLogoutZhuque = useCallback(async () => {
     if (isStartingZhuqueLogin) {
@@ -1796,40 +1815,40 @@ const WorkspacePage = () => {
                         <div className="aurora-zhuque-title-copy">
                           <p>朱雀 AI 检测</p>
                           <span
-                            className={`aurora-zhuque-account ${zhuqueConnected ? 'is-connected' : ''}`}
-                            title={zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录'}
+                            className={`aurora-zhuque-account ${zhuqueDisplayConnected ? 'is-connected' : ''}`}
+                            title={browserAgentRequired ? browserAgentStatusMessage : (zhuqueConnected ? `朱雀登录用户：${zhuqueAccountLabel}` : '朱雀未登录')}
                           >
-                            {zhuqueAccountLabel}
+                            {zhuqueDisplayAccountLabel}
                           </span>
                         </div>
                       </div>
                       <div className="aurora-zhuque-actions">
                         <button
                           type="button"
-                          onClick={handleStartZhuqueLogin}
-                          disabled={isStartingZhuqueLogin}
-                          className={`aurora-zhuque-login-button ${zhuqueConnected ? 'is-ready' : ''}`}
-                          aria-label={zhuqueConnected ? '朱雀已登录' : '扫码登录朱雀'}
-                          title={zhuqueConnected ? '朱雀已登录；如需换号或使用未登录免费次数，请点退出' : '在当前页面打开朱雀微信扫码二维码'}
+                          onClick={browserAgentRequired ? handleCreateBrowserAgentPairing : handleStartZhuqueLogin}
+                          disabled={browserAgentRequired ? (browserAgentOnline || isCreatingBrowserAgentPairing) : isStartingZhuqueLogin}
+                          className={`aurora-zhuque-login-button ${zhuqueDisplayConnected ? 'is-ready' : ''}`}
+                          aria-label={zhuquePrimaryActionLabel}
+                          title={zhuquePrimaryActionTitle}
                         >
-                          {isStartingZhuqueLogin ? (
+                          {(isStartingZhuqueLogin || isCreatingBrowserAgentPairing) ? (
                             <>
                               <div className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
                               处理中
                             </>
-                          ) : zhuqueConnected ? (
+                          ) : zhuqueDisplayConnected ? (
                             <>
                               <CheckCircle className="h-6 w-6" />
-                              已登录
+                              {zhuquePrimaryActionLabel}
                             </>
                           ) : (
                             <>
                               <ExternalLink className="h-5 w-5" />
-                              扫码登录
+                              {zhuquePrimaryActionLabel}
                             </>
                           )}
                         </button>
-                        {zhuqueConnected && (
+                        {!browserAgentRequired && zhuqueConnected && (
                           <button
                             type="button"
                             onClick={handleLogoutZhuque}
@@ -1845,29 +1864,31 @@ const WorkspacePage = () => {
                       <div className="aurora-zhuque-metrics gank-glass-status-grid">
                         <div className="aurora-zhuque-metric">
                           <span>连接状态</span>
-                          <strong className={zhuqueConnected ? 'is-connected' : 'is-disconnected'}>
+                          <strong className={zhuqueDisplayConnected ? 'is-connected' : 'is-disconnected'}>
                             <i />
-                            {zhuqueConnected ? '已连接' : '未连接'}
+                            {zhuqueDisplayConnected ? '已连接' : '未连接'}
                           </strong>
                         </div>
                         <div className="aurora-zhuque-metric">
                           <span>剩余次数</span>
                           <div className="aurora-zhuque-quota-inline">
-                            <strong>{zhuqueRemainingLabel}</strong>
-                            <button
-                              type="button"
-                              onClick={handleRefreshZhuqueFreeQuota}
-                              disabled={isRefreshingZhuqueQuota || isStartingZhuqueLogin}
-                              className="aurora-zhuque-quota-refresh"
-                              aria-label="刷新朱雀剩余次数"
-                              title={zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数'}
-                            >
-                              <RefreshCw className={isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
-                            </button>
+                            <strong>{browserAgentRequired ? '检测后同步' : zhuqueRemainingLabel}</strong>
+                            {!browserAgentRequired && (
+                              <button
+                                type="button"
+                                onClick={handleRefreshZhuqueFreeQuota}
+                                disabled={isRefreshingZhuqueQuota || isStartingZhuqueLogin}
+                                className="aurora-zhuque-quota-refresh"
+                                aria-label="刷新朱雀剩余次数"
+                                title={zhuqueConnected ? '刷新朱雀账号剩余次数' : '检测朱雀未登录免费次数'}
+                              >
+                                <RefreshCw className={isRefreshingZhuqueQuota ? 'animate-spin' : ''} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
-                      <div className={`mt-4 rounded-[18px] border px-4 py-3 ${browserAgentRequired ? 'border-blue-100 bg-blue-50/70' : 'border-slate-200 bg-white/70'}`}>
+                      <div className={`aurora-browser-agent-card mt-4 rounded-[18px] border px-4 py-3 ${browserAgentRequired ? 'border-blue-100 bg-blue-50/70' : 'border-slate-200 bg-white/70'}`}>
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1885,26 +1906,16 @@ const WorkspacePage = () => {
                               </p>
                             )}
                           </div>
-                          {browserAgentRequired && (
+                          {browserAgentRequired && browserAgentPrimary && (
                             <div className="flex shrink-0 flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={handleCreateBrowserAgentPairing}
-                                disabled={isCreatingBrowserAgentPairing}
-                                className="apple-ghost-pill rounded-full border border-blue-100 bg-white/90 px-3 py-2 text-[13px] font-semibold text-[#0066cc] disabled:cursor-not-allowed disabled:opacity-60"
+                                onClick={() => handleRevokeBrowserAgent(browserAgentPrimary.agent_id)}
+                                disabled={isRevokingBrowserAgent}
+                                className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-[13px] font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {isCreatingBrowserAgentPairing ? '生成中…' : '生成配对码'}
+                                撤销插件
                               </button>
-                              {browserAgentPrimary && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRevokeBrowserAgent(browserAgentPrimary.agent_id)}
-                                  disabled={isRevokingBrowserAgent}
-                                  className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-[13px] font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  撤销插件
-                                </button>
-                              )}
                             </div>
                           )}
                         </div>
