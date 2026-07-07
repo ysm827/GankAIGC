@@ -16,6 +16,39 @@ def test_release_workflow_builds_and_uploads_windows_oneclick_package():
     assert "gh release upload" in workflow
 
 
+def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
+    env_template = (PROJECT_ROOT / "package" / "windows-oneclick" / ".env.template").read_text(encoding="utf-8-sig")
+    start_script = (PROJECT_ROOT / "package" / "windows-oneclick" / "runtime" / "start.ps1").read_text(encoding="utf-8-sig")
+    readme = (PROJECT_ROOT / "package" / "windows-oneclick" / "README.txt").read_text(encoding="utf-8-sig")
+    app_spec = (PROJECT_ROOT / "package" / "app.spec").read_text(encoding="utf-8")
+    zhuque_api = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_api.py").read_text(encoding="utf-8")
+    zhuque_service = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_service.py").read_text(encoding="utf-8")
+    local_transport = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_local_browser_transport.py").read_text(encoding="utf-8")
+
+    expected_defaults = {
+        "ZHUQUE_DETECT_TRANSPORT": "auto",
+        "ZHUQUE_DETECT_HEADLESS": "false",
+        "ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER": "true",
+        "ZHUQUE_SERVER_HEADLESS_FALLBACK": "false",
+        "ZHUQUE_USER_DATA_DIR": "data\\zhuque\\users",
+    }
+    for key, value in expected_defaults.items():
+        assert f"{key}={value}" in env_template
+        assert f"Set-Default $settings '{key}' '{value}'" in start_script
+        assert f"(EnvLine '{key}')" in start_script
+
+    assert "ZHUQUE_DETECT_BROWSER_EXECUTABLE=" in env_template
+    assert "Set-Default $settings 'ZHUQUE_DETECT_BROWSER_EXECUTABLE' ''" in start_script
+    assert "一键包默认使用本机可见浏览器链路" in readme
+    assert "不需要安装 GankAIGC Chrome 插件" in readme
+    assert "collect_submodules('playwright')" in app_spec
+    assert "collect_data_files('playwright')" in app_spec
+    assert "open_detect_page" in zhuque_api
+    assert "open_detection_page" in zhuque_service
+    assert "open_detection_page = getattr" in local_transport
+    assert "capture_zhuque_creds.py" not in local_transport.split("open_detection_page = getattr", 1)[0]
+
+
 def test_oneclick_builder_validates_portable_postgres_tool_versions():
     script = (PROJECT_ROOT / "package" / "build-oneclick.ps1").read_text(encoding="utf-8")
 

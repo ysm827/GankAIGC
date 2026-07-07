@@ -39,6 +39,9 @@ hidden_imports = [
     'sse_starlette',
     'redis',
     'dotenv',
+    # Zhuque 本机可见浏览器控制依赖
+    'playwright',
+    'playwright.async_api',
     # Word 格式化模块依赖
     'mistune',
     'docx',
@@ -63,6 +66,7 @@ hidden_imports += collect_submodules('pydantic')
 hidden_imports += collect_submodules('pydantic_settings')
 hidden_imports += collect_submodules('fastapi')
 hidden_imports += collect_submodules('starlette')
+hidden_imports += collect_submodules('playwright')
 # Word 格式化模块子模块
 hidden_imports += collect_submodules('mistune')
 hidden_imports += collect_submodules('docx')
@@ -93,6 +97,8 @@ a = Analysis(
         ('VERSION', '.'),
         # 包含后端 app 目录
         ('backend/app', 'app'),
+        # Playwright Python package includes its driver/runtime resources.
+        *collect_data_files('playwright'),
         # MarkItDown 依赖 magika 的本地模型/配置文件
         *collect_data_files('magika'),
         # MarkItDown PDF 解析依赖 pypdfium2 的运行时资源

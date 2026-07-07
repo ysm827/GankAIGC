@@ -1104,6 +1104,107 @@ class ZhuqueAPI:
             "message": "已复用当前朱雀检测窗口",
         }
 
+    async def open_detect_page(self) -> dict:
+        """Open or focus a visible Zhuque detection page without submitting text.
+
+        This is the built-in local/one-click launcher. It avoids spawning the
+        legacy ``zhuque_pkg/capture_zhuque_creds.py`` helper, which is not
+        available as a normal Python script inside PyInstaller one-click builds.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:
+            return {
+                "available": False,
+                "status": "manual_required",
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "message": f"当前环境未安装 Playwright，无法打开本机朱雀页面: {exc}",
+            }
+
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(self._playwright_browsers_path()))
+        status = self.credential_status()
+        anonymous = not bool(status.get("has_token"))
+        try:
+            cdp_endpoint = self._preferred_detect_cdp_endpoint()
+            if cdp_endpoint:
+                await self._ensure_cdp_context(async_playwright, anonymous=anonymous, endpoint=cdp_endpoint)
+            elif _zhuque_detect_persistent_profile():
+                await self._ensure_persistent_profile_context(async_playwright, anonymous=anonymous)
+            else:
+                browser = await self._launch_persistent_browser(async_playwright)
+                if self._browser_context is None:
+                    self._browser_context = await browser.new_context(
+                        viewport={"width": 1280, "height": 720},
+                        user_agent=DEFAULT_USER_AGENT,
+                    )
+                    self._browser_context_anonymous = anonymous
+
+            page = None
+            if self._cached_page is not None:
+                with contextlib.suppress(Exception):
+                    if not self._cached_page.is_closed():
+                        page = self._cached_page
+            if page is None and self._browser_context is not None:
+                with contextlib.suppress(Exception):
+                    live_pages = [candidate for candidate in (getattr(self._browser_context, "pages", []) or []) if not candidate.is_closed()]
+                    page = next(
+                        (candidate for candidate in live_pages if "matrix.tencent.com/ai-detect" in str(getattr(candidate, "url", ""))),
+                        live_pages[0] if live_pages else None,
+                    )
+            if page is None:
+                page = await self._browser_context.new_page()
+
+            if not anonymous and (not self._browser_external_context or self._browser_cdp_managed):
+                try:
+                    creds = self.load_credentials(refresh=False) or {}
+                except Exception:
+                    creds = {}
+                local_storage = self._page_local_storage_from_credentials(creds)
+                if local_storage:
+                    local_storage_json = json.dumps(local_storage, ensure_ascii=False)
+                    await page.add_init_script(
+                        f"""
+                        (() => {{
+                            const data = {local_storage_json};
+                            for (const [k, v] of Object.entries(data)) {{
+                                try {{ localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); }} catch (e) {{}}
+                            }}
+                        }})();
+                        """
+                    )
+                    with contextlib.suppress(Exception):
+                        await page.evaluate(
+                            """(data) => {
+                                for (const [k, v] of Object.entries(data || {})) {
+                                    try { localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (e) {}
+                                }
+                            }""",
+                            local_storage,
+                        )
+
+            await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
+            with contextlib.suppress(Exception):
+                await page.bring_to_front()
+            self._cached_page = page
+            return {
+                "available": True,
+                "status": "opened",
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "url": str(getattr(page, "url", "")),
+                "message": "已打开本机朱雀页面，请在该窗口完成登录/验证码后回到 GankAIGC 同步状态",
+            }
+        except Exception as exc:
+            logger.warning("打开本机朱雀页面失败: %s", exc, exc_info=True)
+            return {
+                "available": False,
+                "status": "manual_required",
+                "headless": self._browser_headless,
+                "credential_file": str(self.credentials_file),
+                "message": f"打开本机朱雀页面失败: {exc}",
+            }
+
     async def _seed_persistent_context_state(self, context, *, anonymous: bool) -> None:
         """Seed a fixed browser profile from the latest per-user Zhuque state.
 

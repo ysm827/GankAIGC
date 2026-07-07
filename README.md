@@ -518,7 +518,9 @@ GankAIGC-Windows-OneClick.zip
 4. 后台账号密码会显示在窗口里，也会保存到 `logs/first-run-admin.txt`。
 5. 停止服务双击 `stop.bat`。
 
-> 注意：不要删除 `data/`，否则用户、邀请码、兑换码、会话等数据会丢失。
+朱雀 AI 检测/降重在一键包里默认走本机可见浏览器链路，不需要安装 Chrome 插件。进入工作台选择「AI检测 + 降重」后点击「打开朱雀页面」，系统会打开或聚焦 Windows Chrome / Edge / Brave；登录或完成验证码后，回到 GankAIGC 点击剩余次数右侧刷新按钮同步 `朱雀账号` / `剩余次数`。
+
+> 注意：不要删除 `data/`，否则用户、邀请码、兑换码、会话、朱雀状态等数据会丢失。
 
 </details>
 

@@ -123,6 +123,13 @@ function Write-DotEnv($Settings, [string]$Path) {
         (EnvLine 'TASK_WORKER_HEARTBEAT_INTERVAL'),
         (EnvLine 'TASK_WORKER_STALE_TIMEOUT_SECONDS'),
         '',
+        (EnvLine 'ZHUQUE_DETECT_TRANSPORT'),
+        (EnvLine 'ZHUQUE_DETECT_HEADLESS'),
+        (EnvLine 'ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER'),
+        (EnvLine 'ZHUQUE_SERVER_HEADLESS_FALLBACK'),
+        (EnvLine 'ZHUQUE_USER_DATA_DIR'),
+        (EnvLine 'ZHUQUE_DETECT_BROWSER_EXECUTABLE'),
+        '',
         (EnvLine 'OPENAI_API_KEY'),
         (EnvLine 'OPENAI_BASE_URL'),
         (EnvLine 'POLISH_MODEL'),
@@ -192,6 +199,13 @@ function Ensure-EnvFile() {
     Set-Default $settings 'TASK_WORKER_POLL_INTERVAL' '2'
     Set-Default $settings 'TASK_WORKER_HEARTBEAT_INTERVAL' '30'
     Set-Default $settings 'TASK_WORKER_STALE_TIMEOUT_SECONDS' '1800'
+
+    Set-Default $settings 'ZHUQUE_DETECT_TRANSPORT' 'auto'
+    Set-Default $settings 'ZHUQUE_DETECT_HEADLESS' 'false'
+    Set-Default $settings 'ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER' 'true'
+    Set-Default $settings 'ZHUQUE_SERVER_HEADLESS_FALLBACK' 'false'
+    Set-Default $settings 'ZHUQUE_USER_DATA_DIR' 'data\zhuque\users'
+    Set-Default $settings 'ZHUQUE_DETECT_BROWSER_EXECUTABLE' ''
 
     Set-Default $settings 'OPENAI_API_KEY' 'your-api-key-here'
     Set-Default $settings 'OPENAI_BASE_URL' 'https://api.openai.com/v1'

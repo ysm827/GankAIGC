@@ -503,6 +503,14 @@ class ZhuqueService:
             return {"available": False, "message": "当前朱雀检测服务不支持窗口复用"}
         return await focus_cached_page()
 
+    async def open_detection_page(self) -> dict:
+        """Open or focus the built-in local Zhuque visible browser page."""
+        api = self._ensure_api()
+        open_detect_page = getattr(api, "open_detect_page", None)
+        if not callable(open_detect_page):
+            return {"available": False, "message": "当前朱雀检测服务不支持打开本机页面"}
+        return await open_detect_page()
+
     async def close(self) -> None:
         """Stop the consumer and close persistent Zhuque browser resources."""
         if self._consumer_task is not None and not self._consumer_task.done():

@@ -63,7 +63,7 @@ cd package
 .\build-oneclick.ps1 -PostgresZip C:\Downloads\postgresql-windows-x64-binaries.zip -CreateZip
 ```
 
-一键包位于 `dist/GankAIGC-Windows/`，压缩包位于 `dist/GankAIGC-Windows-OneClick.zip`。
+一键包位于 `dist/GankAIGC-Windows/`，压缩包位于 `dist/GankAIGC-Windows-OneClick.zip`。一键包默认写入本机朱雀浏览器配置：`ZHUQUE_DETECT_TRANSPORT=auto`、`ZHUQUE_DETECT_HEADLESS=false`、`ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true`、`ZHUQUE_SERVER_HEADLESS_FALLBACK=false`，无需安装 browser-agent 插件。
 
 </details>
 
@@ -97,6 +97,8 @@ GankAIGC-Windows-OneClick.zip
 cd package
 .\build-oneclick.ps1 -PostgresZip C:\Downloads\postgresql-windows-x64-binaries.zip -CreateZip
 ```
+
+构建后建议在 `dist\GankAIGC-Windows\` 里双击 `start.bat` 做一次本机验收：进入工作台选择「AI检测 + 降重」→「打开朱雀页面」→确认打开/聚焦 Windows Chrome/Edge/Brave 且不要求安装插件。
 
 然后用 GitHub CLI 覆盖 Release 附件：
 

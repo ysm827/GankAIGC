@@ -105,6 +105,24 @@ class LocalBrowserZhuqueTransport:
         if focused.get("status") == "focused" or focused.get("page_found"):
             focused["message"] = focused.get("message") or "已复用本机朱雀页面"
             return focused
+
+        open_detection_page = getattr(self.service, "open_detection_page", None)
+        if callable(open_detection_page):
+            opened = await open_detection_page()
+            if isinstance(opened, dict) and (opened.get("available") or opened.get("status") == "opened"):
+                payload = self._base_payload(
+                    {
+                        **opened,
+                        "ready": True,
+                        "page_found": True,
+                        "message": opened.get("message") or "已打开本机朱雀页面",
+                    },
+                    status="opened",
+                )
+                payload["url"] = opened.get("url", "")
+                return payload
+            focused = self._base_payload(opened if isinstance(opened, dict) else focused, status="manual_required")
+
         if open_capture is None:
             focused["message"] = focused.get("message") or "未找到可复用的本机朱雀页面"
             return focused

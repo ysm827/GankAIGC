@@ -640,7 +640,8 @@ python-docx>=1.1.0
 ### 3. Contracts
 
 - VPS mode must use `ZHUQUE_DETECT_TRANSPORT=browser_agent` and `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`; do not silently launch server-side Playwright/Chromium for Zhuque detection in this mode.
-- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension. Local routes must prefer focusing/reusing an existing Zhuque page before invoking the legacy visible-window launcher, and must not require users to manually run PowerShell/CDP/Profile commands.
+- Local desktop/source/one-click deployments keep `auto` or `local_browser` so ordinary local users are not forced to install the extension. Local routes must prefer focusing/reusing an existing Zhuque page, then use the built-in `ZhuqueAPI.open_detect_page()` local opener, before invoking the legacy visible-window launcher. They must not require users to manually run PowerShell/CDP/Profile commands.
+- Windows one-click packaging must persist local Zhuque defaults in both `windows-oneclick/.env.template` and `runtime/start.ps1`: `ZHUQUE_DETECT_TRANSPORT=auto`, `ZHUQUE_DETECT_HEADLESS=false`, `ZHUQUE_DETECT_AUTO_SYSTEM_BROWSER=true`, `ZHUQUE_SERVER_HEADLESS_FALLBACK=false`, and a local `ZHUQUE_USER_DATA_DIR`. PyInstaller must collect the Playwright Python package/driver resources because Zhuque local open uses dynamic `playwright.async_api` imports; it still must not bundle or require the Chrome extension for one-click users.
 - Pairing codes and agent tokens are secret material. Store only HMAC/hash values server-side; return the agent token only from the claim response; support revocation.
 - `BrowserAgentZhuqueTransport.detect()` creates a `zhuque_agent_jobs` row, waits for completion, and normalizes the extension result through the same Zhuque result normalizer used by local detection. Extension payloads with placeholder scores (`rate < 0` or `> 100`), benchmark-table labels, empty segment labels, or example/card text must be rejected before the reduce pipeline consumes them.
 - Extension/manual states are progress states, not immediate failures. `manual_required` should keep the job alive until the user solves Zhuque login/CAPTCHA locally or the configured timeout expires.
@@ -662,14 +663,14 @@ python-docx>=1.1.0
 - Good: VPS worker creates one persistent browser-agent job, the user's Chrome extension claims it, reuses the Zhuque tab, returns normalized `rate/labels_ratio/segment_labels`, and the reduce pipeline continues.
 - Good: Workspace shows browser-agent `required=true`, generates a pairing code, then flips from offline to online after heartbeat.
 - Good: User sees a visible Zhuque CAPTCHA in local Chrome; extension sends `manual_required`, the task waits, and completion resumes after the user solves it.
-- Base: Local `python main.py` with `ZHUQUE_DETECT_TRANSPORT=auto` uses the local visible-browser path, `POST /api/optimization/zhuque/local/open` can open/focus a local page, and `GET /api/browser-agent/status` returns `required=false`.
+- Base: Local `python main.py` or Windows one-click with `ZHUQUE_DETECT_TRANSPORT=auto` uses the local visible-browser path, `POST /api/optimization/zhuque/local/open` can open/focus a local page without relying on `zhuque_pkg/capture_zhuque_creds.py` inside the frozen exe, and `GET /api/browser-agent/status` returns `required=false`.
 - Bad: VPS uses `server_headless` or hidden fallback by default, requires public CDP, or asks users to start Chrome with `--remote-debugging-port`.
 - Bad: Extension host permissions use `<all_urls>` or backend logs include full paper text from `payload_text`.
 
 ### 6. Tests Required
 
 - Backend tests must cover pairing creation/claim expiry/reuse, token auth, heartbeat freshness, status online/offline, revoke, job claim/progress/complete/fail/expire, ownership checks, and browser-agent transport selection.
-- Zhuque integration tests must keep local-window, local `/zhuque/local/open|sync|focus`, remote QR, and browser-agent behavior passing when transport code exists.
+- Zhuque integration tests must keep local-window, built-in local opener before legacy capture, local `/zhuque/local/open|sync|focus`, remote QR, and browser-agent behavior passing when transport code exists. Release/package tests must assert one-click env template/start script/local README and PyInstaller Playwright collection remain aligned.
 - Frontend/static tests must assert `browserAgentAPI`, pairing/status/revoke UI strings, `required/offline/online` copy, local-mode copy, and offline preflight blocking.
 - Manual VPS validation must prove no server-headless Zhuque detection starts in `browser_agent` mode and the user's local Chrome performs the Zhuque interaction.
 

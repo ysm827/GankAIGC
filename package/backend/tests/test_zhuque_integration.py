@@ -2266,6 +2266,40 @@ def test_zhuque_local_open_endpoint_reuses_or_launches_local_browser(client, mon
     assert calls == ["open_page", ("reset", user_id), "started"]
 
 
+def test_local_browser_transport_opens_builtin_page_before_legacy_capture():
+    from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
+
+    calls = []
+
+    class FakeService:
+        async def focus_detection_window(self):
+            calls.append("focus")
+            return {"available": False, "message": "none"}
+
+        async def open_detection_page(self):
+            calls.append("open_detection_page")
+            return {
+                "available": True,
+                "status": "opened",
+                "credential_file": "creds.json",
+                "url": "https://matrix.tencent.com/ai-detect/",
+                "message": "opened builtin",
+            }
+
+    def fail_legacy_capture():
+        raise AssertionError("legacy capture script must not be used when built-in opener works")
+
+    result = asyncio.run(
+        LocalBrowserZhuqueTransport(FakeService(), user_id=1).open_page(open_capture=fail_legacy_capture)
+    )
+
+    assert result["status"] == "opened"
+    assert result["transport"] == "local_browser"
+    assert result["page_found"] is True
+    assert result["url"] == "https://matrix.tencent.com/ai-detect/"
+    assert calls == ["focus", "open_detection_page"]
+
+
 def test_zhuque_local_sync_endpoint_returns_local_browser_status(client, monkeypatch):
     import app.routes.optimization as optimization_route
 
