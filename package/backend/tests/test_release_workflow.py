@@ -52,9 +52,15 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
 def test_windows_build_script_uses_dedicated_windows_venv():
     script = (PROJECT_ROOT / "package" / "build.ps1").read_text(encoding="utf-8-sig")
 
-    assert '$VenvDir = "venv-windows"' in script
+    assert '$BuildCacheRoot = Join-Path $env:LOCALAPPDATA "GankAIGC"' in script
+    assert '$VenvDir = Join-Path $BuildCacheRoot "build-venv"' in script
     assert 'Scripts\\python.exe' in script
+    assert '& $VenvPython -m pip --version *> $null' in script
+    assert '& $VenvPython -m ensurepip --upgrade' in script
     assert '& $VenvPython -m pip install -r requirements.txt' in script
+    assert '$FrontendBuildDir = Join-Path $BuildCacheRoot "frontend-build"' in script
+    assert 'robocopy $FrontendSource $FrontendBuildDir /MIR /XD node_modules dist .vite' in script
+    assert 'Push-Location $FrontendBuildDir' in script
     assert '& $VenvPython -m PyInstaller app.spec --clean' in script
     assert '.\\venv\\Scripts\\Activate.ps1' not in script
     assert 'python -m pip install -r requirements.txt' not in script

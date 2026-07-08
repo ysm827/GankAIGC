@@ -16,6 +16,8 @@ Write-Host "==========================================" -ForegroundColor Cyan
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
+$BuildCacheRoot = Join-Path $env:LOCALAPPDATA "GankAIGC"
+New-Item -ItemType Directory -Force -Path $BuildCacheRoot | Out-Null
 
 # 检查 Python
 Write-Host ""
@@ -47,15 +49,30 @@ try {
 # 创建 Windows 专用虚拟环境并安装依赖
 Write-Host ""
 Write-Host "3. 安装后端依赖..." -ForegroundColor Yellow
-$VenvDir = "venv-windows"
+$VenvDir = Join-Path $BuildCacheRoot "build-venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-if (-not (Test-Path $VenvPython)) {
+$VenvUsable = $false
+if (Test-Path $VenvPython) {
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $VenvPython -m pip --version *> $null
+        $VenvUsable = ($LASTEXITCODE -eq 0)
+    } catch {
+        $VenvUsable = $false
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+}
+if (-not $VenvUsable) {
     if (Test-Path $VenvDir) {
         Write-Host "检测到不可用的 Windows 虚拟环境目录，正在重建：$VenvDir" -ForegroundColor Yellow
         Remove-Item -Recurse -Force $VenvDir
     }
     python -m venv $VenvDir
     Assert-LastExitCode "python -m venv $VenvDir"
+    & $VenvPython -m ensurepip --upgrade
+    Assert-LastExitCode "$VenvPython -m ensurepip --upgrade"
 }
 & $VenvPython -m pip install --upgrade pip
 Assert-LastExitCode "$VenvPython -m pip install --upgrade pip"
@@ -65,20 +82,36 @@ Assert-LastExitCode "$VenvPython -m pip install -r requirements.txt"
 # 构建前端
 Write-Host ""
 Write-Host "4. 构建前端..." -ForegroundColor Yellow
-Set-Location frontend
-npm install
-Assert-LastExitCode "npm install"
-npm run build
-Assert-LastExitCode "npm run build"
-Set-Location ..
+$FrontendSource = Join-Path $ScriptDir "frontend"
+$FrontendBuildDir = Join-Path $BuildCacheRoot "frontend-build"
+if (Test-Path $FrontendBuildDir) {
+    Remove-Item -Recurse -Force $FrontendBuildDir
+}
+New-Item -ItemType Directory -Force -Path $FrontendBuildDir | Out-Null
+robocopy $FrontendSource $FrontendBuildDir /MIR /XD node_modules dist .vite /NFL /NDL /NJH /NJS /NP | Out-Host
+if ($LASTEXITCODE -gt 7) {
+    throw "复制前端源码到 Windows 本地构建目录失败，robocopy 退出码: $LASTEXITCODE"
+}
+$global:LASTEXITCODE = 0
+Push-Location $FrontendBuildDir
+try {
+    npm install
+    Assert-LastExitCode "npm install"
+    npm run build
+    Assert-LastExitCode "npm run build"
+} finally {
+    Pop-Location
+}
 
 # 复制前端构建产物
 Write-Host ""
 Write-Host "5. 复制前端构建产物..." -ForegroundColor Yellow
-if (Test-Path "static") {
-    Remove-Item -Recurse -Force static
+$StaticDir = Join-Path $ScriptDir "static"
+if (Test-Path $StaticDir) {
+    Remove-Item -Recurse -Force $StaticDir
 }
-Copy-Item -Recurse frontend\dist static
+New-Item -ItemType Directory -Force -Path $StaticDir | Out-Null
+Copy-Item -Path (Join-Path $FrontendBuildDir "dist\*") -Destination $StaticDir -Recurse -Force
 
 # 使用 PyInstaller 打包
 Write-Host ""
