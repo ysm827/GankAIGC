@@ -49,6 +49,18 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     assert "capture_zhuque_creds.py" not in local_transport.split("open_detection_page = getattr", 1)[0]
 
 
+def test_windows_powershell_scripts_use_utf8_bom_for_legacy_powershell():
+    scripts = [
+        PROJECT_ROOT / "package" / "build.ps1",
+        PROJECT_ROOT / "package" / "build-oneclick.ps1",
+        PROJECT_ROOT / "package" / "windows-oneclick" / "runtime" / "start.ps1",
+        PROJECT_ROOT / "package" / "windows-oneclick" / "runtime" / "stop.ps1",
+    ]
+
+    for script in scripts:
+        assert script.read_bytes().startswith(b"\xef\xbb\xbf"), f"{script} must be UTF-8 with BOM for Windows PowerShell 5.1"
+
+
 def test_oneclick_builder_validates_portable_postgres_tool_versions():
     script = (PROJECT_ROOT / "package" / "build-oneclick.ps1").read_text(encoding="utf-8")
 

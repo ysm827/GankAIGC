@@ -1,4 +1,4 @@
-# GankAIGC - Windows 构建脚本
+﻿# GankAIGC - Windows 构建脚本
 # 用于在 Windows 上构建可执行文件
 
 $ErrorActionPreference = "Stop"
