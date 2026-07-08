@@ -402,6 +402,42 @@ function Test-GankAIGCRunning([string]$AppExe) {
     return ($null -ne ($targets | Select-Object -First 1))
 }
 
+function Get-PortOwners([int]$Port) {
+    try {
+        return @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object {
+                Get-Process -Id $_ -ErrorAction SilentlyContinue
+            })
+    } catch {
+        return @()
+    }
+}
+
+function Assert-AppPortAvailable($Settings, [string]$AppExe) {
+    $port = [int]$Settings['SERVER_PORT']
+    $owners = @(Get-PortOwners $port)
+    if (-not $owners -or $owners.Count -eq 0) { return }
+
+    $currentBundleOwner = $false
+    foreach ($owner in $owners) {
+        if ($owner.Path -and [string]::Equals($owner.Path, $AppExe, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $currentBundleOwner = $true
+        }
+    }
+    if ($currentBundleOwner) { return }
+
+    $ownerText = ($owners | ForEach-Object { "$($_.ProcessName) PID=$($_.Id)" }) -join ', '
+    throw @"
+端口 127.0.0.1:$port 已被占用：$ownerText
+请先关闭占用端口的旧服务，或在 .env 中修改 SERVER_PORT 后重新运行 start.bat。
+可在 PowerShell 中查看：
+  Get-NetTCPConnection -LocalPort $port -State Listen | Select-Object OwningProcess
+如确认可关闭，占用进程可执行：
+  Get-NetTCPConnection -LocalPort $port -State Listen | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id `$_ -Force }
+"@
+}
+
 function Start-GankAIGC($Settings) {
     $appExe = Join-Path $BundleRoot 'GankAIGC.exe'
     Assert-File $appExe '缺少 GankAIGC.exe，请确认一键包完整。'
@@ -413,6 +449,7 @@ function Start-GankAIGC($Settings) {
         Start-Process $url
         exit 0
     }
+    Assert-AppPortAvailable $Settings $appExe
 
     Write-Step '启动 GankAIGC...'
     Write-Host "浏览器会自动打开；如果没有打开，请访问 $url" -ForegroundColor Yellow

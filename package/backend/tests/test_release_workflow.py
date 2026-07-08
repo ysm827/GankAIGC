@@ -41,6 +41,9 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     assert "Set-Default $settings 'ZHUQUE_DETECT_BROWSER_EXECUTABLE' ''" in start_script
     assert "一键包默认使用本机可见浏览器链路" in readme
     assert "不需要安装 GankAIGC Chrome 插件" in readme
+    assert "Assert-AppPortAvailable" in start_script
+    assert "Get-NetTCPConnection -LocalPort $port -State Listen" in start_script
+    assert "端口 127.0.0.1:$port 已被占用" in start_script
     assert "collect_submodules('playwright')" in app_spec
     assert "collect_data_files('playwright')" in app_spec
     assert "open_detect_page" in zhuque_api
