@@ -2465,6 +2465,41 @@ def test_zhuque_service_refresh_free_quota_uses_live_visible_login_status(tmp_pa
     assert session_status["remaining_uses"] == 20
 
 
+def test_local_browser_transport_focus_syncs_visible_login_status():
+    from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
+
+    calls = []
+
+    class FakeService:
+        async def focus_detection_window(self):
+            calls.append("focus")
+            return {"available": True, "page_found": True, "message": "focused"}
+
+        async def refresh_free_quota(self):
+            calls.append("sync")
+            return {
+                "connected": True,
+                "ready": True,
+                "has_token": True,
+                "logged_in": True,
+                "page_found": True,
+                "remaining_uses": 17,
+                "button_enabled": True,
+                "user_name": "木木",
+                "message": "朱雀账号剩余次数已同步：17 次",
+            }
+
+    result = asyncio.run(LocalBrowserZhuqueTransport(FakeService(), user_id=1).open_page())
+
+    assert calls == ["focus", "sync"]
+    assert result["status"] == "focused"
+    assert result["connected"] is True
+    assert result["logged_in"] is True
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert result["remaining_uses"] == 17
+
+
 def test_local_browser_transport_opens_builtin_page_before_legacy_capture():
     from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
 

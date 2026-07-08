@@ -26,15 +26,18 @@ class LocalBrowserZhuqueTransport:
             remaining_uses = int(remaining_uses)
         except (TypeError, ValueError):
             remaining_uses = -1
+        connected = bool(payload.get("connected") or payload.get("has_token") or payload.get("logged_in") or payload.get("status") == "logged_in")
+        ready = bool(ready or connected)
         return {
-            "status": status or payload.get("status") or ("connected" if ready else "missing_credentials"),
+            "status": status or payload.get("status") or ("logged_in" if connected else "missing_credentials"),
             "transport": self.source,
             "auth_mode": self.source,
             "login_mode": self.source,
-            "connected": bool(payload.get("connected") or payload.get("has_token")),
+            "connected": connected,
+            "logged_in": connected,
             "ready": ready,
-            "page_found": bool(payload.get("page_found") or payload.get("connected") or payload.get("has_token")),
-            "has_token": bool(payload.get("has_token")),
+            "page_found": bool(payload.get("page_found") or connected),
+            "has_token": connected,
             "has_anonymous_fp": bool(payload.get("has_anonymous_fp")),
             "remaining_uses": remaining_uses,
             "button_enabled": bool(payload.get("button_enabled", remaining_uses != 0)),
@@ -83,16 +86,23 @@ class LocalBrowserZhuqueTransport:
             return self._base_payload({"message": "当前朱雀检测服务不支持窗口聚焦"}, status="unavailable")
         result = await focus_detection_window()
         if isinstance(result, dict) and result.get("available"):
-            return self._base_payload(
+            focused = self._base_payload(
                 {
                     **result,
                     "ready": True,
-                    "connected": bool(result.get("connected") or result.get("has_token")),
+                    "connected": bool(result.get("connected") or result.get("has_token") or result.get("logged_in")),
                     "page_found": True,
                     "message": result.get("message") or "已聚焦本机朱雀检测窗口",
                 },
                 status="focused",
             )
+            with_status = await self.sync_status()
+            return {
+                **focused,
+                **with_status,
+                "status": "focused" if with_status.get("connected") or with_status.get("has_token") else focused.get("status", "focused"),
+                "message": with_status.get("message") or focused.get("message") or "已聚焦本机朱雀检测窗口",
+            }
         return self._base_payload(result if isinstance(result, dict) else {}, status="not_found")
 
     async def open_page(
