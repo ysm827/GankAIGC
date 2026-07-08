@@ -2310,6 +2310,54 @@ def test_zhuque_api_quota_probe_reuses_visible_page_without_headless_browser(tmp
     assert calls[0] == "open_detect_page"
 
 
+def test_zhuque_service_detect_preserves_visible_login_quota_over_anonymous_result(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    class FakeAPI:
+        credentials_file = tmp_path / "creds_latest.json"
+
+        def credential_status(self):
+            return {
+                "has_token": False,
+                "connected": False,
+                "ready": False,
+                "remaining_uses": -1,
+                "button_enabled": False,
+                "credential_file": str(self.credentials_file),
+            }
+
+        async def peek_quota_status(self, timeout=3.0, allow_anonymous=False):
+            assert allow_anonymous is True
+            return {
+                "remaining_uses": 20,
+                "button_enabled": True,
+                "page_found": True,
+                "has_token": True,
+                "user_name": "木木",
+                "quota_text": "Detect now(20 left)",
+            }
+
+        async def detect(self, text, timeout=60.0):
+            return {
+                "success": True,
+                "rate": 56.5,
+                "risk_rate": 56.5,
+                "remaining_uses": 4,
+                "fp": "anonymous-fp",
+            }
+
+    service = ZhuqueService(credentials_file=tmp_path / "creds_latest.json", owner_label="test")
+    service.api = FakeAPI()
+    service._ready = True
+
+    result = asyncio.run(service.detect("测试文本" * 200))
+
+    assert result["remaining_uses"] == 19
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert not (tmp_path / "session_status.json").exists()
+
+
 def test_zhuque_service_refresh_free_quota_uses_live_visible_login_status(tmp_path):
     from app.services.zhuque_service import ZhuqueService
 

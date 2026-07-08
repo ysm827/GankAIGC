@@ -401,7 +401,7 @@ class ZhuqueService:
             allow_anonymous=not has_token,
             allow_stale_fallback=False,
         )
-        status.update({k: v for k, v in quota_status.items() if k in {"remaining_uses", "button_enabled", "page_found", "quota_text", "message"}})
+        status.update({k: v for k, v in quota_status.items() if k in {"remaining_uses", "button_enabled", "page_found", "quota_text", "message", "has_token", "connected", "ready", "user_name"}})
         remaining_uses = self._coerce_remaining_uses(status.get("remaining_uses"))
         button_enabled = bool(status.get("button_enabled"))
         if remaining_uses == 0 or (remaining_uses < 0 and not button_enabled):
@@ -433,6 +433,31 @@ class ZhuqueService:
                 except Exception:
                     credential_status = {}
                 detection_used_anonymous = not bool(credential_status.get("has_token"))
+                live_login_status = None
+                if detection_used_anonymous and not self._use_browser_agent_transport():
+                    with contextlib.suppress(Exception):
+                        live_login_status = await self._refresh_live_quota_status(
+                            self.api,
+                            current_remaining=credential_status.get("remaining_uses"),
+                            force=True,
+                            timeout=3.0,
+                            allow_anonymous=True,
+                            allow_stale_fallback=False,
+                        )
+                    if live_login_status and live_login_status.get("has_token"):
+                        detection_used_anonymous = False
+                        credential_status = {
+                            **credential_status,
+                            "has_token": True,
+                            "connected": True,
+                            "ready": True,
+                            "user_name": live_login_status.get("user_name") or credential_status.get("user_name", ""),
+                            "remaining_uses": live_login_status.get("remaining_uses", credential_status.get("remaining_uses")),
+                        }
+                        live_remaining = self._coerce_remaining_uses(live_login_status.get("remaining_uses"))
+                        if live_remaining >= 0:
+                            before_remaining = live_remaining
+                            self._remember_remaining_uses(live_remaining)
                 if self._use_browser_agent_transport():
                     result = await BrowserAgentZhuqueTransport(self.user_id).detect(
                         text,
@@ -442,16 +467,16 @@ class ZhuqueService:
                     result = await self.api.detect(text, timeout=settings.ZHUQUE_DETECT_TIMEOUT)
                 if self._should_reset_after_detect_failure(result):
                     self.reset_credentials_state()
-                if (
-                    result.get("success")
-                    and self._coerce_remaining_uses(result.get("remaining_uses")) < 0
-                    and before_remaining is not None
-                    and before_remaining > 0
-                ):
-                    result = {
-                        **result,
-                        "remaining_uses": max(before_remaining - 1, 0),
-                    }
+                if result.get("success") and before_remaining is not None and before_remaining > 0:
+                    result_remaining = self._coerce_remaining_uses(result.get("remaining_uses"))
+                    expected_remaining = max(before_remaining - 1, 0)
+                    if result_remaining < 0 or (not detection_used_anonymous and result_remaining != expected_remaining):
+                        result = {
+                            **result,
+                            "remaining_uses": expected_remaining,
+                            "user_name": result.get("user_name") or credential_status.get("user_name", ""),
+                            "has_token": result.get("has_token") or credential_status.get("has_token"),
+                        }
                 self._remember_remaining_uses(result.get("remaining_uses"))
                 if result.get("success") and detection_used_anonymous and not self._use_browser_agent_transport():
                     remaining_uses = self._coerce_remaining_uses(result.get("remaining_uses"))

@@ -1916,10 +1916,29 @@ class ZhuqueAPI:
                             anonymousFp = '';
                             accessToken = '';
                         }
-                        const ignoredAccountTexts = /Zhuque AI Detection Assistant|AI Detection Assistant|Free AI Detection Assistant|Text|Image\/Video|Upload|Clear|Detect|Important Notice|Invited tester|Notice|Abilities|Model update|登录|login/i;
-                        const accountName = [...document.querySelectorAll('header *, .header *, [class*="header"] *, [class*="user"] *, [class*="avatar"] *, [class*="account"] *')]
-                            .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
-                            .find((text) => text && text.length <= 24 && !ignoredAccountTexts.test(text)) || '';
+                        const ignoredAccountTexts = /Zhuque AI Detection Assistant|AI Detection Assistant|Free AI Detection Assistant|Text|Image\/Video|Upload|Clear|Detect|Detecting|Important Notice|Invited tester|Notice|Abilities|Model update|登录|login|Upload|Report/i;
+                        const normalizeAccountText = (text) => (text || '').replace(/\s+/g, ' ').trim();
+                        const looksLikeAccountName = (text) => (
+                            text
+                            && text.length <= 24
+                            && !ignoredAccountTexts.test(text)
+                            && !maybeQuotaText(text)
+                            && !/^[-_•|/\\]+$/.test(text)
+                        );
+                        const headerAccountCandidates = [...document.querySelectorAll('header *, .header *, [class*="header"] *, [class*="user"] *, [class*="avatar"] *, [class*="account"] *, [class*="dropdown"] *, .el-dropdown *, .el-dropdown-link')]
+                            .map((el) => normalizeAccountText(el.textContent))
+                            .filter(looksLikeAccountName);
+                        const visibleTopTextCandidates = [...document.querySelectorAll('body *')]
+                            .map((el) => {
+                                const text = normalizeAccountText(el.textContent);
+                                const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { top: 9999, right: 0, width: 0, height: 0 };
+                                const visible = !!(el.offsetWidth || el.offsetHeight || (el.getClientRects && el.getClientRects().length));
+                                return { text, top: rect.top || 9999, right: rect.right || 0, visible };
+                            })
+                            .filter((item) => item.visible && item.top >= 0 && item.top <= 180 && looksLikeAccountName(item.text))
+                            .sort((a, b) => (b.right - a.right) || (a.top - b.top))
+                            .map((item) => item.text);
+                        const accountName = headerAccountCandidates[0] || visibleTopTextCandidates[0] || '';
                         return {
                             quota_texts: candidates.slice(0, 48).map((item) => item.value),
                             quota_sources: candidates.slice(0, 48),
