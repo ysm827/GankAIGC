@@ -28,7 +28,7 @@ from app.services.provider_config_service import ProviderConfigService
 from app.services.stream_manager import stream_manager
 from app.services.task_queue import process_session_by_id
 from app.services.optimization_service import parse_zhuque_segment_position
-from app.services.zhuque_service import zhuque_service, zhuque_user_dir
+from app.services.zhuque_service import zhuque_service, zhuque_user_data_root, zhuque_user_dir
 from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
 from app.services.zhuque_remote_login_service import zhuque_remote_login_service
 from app.services.ai_service import count_text_length, normalize_api_format, split_text_into_segments
@@ -662,10 +662,10 @@ def _zhuque_service_for_user(user: User):
 def _zhuque_capture_script_path() -> Optional[Path]:
     here = Path(__file__).resolve()
     candidates = [
-        here.parents[4] / "zhuque_pkg" / "capture_zhuque_creds.py",
-        here.parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py",
-        Path.cwd() / "zhuque_pkg" / "capture_zhuque_creds.py",
-        Path.cwd().parent / "zhuque_pkg" / "capture_zhuque_creds.py",
+        here.parents[1] / "tools" / "zhuque_capture_window.py",
+        Path.cwd() / "package" / "backend" / "app" / "tools" / "zhuque_capture_window.py",
+        Path.cwd() / "backend" / "app" / "tools" / "zhuque_capture_window.py",
+        Path.cwd() / "app" / "tools" / "zhuque_capture_window.py",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -771,10 +771,9 @@ def _zhuque_capture_env(user: Optional[User] = None) -> dict:
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_zhuque_playwright_browsers_path()))
     env.setdefault("ZHUQUE_CDP_PORT", str(settings.ZHUQUE_CDP_PORT))
-    if user is not None:
-        capture_dir = zhuque_user_dir(user.id)
-        capture_dir.mkdir(parents=True, exist_ok=True)
-        env["ZHUQUE_CAPTURE_DIR"] = str(capture_dir)
+    capture_dir = zhuque_user_dir(user.id) if user is not None else zhuque_user_data_root() / "global"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    env.setdefault("ZHUQUE_CAPTURE_DIR", str(capture_dir))
     browser_executable = _zhuque_local_browser_executable()
     if browser_executable is not None:
         env.setdefault("ZHUQUE_CHROME_EXECUTABLE", str(browser_executable))
@@ -792,8 +791,8 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True, user: Optional[Us
             "login_mode": "wechat_qr",
             "credential_file": status.get("credential_file", ""),
             "sync_session": sync_session,
-            "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
-            "message": "未找到 zhuque_pkg/capture_zhuque_creds.py，请确认新朱雀包在项目根目录",
+            "command": "python package/backend/app/tools/zhuque_capture_window.py --sync-session",
+            "message": "未找到 package/backend/app/tools/zhuque_capture_window.py，请确认后端工具脚本存在",
         }
 
     launch_args = ["--sync-session"] if sync_session else []
@@ -822,7 +821,7 @@ def _start_zhuque_wechat_capture(*, sync_session: bool = True, user: Optional[Us
         }
 
     try:
-        log_dir = zhuque_user_dir(user.id) if user is not None else script_path.parent
+        log_dir = zhuque_user_dir(user.id) if user is not None else zhuque_user_data_root() / "global"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "capture_latest.log"
         log_handle = open(log_path, "a", encoding="utf-8", buffering=1)

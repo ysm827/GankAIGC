@@ -637,8 +637,8 @@ GankAIGC 不会读取用户默认 Chrome 的个人 Cookie，而是通过当前 G
 凭证和状态默认保存在：
 
 ```text
-zhuque_pkg/users/user_<id>/creds_latest.json
-zhuque_pkg/users/user_<id>/browser_state.json
+package/data/zhuque/users/user_<id>/creds_latest.json
+package/data/zhuque/users/user_<id>/browser_state.json
 ```
 
 本机可见检测时，系统会自动探测 Chrome / Edge / Brave：

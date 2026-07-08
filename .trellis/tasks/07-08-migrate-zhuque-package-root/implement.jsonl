@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Owns Zhuque backend path, credential isolation, local browser, and one-click contracts."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Owns workspace Zhuque UX wording and local-window compatibility behavior."}

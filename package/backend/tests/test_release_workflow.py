@@ -24,6 +24,7 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     zhuque_api = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_api.py").read_text(encoding="utf-8")
     zhuque_service = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_service.py").read_text(encoding="utf-8")
     local_transport = (PROJECT_ROOT / "package" / "backend" / "app" / "services" / "zhuque_local_browser_transport.py").read_text(encoding="utf-8")
+    capture_tool = PROJECT_ROOT / "package" / "backend" / "app" / "tools" / "zhuque_capture_window.py"
 
     expected_defaults = {
         "ZHUQUE_DETECT_TRANSPORT": "auto",
@@ -52,8 +53,11 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     assert "collect_data_files('playwright')" in app_spec
     assert "open_detect_page" in zhuque_api
     assert "open_detection_page" in zhuque_service
+    assert '"data" / "zhuque" / "users"' in zhuque_service
+    assert capture_tool.exists()
+    assert not (PROJECT_ROOT / "zhuque_pkg").exists()
     assert "open_detection_page = getattr" in local_transport
-    assert "capture_zhuque_creds.py" not in local_transport.split("open_detection_page = getattr", 1)[0]
+    assert "zhuque_capture_window.py" not in local_transport.split("open_detection_page = getattr", 1)[0]
 
 
 def test_windows_build_script_uses_dedicated_windows_venv():

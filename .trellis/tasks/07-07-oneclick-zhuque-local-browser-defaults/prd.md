@@ -20,14 +20,14 @@ Windows 一键包需要继承这套默认行为，普通用户不应安装 Chrom
    - 本地一键包不需要 Chrome 插件。
    - 点击「打开朱雀页面」后使用本机可见 Chrome/Edge/Brave。
    - 如需强制指定浏览器，可设置 `ZHUQUE_DETECT_BROWSER_EXECUTABLE`。
-4. 一键包内置打开朱雀页面不依赖 `zhuque_pkg/capture_zhuque_creds.py` 外部脚本；legacy 脚本仅作源码兼容兜底。
+4. 一键包内置打开朱雀页面不依赖内部 legacy 捕获脚本；legacy 脚本仅作源码兼容兜底。
 5. PyInstaller 显式收集 Playwright Python 控制代码，但不打包 Chromium 浏览器本体。
 6. 保持 VPS/browser-agent 文档和代码不变。
 7. 加静态测试覆盖一键包模板/启动脚本/README 的本地朱雀默认值。
 
 ## 非目标
 
-- 本轮不删除 `zhuque_pkg`。
+- 本轮不删除 legacy 本地窗口兜底能力。
 - 本轮不把 Playwright Chromium 打包进一键包。
 - 本轮不改 browser-agent 插件。
 - 本轮不发布 GitHub Release；只准备代码和构建命令。

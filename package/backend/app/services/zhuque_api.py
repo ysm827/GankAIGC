@@ -1,9 +1,8 @@
 """
-朱雀 AI 检测 API — 微信扫码凭证 + 无头 WebSocket 版。
+朱雀 AI 检测 API — 本机可见浏览器状态 + WebSocket/API 检测。
 
-登录链路：zhuque_pkg/capture_zhuque_creds.py 打开一次可见浏览器，微信扫码后
-保存 creds_latest.json。检测链路：后端直接连接朱雀 WebSocket API，不再依赖
-旧版本地页面控制 / matrix 页面 DOM。
+本机/一键包链路会打开或复用系统 Chrome/Edge/Brave 的朱雀页面，
+凭证和页面状态默认保存在 package/data/zhuque/users 或 ZHUQUE_USER_DATA_DIR。
 """
 
 from __future__ import annotations
@@ -214,11 +213,12 @@ def _default_credentials_file() -> Path:
         return Path(env_path).expanduser()
 
     here = Path(__file__).resolve()
+    package_dir = here.parents[3]
     candidates = [
-        here.parents[4] / "zhuque_pkg" / "creds_latest.json",  # repo root when running from package/backend/app/services
-        here.parents[3] / "zhuque_pkg" / "creds_latest.json",  # package/zhuque_pkg for bundled layouts
-        Path.cwd() / "zhuque_pkg" / "creds_latest.json",
-        Path.cwd().parent / "zhuque_pkg" / "creds_latest.json",
+        package_dir / "data" / "zhuque" / "creds_latest.json",
+        Path.cwd() / "data" / "zhuque" / "creds_latest.json",
+        Path.cwd() / "package" / "data" / "zhuque" / "creds_latest.json",
+        Path.cwd().parent / "data" / "zhuque" / "creds_latest.json",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -1108,8 +1108,8 @@ class ZhuqueAPI:
         """Open or focus a visible Zhuque detection page without submitting text.
 
         This is the built-in local/one-click launcher. It avoids spawning the
-        legacy ``zhuque_pkg/capture_zhuque_creds.py`` helper, which is not
-        available as a normal Python script inside PyInstaller one-click builds.
+        legacy ``package/backend/app/tools/zhuque_capture_window.py`` helper,
+        which is not available as a normal Python script inside PyInstaller one-click builds.
         """
         try:
             from playwright.async_api import async_playwright
@@ -1271,7 +1271,7 @@ class ZhuqueAPI:
                 return dict(anonymous_creds)
             raise RuntimeError(
                 f"未找到朱雀微信登录凭证: {self.credentials_file}。"
-                "请先点击“微信扫码登录朱雀”或运行 zhuque_pkg/capture_zhuque_creds.py"
+                "请先点击“打开朱雀页面”或运行 package/backend/app/tools/zhuque_capture_window.py"
             )
         try:
             raw = json.loads(self.credentials_file.read_text(encoding="utf-8"))

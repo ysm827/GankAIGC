@@ -89,12 +89,7 @@ docs/superpowers/
 
 
 # Local Zhuque browser/session artifacts
-zhuque_pkg/creds_*.json
-zhuque_pkg/creds_latest.json
-zhuque_pkg/browser_state.json
-zhuque_pkg/session_status.json
-zhuque_pkg/qrcode_latest.png
-zhuque_pkg/capture_latest.log
+package/data/zhuque/
 
 # Local browser/test/cache artifacts
 package/.playwright-browsers/
@@ -104,5 +99,3 @@ output/
 
 # Removed tool leftovers
 .ace-tool.removed.*/
-# Per-user Zhuque credentials/session artifacts (VPS remote QR login)
-zhuque_pkg/users/

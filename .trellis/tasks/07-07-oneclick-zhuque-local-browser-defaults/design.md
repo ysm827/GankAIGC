@@ -52,7 +52,7 @@ ZHUQUE_DETECT_BROWSER_EXECUTABLE=
 
 ### 后端内置打开本机朱雀页面
 
-一键包里 `sys.executable` 是 `GankAIGC.exe`，不能当普通 Python 解释器去执行 `zhuque_pkg/capture_zhuque_creds.py`。因此 `LocalBrowserZhuqueTransport.open_page()` 必须先调用内置 `open_detection_page()`，成功后不走 legacy capture script。legacy script 只保留为源码/兼容兜底。
+一键包里 `sys.executable` 是 `GankAIGC.exe`，不能当普通 Python 解释器去执行内部兼容捕获工具。因此 `LocalBrowserZhuqueTransport.open_page()` 必须先调用内置 `open_detection_page()`，成功后不走 legacy capture script。legacy script 只保留为源码/兼容兜底。
 
 ### PyInstaller spec
 

@@ -14,12 +14,12 @@
   - 配额: 以页面实际返回为准
 
 用法:
-    python capture_zhuque_creds.py                        # 可见浏览器，扫码后自动保存
-    python capture_zhuque_creds.py --sync-session         # 打开朱雀页，按网页内真实登录/退出状态同步凭证
-    python capture_zhuque_creds.py --load                 # 加载 creds_latest.json 查看
-    python capture_zhuque_creds.py --load creds_20250616_120000.json
-    python capture_zhuque_creds.py --export-shell          # 导出为 shell 环境变量
-    python capture_zhuque_creds.py --export-json-creds     # 导出为 zhuque_api_headless.py 可用的 creds JSON
+    python zhuque_capture_window.py                        # 可见浏览器，扫码后自动保存
+    python zhuque_capture_window.py --sync-session         # 打开朱雀页，按网页内真实登录/退出状态同步凭证
+    python zhuque_capture_window.py --load                 # 加载 creds_latest.json 查看
+    python zhuque_capture_window.py --load creds_20250616_120000.json
+    python zhuque_capture_window.py --export-shell          # 导出为 shell 环境变量
+    python zhuque_capture_window.py --export-json-creds     # 导出为 zhuque_api_headless.py 可用的 creds JSON
 
 输出:
     creds_<timestamp>.json   # 完整凭证（含所有 localStorage + cookies）
@@ -30,7 +30,12 @@ import asyncio, json, sys, time, os, re, subprocess, tempfile, urllib.error, url
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
-TEMP = Path(os.environ.get("ZHUQUE_CAPTURE_DIR") or Path(__file__).parent).resolve()
+def _default_capture_dir() -> Path:
+    return Path(__file__).resolve().parents[3] / "data" / "zhuque" / "global"
+
+
+TEMP = Path(os.environ.get("ZHUQUE_CAPTURE_DIR") or _default_capture_dir()).resolve()
+TEMP.mkdir(parents=True, exist_ok=True)
 MATRIX_URL = "https://matrix.tencent.com/ai-detect/"
 WAIT_TIMEOUT = 180  # 等待扫码的秒数（超时则退出）
 POLL_INTERVAL = 0.35
@@ -1504,7 +1509,7 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
         if needs_login:
             if headless:
                 print("\n[FAIL] 无头模式无法显示二维码供扫码，请用可见模式运行")
-                print("   用法: python capture_zhuque_creds.py [--switch]")
+                print("   用法: python zhuque_capture_window.py [--switch]")
                 return None
 
             triggered = await trigger_login_flow(page)
@@ -1630,11 +1635,11 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(
         description="朱雀凭证捕获工具 — 微信扫码登录自动提取凭证",
         epilog=(
-            "示例: python capture_zhuque_creds.py                  # 打开浏览器扫码\n"
-            "      python capture_zhuque_creds.py --sync-session   # 同步真实网页登录/退出状态\n"
-            "      python capture_zhuque_creds.py --switch         # 旧切号：退出→重新扫码\n"
-            "      python capture_zhuque_creds.py --load           # 查看已保存凭证\n"
-            "      python capture_zhuque_creds.py --export-shell   # 导出环境变量"
+            "示例: python zhuque_capture_window.py                  # 打开浏览器扫码\n"
+            "      python zhuque_capture_window.py --sync-session   # 同步真实网页登录/退出状态\n"
+            "      python zhuque_capture_window.py --switch         # 旧切号：退出→重新扫码\n"
+            "      python zhuque_capture_window.py --load           # 查看已保存凭证\n"
+            "      python zhuque_capture_window.py --export-shell   # 导出环境变量"
         )
     )
     pg = p.add_mutually_exclusive_group()

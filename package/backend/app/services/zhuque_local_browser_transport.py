@@ -1,8 +1,8 @@
 """Local visible-browser transport wrapper for Zhuque desktop/one-click deployments.
 
-This layer standardizes the local-browser contract while keeping the legacy
-`zhuque_pkg`/`ZhuqueAPI` implementation underneath for the first migration
-phase. It must not be used for VPS `browser_agent` mode.
+This layer standardizes the local-browser contract around the backend
+`ZhuqueService`/`ZhuqueAPI` implementation. It must not be used for VPS
+`browser_agent` mode.
 """
 from __future__ import annotations
 

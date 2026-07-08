@@ -319,6 +319,10 @@ def _joined_segment_starts(segment_texts):
     return starts
 
 
+def _zhuque_capture_tool_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "app" / "tools" / "zhuque_capture_window.py"
+
+
 def _create_user(*, credit_balance=20, zhuque_free_uses_remaining=20):
     db = SessionLocal()
     try:
@@ -341,7 +345,7 @@ def _create_user(*, credit_balance=20, zhuque_free_uses_remaining=20):
 def test_zhuque_wechat_capture_launches_sync_session_script(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
-    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path = tmp_path / "zhuque_capture_window.py"
     script_path.write_text("print('capture')", encoding="utf-8")
     popen_calls = []
 
@@ -397,7 +401,7 @@ def test_zhuque_wechat_capture_launches_sync_session_script(monkeypatch, tmp_pat
 def test_zhuque_wechat_capture_sync_session_does_not_clear_stale_credentials(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
-    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path = tmp_path / "zhuque_capture_window.py"
     script_path.write_text("print('capture')", encoding="utf-8")
     creds_file = script_path.parent / "creds_latest.json"
     state_file = script_path.parent / "browser_state.json"
@@ -438,7 +442,7 @@ def test_zhuque_wechat_capture_sync_session_does_not_clear_stale_credentials(mon
 def test_zhuque_wechat_capture_prefers_windows_chrome_on_wsl(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
-    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path = tmp_path / "zhuque_capture_window.py"
     script_path.write_text("print('capture')", encoding="utf-8")
     windows_chrome = tmp_path / "chrome.exe"
     windows_chrome.write_text("", encoding="utf-8")
@@ -485,7 +489,7 @@ def test_zhuque_wechat_capture_prefers_windows_chrome_on_wsl(monkeypatch, tmp_pa
 def test_zhuque_capture_does_not_fallback_after_windows_chrome_cdp_failure(monkeypatch):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_no_fallback", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -525,7 +529,7 @@ def test_zhuque_capture_does_not_fallback_after_windows_chrome_cdp_failure(monke
 def test_zhuque_capture_uses_windows_powershell_bridge(monkeypatch):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_bridge", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -561,7 +565,7 @@ def test_zhuque_capture_powershell_json_decodes_windows_codepage(monkeypatch):
     import importlib.util
     import subprocess
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_powershell_decode", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -595,7 +599,7 @@ def test_zhuque_local_window_and_retry_reset_cached_user_service():
 def test_zhuque_capture_restarts_stale_windows_debug_profile(monkeypatch):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_restart_profile", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -634,7 +638,7 @@ def test_zhuque_capture_restarts_stale_windows_debug_profile(monkeypatch):
 def test_zhuque_capture_logged_out_status_preserves_previous_quota_when_page_quota_flickers(monkeypatch, tmp_path):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_preserve_quota", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -659,7 +663,7 @@ def test_zhuque_capture_logged_out_status_preserves_previous_quota_when_page_quo
 def test_zhuque_capture_logged_out_status_prefers_live_page_quota_over_previous(monkeypatch, tmp_path):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_live_quota", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -684,7 +688,7 @@ def test_zhuque_capture_logged_out_status_prefers_live_page_quota_over_previous(
 def test_zhuque_capture_session_status_uses_unique_tmp_file(monkeypatch, tmp_path):
     import importlib.util
 
-    script_path = Path(__file__).resolve().parents[3] / "zhuque_pkg" / "capture_zhuque_creds.py"
+    script_path = _zhuque_capture_tool_path()
     spec = importlib.util.spec_from_file_location("zhuque_capture_unique_status_tmp", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -706,7 +710,7 @@ def test_zhuque_capture_session_status_uses_unique_tmp_file(monkeypatch, tmp_pat
 def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
-    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path = tmp_path / "zhuque_capture_window.py"
     script_path.write_text("print('capture')", encoding="utf-8")
 
     class FakeAPI:
@@ -734,7 +738,7 @@ def test_zhuque_wechat_capture_reports_missing_playwright(monkeypatch, tmp_path)
 def test_zhuque_wechat_capture_reports_missing_playwright_browser(monkeypatch, tmp_path):
     import app.routes.optimization as optimization_route
 
-    script_path = tmp_path / "capture_zhuque_creds.py"
+    script_path = tmp_path / "zhuque_capture_window.py"
     script_path.write_text("print('capture')", encoding="utf-8")
 
     class FakeAPI:
@@ -2239,7 +2243,7 @@ def test_zhuque_local_open_endpoint_reuses_or_launches_local_browser(client, mon
             "status": "started",
             "credential_file": str(tmp_path / "creds_latest.json"),
             "sync_session": sync_session,
-            "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
+            "command": "python package/backend/app/tools/zhuque_capture_window.py --sync-session",
             "message": "legacy launcher",
         }
 
@@ -2262,7 +2266,7 @@ def test_zhuque_local_open_endpoint_reuses_or_launches_local_browser(client, mon
     assert body["transport"] == "local_browser"
     assert body["login_mode"] == "local_browser"
     assert body["sync_session"] is True
-    assert body["command"] == "python zhuque_pkg/capture_zhuque_creds.py --sync-session"
+    assert body["command"] == "python package/backend/app/tools/zhuque_capture_window.py --sync-session"
     assert calls == ["open_page", ("reset", user_id), "started"]
 
 
@@ -2435,7 +2439,7 @@ def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypat
             "login_mode": "wechat_qr",
             "credential_file": credential_file,
             "sync_session": sync_session,
-            "command": "python zhuque_pkg/capture_zhuque_creds.py --sync-session",
+            "command": "python package/backend/app/tools/zhuque_capture_window.py --sync-session",
             "message": "已打开朱雀真实网页状态同步窗口",
         }
 
@@ -2456,7 +2460,7 @@ def test_zhuque_browser_start_endpoint_keeps_local_window_mode(client, monkeypat
     assert body["login_mode"] == "wechat_qr"
     assert body["credential_file"] == credential_file
     assert body["sync_session"] is True
-    assert body["command"] == "python zhuque_pkg/capture_zhuque_creds.py --sync-session"
+    assert body["command"] == "python package/backend/app/tools/zhuque_capture_window.py --sync-session"
     assert captured_sync_values == [True]
 
     response = client.post(

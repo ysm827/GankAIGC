@@ -183,8 +183,8 @@ GankAIGC 不读取用户默认 Chrome 的个人登录态。本机源码运行和
 朱雀 cookie/localStorage 与页面状态保存在当前 GankAIGC 用户目录：
 
 ```text
-zhuque_pkg/users/user_<id>/creds_latest.json
-zhuque_pkg/users/user_<id>/browser_state.json
+package/data/zhuque/users/user_<id>/creds_latest.json
+package/data/zhuque/users/user_<id>/browser_state.json
 ```
 
 后续朱雀检测会复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。

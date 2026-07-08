@@ -4,8 +4,8 @@
 
 - VPS `browser_agent` 不动。
 - 本地默认 `ZHUQUE_DETECT_TRANSPORT=auto`，行为应等价本机浏览器链路。
-- 当前 `ZhuqueService` 已能在非 browser-agent 时使用 `ZhuqueAPI` 与 `capture_zhuque_creds.py`，第一阶段包装现有能力。
-- 保持当前 per-user 目录：`zhuque_pkg/users/user_<id>/`，后续再迁 `data/zhuque/users/`。
+- 当前 `ZhuqueService` 已能在非 browser-agent 时使用 `ZhuqueAPI` 与内部兼容捕获工具，第一阶段包装现有能力。
+- 当前 per-user 目录已迁到 `package/data/zhuque/users/user_<id>/` 或 `ZHUQUE_USER_DATA_DIR`。
 
 ## 数据流
 
@@ -17,7 +17,7 @@ WorkspacePage
   → LocalBrowserZhuqueTransport.open_page()
   → ZhuqueService.focus_detection_window()
      ├─ 成功：聚焦现有检测页，返回 reused
-     └─ 失败：fallback 到 capture_zhuque_creds.py --sync-session
+     └─ 失败：fallback 到 package/backend/app/tools/zhuque_capture_window.py --sync-session
   → 返回统一状态 payload
 ```
 

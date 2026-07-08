@@ -1,0 +1,2 @@
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Verify migrated Zhuque runtime paths and compatibility flow still match backend quality contracts."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Verify workspace Zhuque copy and behavior remain consistent after backend path migration."}

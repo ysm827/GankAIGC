@@ -33,7 +33,7 @@ def zhuque_user_data_root() -> Path:
     configured = getattr(settings, "ZHUQUE_USER_DATA_DIR", "") or ""
     if configured.strip():
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[4] / "zhuque_pkg" / "users"
+    return Path(__file__).resolve().parents[3] / "data" / "zhuque" / "users"
 
 
 def zhuque_user_dir(user_id: int | str) -> Path:
@@ -839,5 +839,5 @@ class ZhuqueServiceManager:
         await asyncio.gather(*(service.close() for service in services), return_exceptions=True)
 
 
-# 全局管理器；每个用户隔离在 zhuque_pkg/users/user_<id>/ 下。
+# 全局管理器；每个用户隔离在 package/data/zhuque/users/user_<id>/ 下，或 ZHUQUE_USER_DATA_DIR 指定目录下。
 zhuque_service = ZhuqueServiceManager()
