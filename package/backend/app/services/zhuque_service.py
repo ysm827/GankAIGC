@@ -268,6 +268,47 @@ class ZhuqueService:
             return ""
         return str(creds.get("fp") or "").strip()
 
+    def _write_live_page_login_status(
+        self,
+        api: ZhuqueAPI,
+        remaining_uses: int,
+        message: str,
+        quota_status: dict | None = None,
+    ) -> None:
+        """Persist non-secret visible-page login state for the current user."""
+        user_name = ""
+        quota_text = ""
+        if isinstance(quota_status, dict):
+            user_name = str(quota_status.get("user_name") or "").strip()
+            quota_text = str(quota_status.get("quota_text") or "").strip()
+        if not user_name and not (isinstance(quota_status, dict) and quota_status.get("has_token")):
+            return
+        status_file = Path(api.credentials_file).parent / "session_status.json"
+        payload = {
+            "connected": True,
+            "ready": True,
+            "has_token": True,
+            "has_anonymous_fp": False,
+            "anonymous_fp": "",
+            "remaining_uses": remaining_uses,
+            "user_name": user_name,
+            "quota_text": quota_text or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
+            "message": message,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        try:
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = status_file.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            tmp_file.replace(status_file)
+        except OSError:
+            logger.warning(
+                "[ZhuqueService:%s] Failed to persist visible Zhuque login status",
+                self.owner_label,
+                exc_info=True,
+            )
+
     def _write_logged_out_quota_status(
         self,
         api: ZhuqueAPI,
@@ -276,6 +317,8 @@ class ZhuqueService:
         quota_status: dict | None = None,
     ) -> None:
         """Persist non-secret logged-out quota UI state for the current user."""
+        if isinstance(quota_status, dict) and (quota_status.get("has_token") or quota_status.get("user_name")):
+            return
         status_file = Path(api.credentials_file).parent / "session_status.json"
         existing_status = {}
         if status_file.exists():
@@ -458,6 +501,12 @@ class ZhuqueService:
                         if live_remaining >= 0:
                             before_remaining = live_remaining
                             self._remember_remaining_uses(live_remaining)
+                            self._write_live_page_login_status(
+                                self.api,
+                                live_remaining,
+                                f"朱雀账号剩余次数已同步：{live_remaining} 次",
+                                live_login_status,
+                            )
                 if self._use_browser_agent_transport():
                     result = await BrowserAgentZhuqueTransport(self.user_id).detect(
                         text,
@@ -478,6 +527,22 @@ class ZhuqueService:
                             "has_token": result.get("has_token") or credential_status.get("has_token"),
                         }
                 self._remember_remaining_uses(result.get("remaining_uses"))
+                if result.get("success") and not detection_used_anonymous and not self._use_browser_agent_transport():
+                    post_remaining = self._coerce_remaining_uses(result.get("remaining_uses"))
+                    if post_remaining >= 0:
+                        post_status = {
+                            **credential_status,
+                            **result,
+                            "user_name": result.get("user_name") or credential_status.get("user_name", ""),
+                            "quota_text": result.get("quota_text") or f"剩余 {post_remaining} 次",
+                            "has_token": True,
+                        }
+                        self._write_live_page_login_status(
+                            self.api,
+                            post_remaining,
+                            f"朱雀账号剩余次数已同步：{post_remaining} 次",
+                            post_status,
+                        )
                 if result.get("success") and detection_used_anonymous and not self._use_browser_agent_transport():
                     remaining_uses = self._coerce_remaining_uses(result.get("remaining_uses"))
                     anonymous_fp = self._anonymous_fp_from_api(self.api, credential_status, result)
@@ -758,10 +823,9 @@ class ZhuqueService:
                 else "暂未探测到朱雀免费次数；请稍后重试或扫码登录，当前不能开始朱雀检测"
             )
 
-        if not has_token and (
-            remaining_uses >= 0
-            or self._anonymous_fp_from_api(api, status, quota_status)
-        ):
+        if has_token:
+            self._write_live_page_login_status(api, remaining_uses, message, quota_status)
+        elif remaining_uses >= 0 or self._anonymous_fp_from_api(api, status, quota_status):
             self._write_logged_out_quota_status(api, remaining_uses, message, quota_status)
 
         return {

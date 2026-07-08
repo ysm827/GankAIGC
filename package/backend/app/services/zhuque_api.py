@@ -168,6 +168,48 @@ def _is_login_prompt_text(text: str) -> bool:
     }
 
 
+def _looks_like_zhuque_account_name(text: str) -> bool:
+    text = str(text or "").strip()
+    if not text or len(text) > 24 or _is_login_prompt_text(text):
+        return False
+    if _parse_remaining_uses(text) >= 0:
+        return False
+    ignored = {
+        "zhuque ai detection assistant",
+        "ai detection assistant",
+        "free ai detection assistant",
+        "text",
+        "image/video",
+        "upload",
+        "clear",
+        "detect",
+        "detecting",
+        "important notice",
+        "notice",
+        "invited tester",
+    }
+    normalised = re.sub(r"\s+", " ", text).strip().lower()
+    if normalised in ignored:
+        return False
+    if re.search(r"detect|notice|assistant|upload|clear|model update|copyright|tencent", text, re.IGNORECASE):
+        return False
+    return bool(re.search(r"[\w\u4e00-\u9fff]", text))
+
+
+def _extract_account_name_from_body_preview(text: str) -> str:
+    """Recover Zhuque header account text from the top of body.innerText.
+
+    The live page may expose the nickname as a standalone early line, for
+    example: logo/title, product dropdown, then `木木`. This is non-secret UI
+    state and works for arbitrary nicknames rather than a hard-coded account.
+    """
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    for line in lines[:12]:
+        if _looks_like_zhuque_account_name(line):
+            return line
+    return ""
+
+
 def _coerce_remaining_uses(*values) -> int:
     """Normalize Zhuque quota values from API numbers or UI text.
 
@@ -2008,8 +2050,15 @@ class ZhuqueAPI:
 
             deadline = time.time() + max(timeout, 1.0)
             probe_text_filled = False
+
+            def page_identity(state: dict) -> tuple[bool, str]:
+                page_user_name = str(state.get("user_name") or "").strip() or _extract_account_name_from_body_preview(state.get("body_preview") or "")
+                page_has_login = bool(state.get("has_token") or state.get("access_token_present") or state.get("logged_in") or page_user_name)
+                return page_has_login, page_user_name
+
             while time.time() < deadline:
                 last_state = await collect_quota_state()
+                page_has_login, page_user_name = page_identity(last_state)
                 remaining_uses = _coerce_remaining_uses(*(last_state.get("quota_texts") or []))
                 if remaining_uses >= 0:
                     return {
@@ -2019,8 +2068,8 @@ class ZhuqueAPI:
                         "quota_text": " | ".join(last_state.get("quota_texts") or []),
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
-                        "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
-                        "user_name": str(last_state.get("user_name") or "").strip(),
+                        "has_token": page_has_login,
+                        "user_name": page_user_name,
                         "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面剩余次数已解析",
@@ -2038,14 +2087,15 @@ class ZhuqueAPI:
                         "quota_text": last_state.get("submit_button_text") or "Detect now",
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
-                        "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
-                        "user_name": str(last_state.get("user_name") or "").strip(),
+                        "has_token": page_has_login,
+                        "user_name": page_user_name,
                         "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面检测入口可用，但当前页面未暴露剩余次数数字",
                     }
                 await page.wait_for_timeout(500)
 
+            page_has_login, page_user_name = page_identity(last_state)
             await self._write_quota_probe_artifacts(page, reason="quota_not_found", quota_state=last_state)
             return {
                 "remaining_uses": -1,
@@ -2054,8 +2104,8 @@ class ZhuqueAPI:
                 "quota_text": last_state.get("submit_button_text") or "",
                 "fp": str(last_state.get("fp") or "").strip(),
                 "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
-                "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
-                "user_name": str(last_state.get("user_name") or "").strip(),
+                "has_token": page_has_login,
+                "user_name": page_user_name,
                 "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                 "probe_state": last_state,
                 "message": "朱雀页面未暴露剩余次数数字",

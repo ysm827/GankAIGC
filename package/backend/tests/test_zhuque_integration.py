@@ -2310,6 +2310,19 @@ def test_zhuque_api_quota_probe_reuses_visible_page_without_headless_browser(tmp
     assert calls[0] == "open_detect_page"
 
 
+def test_zhuque_extracts_account_name_from_zhuque_body_preview():
+    from app.services.zhuque_api import _extract_account_name_from_body_preview
+
+    preview = """Zhuque AI Detection Assistant
+AI Detection Assistant
+任意用户123
+Free AI Detection Assistant
+Text
+Image/Video"""
+
+    assert _extract_account_name_from_body_preview(preview) == "任意用户123"
+
+
 def test_zhuque_api_peek_quota_status_prefers_visible_login_page_over_cached_anonymous_fp(tmp_path, monkeypatch):
     from app.services.zhuque_api import ZhuqueAPI
 
@@ -2401,7 +2414,10 @@ def test_zhuque_service_detect_preserves_visible_login_quota_over_anonymous_resu
     assert result["remaining_uses"] == 19
     assert result["has_token"] is True
     assert result["user_name"] == "木木"
-    assert not (tmp_path / "session_status.json").exists()
+    session_status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is True
+    assert session_status["user_name"] == "木木"
+    assert session_status["remaining_uses"] == 19
 
 
 def test_zhuque_service_refresh_free_quota_uses_live_visible_login_status(tmp_path):
@@ -2442,6 +2458,11 @@ def test_zhuque_service_refresh_free_quota_uses_live_visible_login_status(tmp_pa
     assert result["user_name"] == "木木"
     assert result["remaining_uses"] == 20
     assert result["button_enabled"] is True
+    session_status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert session_status["connected"] is True
+    assert session_status["has_token"] is True
+    assert session_status["user_name"] == "木木"
+    assert session_status["remaining_uses"] == 20
 
 
 def test_local_browser_transport_opens_builtin_page_before_legacy_capture():
