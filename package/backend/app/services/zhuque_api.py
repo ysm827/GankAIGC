@@ -187,11 +187,13 @@ def _looks_like_zhuque_account_name(text: str) -> bool:
         "important notice",
         "notice",
         "invited tester",
+        "aigc text",
+        "aigc image",
     }
     normalised = re.sub(r"\s+", " ", text).strip().lower()
     if normalised in ignored:
         return False
-    if re.search(r"detect|notice|assistant|upload|clear|model update|copyright|tencent", text, re.IGNORECASE):
+    if re.search(r"detect|notice|assistant|upload|clear|model update|copyright|tencent|^aigc\s+(text|image)$", text, re.IGNORECASE):
         return False
     return bool(re.search(r"[\w\u4e00-\u9fff]", text))
 
@@ -1007,6 +1009,11 @@ class ZhuqueAPI:
         except (TypeError, ValueError):
             return 9224
 
+    @staticmethod
+    def _urlopen_no_proxy(url: str, timeout: float):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(url, timeout=timeout)
+
     def _cdp_endpoints(self, port: int) -> list[str]:
         hosts = ["127.0.0.1", "localhost"]
         if self._is_wsl():
@@ -1024,7 +1031,7 @@ class ZhuqueAPI:
         while time.time() < deadline:
             for endpoint in self._cdp_endpoints(port):
                 try:
-                    with urllib.request.urlopen(f"{endpoint}/json/version", timeout=0.5) as response:
+                    with self._urlopen_no_proxy(f"{endpoint}/json/version", timeout=0.5) as response:
                         if response.status == 200:
                             return endpoint
                 except (OSError, urllib.error.URLError):
@@ -1194,8 +1201,10 @@ class ZhuqueAPI:
                         (candidate for candidate in live_pages if "matrix.tencent.com/ai-detect" in str(getattr(candidate, "url", ""))),
                         live_pages[0] if live_pages else None,
                     )
+            page_already_on_zhuque = bool(page and "matrix.tencent.com/ai-detect" in str(getattr(page, "url", "")))
             if page is None:
                 page = await self._browser_context.new_page()
+                page_already_on_zhuque = False
 
             if not anonymous and (not self._browser_external_context or self._browser_cdp_managed):
                 try:
@@ -1225,7 +1234,8 @@ class ZhuqueAPI:
                             local_storage,
                         )
 
-            await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
+            if not page_already_on_zhuque:
+                await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=60000)
             with contextlib.suppress(Exception):
                 await page.bring_to_front()
             self._cached_page = page
@@ -2052,7 +2062,8 @@ class ZhuqueAPI:
             probe_text_filled = False
 
             def page_identity(state: dict) -> tuple[bool, str]:
-                page_user_name = str(state.get("user_name") or "").strip() or _extract_account_name_from_body_preview(state.get("body_preview") or "")
+                body_user_name = _extract_account_name_from_body_preview(state.get("body_preview") or "")
+                page_user_name = body_user_name or str(state.get("user_name") or "").strip()
                 page_has_login = bool(state.get("has_token") or state.get("access_token_present") or state.get("logged_in") or page_user_name)
                 return page_has_login, page_user_name
 
