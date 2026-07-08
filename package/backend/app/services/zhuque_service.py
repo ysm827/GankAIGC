@@ -139,7 +139,7 @@ class ZhuqueService:
             "quota_text": payload.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
             "message": payload.get("message", ""),
             "probe_state": payload.get("probe_state") or {},
-            "has_token": bool(payload.get("has_token") or payload.get("access_token_present") or payload.get("logged_in")),
+            "has_token": bool(payload.get("has_token") or payload.get("access_token_present")),
             "user_name": str(payload.get("user_name") or payload.get("userName") or "").strip(),
             "anonymous_fp": str(payload.get("anonymous_fp") or payload.get("fp") or "").strip(),
             "has_anonymous_fp": bool(payload.get("has_anonymous_fp") or payload.get("anonymous_fp") or payload.get("fp")),
@@ -507,6 +507,30 @@ class ZhuqueService:
                                 f"朱雀账号剩余次数已同步：{live_remaining} 次",
                                 live_login_status,
                             )
+                known_remaining = (
+                    self._last_remaining_uses
+                    if self._last_remaining_uses is not None
+                    else self._coerce_remaining_uses(
+                        (live_login_status or {}).get("remaining_uses") if live_login_status else credential_status.get("remaining_uses")
+                    )
+                )
+                if known_remaining == 0:
+                    result = {
+                        "success": False,
+                        "message": "朱雀剩余次数不足，请切换朱雀账号、退出后使用可用免费次数，或等待次数恢复",
+                        "rate": None,
+                        "risk_rate": None,
+                        "rate_label": "",
+                        "labels_ratio": {},
+                        "alert_text": "",
+                        "alert_title": "",
+                        "remaining_uses": 0,
+                        "text_length": len(text or ""),
+                        "source": "zhuque_quota_preflight",
+                    }
+                    if not future.done():
+                        future.set_result(result)
+                    continue
                 if self._use_browser_agent_transport():
                     result = await BrowserAgentZhuqueTransport(self.user_id).detect(
                         text,
@@ -614,6 +638,14 @@ class ZhuqueService:
             close_api = getattr(self.api, "close", None)
             if callable(close_api):
                 await close_api()
+
+    async def logout_saved_credentials(self) -> dict:
+        """Clear persisted Zhuque credentials plus live browser auth cache."""
+        api = self._ensure_api()
+        logout_api = getattr(api, "logout_saved_credentials", None)
+        payload = await logout_api() if callable(logout_api) else {}
+        self.reset_credentials_state()
+        return payload
 
     async def readiness(self, text: Optional[str] = None) -> dict:
         """读取朱雀微信凭证状态，不发起检测，不消耗朱雀次数。"""
@@ -902,6 +934,9 @@ class ZhuqueServiceManager:
 
     def reset_user(self, user_id: int | str | None) -> None:
         self.for_user(user_id).reset_credentials_state()
+
+    async def logout_user(self, user_id: int | str | None) -> dict:
+        return await self.for_user(user_id).logout_saved_credentials()
 
     # Legacy passthroughs keep existing tests/imports usable until all callers
     # are migrated. New request/session code must call ``for_user(user.id)``.

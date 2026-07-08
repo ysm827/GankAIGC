@@ -2310,6 +2310,141 @@ def test_zhuque_api_quota_probe_reuses_visible_page_without_headless_browser(tmp
     assert calls[0] == "open_detect_page"
 
 
+def test_zhuque_api_logout_clears_saved_files_and_live_context(tmp_path):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    creds_file = tmp_path / "creds_latest.json"
+    creds_file.write_text(json.dumps({"access_token": "token", "localStorage": {"aiGenAccessToken": "token"}}), encoding="utf-8")
+    (tmp_path / "browser_state.json").write_text(
+        json.dumps({"origins": [{"origin": "https://matrix.tencent.com", "localStorage": [{"name": "aiGenAccessToken", "value": "token"}]}]}),
+        encoding="utf-8",
+    )
+    dedicated_profile = tmp_path / "ZhuqueDetectBrowserProfile"
+    dedicated_profile.mkdir()
+    (dedicated_profile / "token-cache").write_text("token", encoding="utf-8")
+
+    class FakePage:
+        url = "https://matrix.tencent.com/ai-detect/"
+        evaluated = False
+
+        def is_closed(self):
+            return False
+
+        async def evaluate(self, script, *args):
+            self.evaluated = True
+            return None
+
+    class FakeContext:
+        def __init__(self):
+            self.page = FakePage()
+            self.pages = [self.page]
+            self.cookies_cleared = False
+            self.closed = False
+
+        async def clear_cookies(self):
+            self.cookies_cleared = True
+
+        async def close(self):
+            self.closed = True
+
+    api = ZhuqueAPI(debug=False, credentials_file=creds_file)
+    api._find_detect_browser_executable = lambda: "/usr/bin/google-chrome"
+    api._detect_system_browser_profile_dir = lambda executable: str(dedicated_profile)
+    fake_context = FakeContext()
+    api._browser_context = fake_context
+
+    payload = asyncio.run(api.logout_saved_credentials())
+
+    assert payload["connected"] is False
+    assert payload["has_token"] is False
+    assert payload["cleared_live_context"] is True
+    assert fake_context.page.evaluated is True
+    assert fake_context.cookies_cleared is True
+    assert fake_context.closed is True
+    assert not creds_file.exists()
+    assert not (tmp_path / "browser_state.json").exists()
+    assert not dedicated_profile.exists()
+    status = json.loads((tmp_path / "session_status.json").read_text(encoding="utf-8"))
+    assert status["connected"] is False
+    assert status["has_token"] is False
+
+
+def test_zhuque_api_quota_probe_persists_visible_login_credentials(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    api = ZhuqueAPI(debug=False, credentials_file=tmp_path / "creds_latest.json")
+
+    class FakeContext:
+        async def cookies(self):
+            return [{"name": "session", "value": "cookie-value", "domain": "matrix.tencent.com", "path": "/"}]
+
+        async def storage_state(self):
+            return {
+                "cookies": [],
+                "origins": [
+                    {
+                        "origin": "https://matrix.tencent.com",
+                        "localStorage": [
+                            {"name": "aiGenAccessToken", "value": json.dumps({"value": "token-from-page"})},
+                            {"name": "fp", "value": "fp-from-page"},
+                        ],
+                    }
+                ],
+            }
+
+    class FakePage:
+        url = "https://matrix.tencent.com/ai-detect/"
+
+        def __init__(self):
+            self.context = FakeContext()
+            self.evaluate_calls = 0
+
+        async def evaluate(self, script, *args):
+            self.evaluate_calls += 1
+            if self.evaluate_calls == 1:
+                return {
+                    "quota_texts": ["Detect now(17 left)"],
+                    "submit_button_text": "Detect now(17 left)",
+                    "button_enabled": True,
+                    "page_found": True,
+                    "has_token": True,
+                    "access_token_present": True,
+                    "logged_in": True,
+                    "user_name": "木木",
+                }
+            return {
+                "localStorage": {
+                    "aiGenAccessToken": json.dumps({"value": "token-from-page"}),
+                    "fp": "fp-from-page",
+                },
+                "userName": "木木",
+                "quotaText": "Detect now(17 left)",
+                "submitButtonText": "Detect now(17 left)",
+                "url": "https://matrix.tencent.com/ai-detect/",
+                "timestamp": "2026-07-08T06:40:34.000Z",
+            }
+
+        async def wait_for_timeout(self, timeout_ms):
+            return None
+
+    async def fake_open_detect_page():
+        api._cached_page = FakePage()
+        return {"available": True, "status": "opened"}
+
+    monkeypatch.setattr(api, "open_detect_page", fake_open_detect_page)
+
+    result = asyncio.run(api._peek_quota_status_with_page(timeout=1.0))
+
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert api.credentials_file.exists()
+    status = api.credential_status()
+    assert status["has_token"] is True
+    assert status["user_name"] == "木木"
+    assert status["remaining_uses"] == 17
+    assert (tmp_path / "browser_state.json").exists()
+
+
 def test_zhuque_extracts_account_name_from_zhuque_body_preview():
     from app.services.zhuque_api import _extract_account_name_from_body_preview
 
@@ -2321,6 +2456,87 @@ Text
 Image/Video"""
 
     assert _extract_account_name_from_body_preview(preview) == "任意用户123"
+
+
+def test_zhuque_does_not_treat_chinese_product_title_as_account_name():
+    from app.services.zhuque_api import _extract_account_name_from_body_preview
+
+    preview = """朱雀AI检测助手
+AI检测助手
+免费AI检测助手
+文本
+图片/视频
+我可以免费使用朱雀AI检测吗？"""
+
+    assert _extract_account_name_from_body_preview(preview) == ""
+
+
+def test_zhuque_quota_payload_logged_in_flag_without_token_is_not_auth():
+    from app.services.zhuque_service import ZhuqueService
+
+    service = ZhuqueService(owner_label="test")
+    status = service._quota_status_from_payload(
+        {
+            "remaining_uses": 3,
+            "button_enabled": True,
+            "logged_in": True,
+            "user_name": "朱雀AI检测助手",
+        }
+    )
+
+    assert status["has_token"] is False
+
+
+def test_zhuque_quota_exhausted_state_detects_zero_attempts():
+    from app.services.zhuque_api import _zhuque_quota_exhausted_state
+
+    assert _zhuque_quota_exhausted_state({"button_text": "Detect now(0 left)"}) is True
+    assert _zhuque_quota_exhausted_state({"alert": "今日剩余 0 次"}) is True
+    assert _zhuque_quota_exhausted_state({"message": "朱雀剩余次数不足"}) is True
+    assert _zhuque_quota_exhausted_state({"button_text": "Detecting..."}) is False
+
+
+def test_zhuque_service_detect_fails_fast_when_cached_quota_zero(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    class FakeAPI:
+        credentials_file = tmp_path / "creds_latest.json"
+        detect_called = False
+
+        def credential_status(self):
+            return {
+                "has_token": False,
+                "connected": False,
+                "ready": True,
+                "remaining_uses": 0,
+                "button_enabled": False,
+                "credential_file": str(self.credentials_file),
+            }
+
+        async def peek_quota_status(self, timeout=3.0, allow_anonymous=False):
+            return {
+                "remaining_uses": 0,
+                "button_enabled": False,
+                "page_found": True,
+                "has_token": False,
+                "quota_text": "Detect now(0 left)",
+            }
+
+        async def detect(self, text, timeout=60.0):
+            self.detect_called = True
+            return {"success": True, "remaining_uses": 0}
+
+    service = ZhuqueService(credentials_file=tmp_path / "creds_latest.json", owner_label="test")
+    fake_api = FakeAPI()
+    service.api = fake_api
+    service._ready = True
+
+    result = asyncio.run(service.detect("测试文本" * 200))
+
+    assert result["success"] is False
+    assert result["remaining_uses"] == 0
+    assert "剩余次数不足" in result["message"]
+    assert fake_api.detect_called is False
 
 
 def test_zhuque_api_peek_quota_status_prefers_visible_login_page_over_cached_anonymous_fp(tmp_path, monkeypatch):

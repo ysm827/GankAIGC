@@ -1320,8 +1320,12 @@ async def logout_zhuque_browser(
     user: User = Depends(get_current_user_with_legacy_fallback),
 ):
     """清除当前用户保存的朱雀登录凭证，后续检测回到未登录免费次数路径。"""
+    local_logout = getattr(zhuque_service, "logout_user", None)
+    local_payload = await local_logout(user.id) if callable(local_logout) else {}
     payload = await zhuque_remote_login_service.logout(user.id)
     getattr(zhuque_service, "reset_user", lambda _user_id: None)(user.id)
+    if local_payload.get("message") and not payload.get("message"):
+        payload["message"] = local_payload["message"]
     return {
         "status": payload.get("status", "logged_out"),
         "connected": False,

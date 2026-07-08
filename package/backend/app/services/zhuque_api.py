@@ -14,6 +14,7 @@ import logging
 import os
 import random
 import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -189,11 +190,25 @@ def _looks_like_zhuque_account_name(text: str) -> bool:
         "invited tester",
         "aigc text",
         "aigc image",
+        "朱雀ai检测助手",
+        "ai检测助手",
+        "免费ai检测助手",
+        "文本",
+        "图片/视频",
+        "上传",
+        "清除",
+        "检测",
+        "检测中",
+        "重要提示",
+        "受邀测试用户",
     }
     normalised = re.sub(r"\s+", " ", text).strip().lower()
-    if normalised in ignored:
+    compact = _normalise_login_text(text)
+    if normalised in ignored or compact in ignored:
         return False
     if re.search(r"detect|notice|assistant|upload|clear|model update|copyright|tencent|^aigc\s+(text|image)$", text, re.IGNORECASE):
+        return False
+    if re.search(r"朱雀|检测助手|免费.*检测|文本|图片|上传|清除|模型更新|受邀测试|游客模式", text, re.IGNORECASE):
         return False
     return bool(re.search(r"[\w\u4e00-\u9fff]", text))
 
@@ -548,6 +563,45 @@ def _zhuque_page_captcha_detected(page_state: dict) -> bool:
             "refreshing too often",
             "验证码",
         )
+    )
+
+
+def _zhuque_quota_exhausted_state(page_state: dict) -> bool:
+    """Return True when Zhuque clearly says no detection attempts remain."""
+    if not isinstance(page_state, dict):
+        return False
+    remaining_uses = _coerce_remaining_uses(
+        page_state.get("remaining_uses"),
+        page_state.get("remainingUses"),
+        page_state.get("availableUses"),
+        page_state.get("quota_text"),
+        page_state.get("quotaText"),
+        page_state.get("button_text"),
+        page_state.get("text"),
+        page_state.get("msg"),
+        page_state.get("message"),
+    )
+    if remaining_uses == 0:
+        return True
+    text = " ".join(
+        str(page_state.get(key) or "")
+        for key in (
+            "alert",
+            "alert_title",
+            "button_text",
+            "text",
+            "msg",
+            "message",
+            "body_preview",
+        )
+    )
+    if not text.strip():
+        return False
+    return bool(
+        re.search(r"(?:剩余|可用|今日剩余)\s*0\s*次", text, re.IGNORECASE)
+        or re.search(r"0\s*(?:left|uses?|remaining|available)", text, re.IGNORECASE)
+        or re.search(r"(?:次数|额度|quota|attempts?|uses?).{0,16}(?:不足|用尽|耗尽|已用完|无|没有|exhausted|used up|insufficient|limit)", text, re.IGNORECASE)
+        or re.search(r"(?:no|0).{0,16}(?:quota|attempts?|uses?|remaining)", text, re.IGNORECASE)
     )
 
 
@@ -1344,6 +1398,157 @@ class ZhuqueAPI:
         self._credentials_cache = None
         self._browser_context_needs_refresh = True
 
+    def _stop_dedicated_profile_processes(self, profile_dir: str | Path) -> bool:
+        """Stop Chrome processes that use a GankAIGC-owned profile directory."""
+        profile_text = str(profile_dir or "").strip()
+        if not profile_text:
+            return False
+        windows_profile = ""
+        if self._is_wsl():
+            windows_profile = self._run_text(["wslpath", "-w", profile_text], timeout=2.0)
+        candidates = [windows_profile or profile_text, profile_text]
+        stopped = False
+        for candidate in dict.fromkeys(item for item in candidates if item):
+            escaped = candidate.replace("'", "''")
+            command = (
+                f"$profile='{escaped}'; "
+                "$procs=Get-CimInstance Win32_Process | Where-Object { "
+                "$_.CommandLine -and $_.CommandLine -like \"*$profile*\" "
+                "}; "
+                "$procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+                "if ($procs) { Write-Output $procs.Count }"
+            )
+            try:
+                completed = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-Command", command],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    check=False,
+                )
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if (completed.stdout or "").strip():
+                stopped = True
+        if self._browser_cdp_process is not None:
+            with contextlib.suppress(Exception):
+                self._browser_cdp_process.terminate()
+                stopped = True
+            self._browser_cdp_process = None
+        return stopped
+
+    @staticmethod
+    def _remove_tree(path: Path) -> None:
+        def retry_remove(func, target, _exc_info):
+            with contextlib.suppress(Exception):
+                os.chmod(target, 0o700)
+            func(target)
+
+        shutil.rmtree(path, onerror=retry_remove)
+
+    async def logout_saved_credentials(self) -> dict:
+        """Clear saved Zhuque login credentials and live browser auth state.
+
+        Deleting ``creds_latest.json`` alone is not enough in local visible
+        browser mode: an already-open page/context can still hold
+        ``aiGenAccessToken`` and immediately re-persist it on the next quota
+        probe. Clear the live page storage, close cached contexts, and remove
+        dedicated profile/state files so the next open uses the anonymous path.
+        """
+        cleared_live_context = False
+        context = self._browser_context
+        if context is not None:
+            with contextlib.suppress(Exception):
+                pages = [page for page in (getattr(context, "pages", []) or []) if not page.is_closed()]
+                for page in pages:
+                    if "matrix.tencent.com" not in str(getattr(page, "url", "")):
+                        continue
+                    with contextlib.suppress(Exception):
+                        await page.evaluate(
+                            r"""() => {
+                                const tokenKeys = ['aiGenAccessToken', 'access_token', 'accessToken', 'token', 'authToken'];
+                                for (const key of tokenKeys) {
+                                    try { localStorage.removeItem(key); } catch (_) {}
+                                }
+                                for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+                                    const key = localStorage.key(i) || '';
+                                    if (/token|auth/i.test(key)) {
+                                        try { localStorage.removeItem(key); } catch (_) {}
+                                    }
+                                }
+                            }"""
+                        )
+                        cleared_live_context = True
+                with contextlib.suppress(Exception):
+                    await context.clear_cookies()
+                    cleared_live_context = True
+        await self.close()
+
+        removed_files: list[str] = []
+        removed_dirs: list[str] = []
+        for path in (
+            self.credentials_file,
+            self.credentials_file.parent / "browser_state.json",
+            self.credentials_file.parent / "qrcode_latest.png",
+        ):
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+                removed_files.append(path.name)
+
+        profile_paths = [
+            self.credentials_file.parent / "detect_chrome_profile",
+            self.credentials_file.parent / "detect_system_browser_profile",
+        ]
+        browser_executable = self._find_detect_browser_executable()
+        if browser_executable:
+            profile_dir_text = self._detect_system_browser_profile_dir(browser_executable)
+            windows_profile_path = self._windows_to_wsl_path(profile_dir_text) if self._is_wsl() else None
+            profile_paths.append(windows_profile_path or Path(profile_dir_text).expanduser())
+        for path in profile_paths:
+            if not path:
+                continue
+            # Only delete GankAIGC-owned dedicated browser profiles, never a
+            # normal Chrome/Edge user profile.
+            if path.name not in {"detect_chrome_profile", "detect_system_browser_profile", "ZhuqueDetectBrowserProfile"}:
+                continue
+            self._stop_dedicated_profile_processes(path)
+            if not path.exists():
+                continue
+            with contextlib.suppress(Exception):
+                self._remove_tree(path)
+                removed_dirs.append(path.name)
+
+        session_status_file = self._session_status_file()
+        payload = {
+            "connected": False,
+            "ready": False,
+            "has_token": False,
+            "has_anonymous_fp": False,
+            "anonymous_fp": "",
+            "remaining_uses": -1,
+            "user_name": "",
+            "quota_text": "",
+            "message": "已退出朱雀登录，未登录时将使用朱雀免费次数",
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        try:
+            session_status_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = session_status_file.with_suffix(".tmp")
+            tmp_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_file.replace(session_status_file)
+        except OSError:
+            logger.warning("[ZhuqueAPI] failed to write logged-out session status", exc_info=True)
+
+        self._credentials_cache = None
+        self._browser_context_needs_refresh = True
+        return {
+            **payload,
+            "credential_file": str(self.credentials_file),
+            "removed_files": removed_files,
+            "removed_dirs": removed_dirs,
+            "cleared_live_context": cleared_live_context,
+        }
+
     def _page_local_storage_from_credentials(self, creds: dict) -> dict:
         """Return captured Zhuque localStorage for page fallback injection.
 
@@ -1968,7 +2173,7 @@ class ZhuqueAPI:
                             anonymousFp = '';
                             accessToken = '';
                         }
-                        const ignoredAccountTexts = /Zhuque AI Detection Assistant|AI Detection Assistant|Free AI Detection Assistant|Text|Image\/Video|Upload|Clear|Detect|Detecting|Important Notice|Invited tester|Notice|Abilities|Model update|登录|login|Upload|Report/i;
+                        const ignoredAccountTexts = /Zhuque AI Detection Assistant|AI Detection Assistant|Free AI Detection Assistant|Text|Image\/Video|Upload|Clear|Detect|Detecting|Important Notice|Invited tester|Notice|Abilities|Model update|朱雀AI检测助手|AI检测助手|免费AI检测助手|文本|图片\/视频|上传|清除|检测|检测中|重要提示|受邀测试|游客模式|登录|login|Upload|Report/i;
                         const normalizeAccountText = (text) => (text || '').replace(/\s+/g, ' ').trim();
                         const looksLikeAccountName = (text) => (
                             text
@@ -2064,7 +2269,7 @@ class ZhuqueAPI:
             def page_identity(state: dict) -> tuple[bool, str]:
                 body_user_name = _extract_account_name_from_body_preview(state.get("body_preview") or "")
                 page_user_name = body_user_name or str(state.get("user_name") or "").strip()
-                page_has_login = bool(state.get("has_token") or state.get("access_token_present") or state.get("logged_in") or page_user_name)
+                page_has_login = bool(state.get("has_token") or state.get("access_token_present"))
                 return page_has_login, page_user_name
 
             while time.time() < deadline:
@@ -2072,11 +2277,19 @@ class ZhuqueAPI:
                 page_has_login, page_user_name = page_identity(last_state)
                 remaining_uses = _coerce_remaining_uses(*(last_state.get("quota_texts") or []))
                 if remaining_uses >= 0:
+                    quota_text = " | ".join(last_state.get("quota_texts") or [])
+                    if page_has_login:
+                        await self._persist_visible_login_credentials(
+                            page,
+                            last_state,
+                            remaining_uses=remaining_uses,
+                            quota_text=quota_text,
+                        )
                     return {
                         "remaining_uses": remaining_uses,
                         "button_enabled": remaining_uses > 0,
                         "page_found": bool(last_state.get("page_found")),
-                        "quota_text": " | ".join(last_state.get("quota_texts") or []),
+                        "quota_text": quota_text,
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
                         "has_token": page_has_login,
@@ -2091,11 +2304,19 @@ class ZhuqueAPI:
                     await page.wait_for_timeout(1200)
                     continue
                 if last_state.get("button_enabled"):
+                    quota_text = last_state.get("submit_button_text") or "Detect now"
+                    if page_has_login:
+                        await self._persist_visible_login_credentials(
+                            page,
+                            last_state,
+                            remaining_uses=-1,
+                            quota_text=quota_text,
+                        )
                     return {
                         "remaining_uses": -1,
                         "button_enabled": True,
                         "page_found": bool(last_state.get("page_found")),
-                        "quota_text": last_state.get("submit_button_text") or "Detect now",
+                        "quota_text": quota_text,
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
                         "has_token": page_has_login,
@@ -2107,12 +2328,20 @@ class ZhuqueAPI:
                 await page.wait_for_timeout(500)
 
             page_has_login, page_user_name = page_identity(last_state)
+            quota_text = last_state.get("submit_button_text") or ""
+            if page_has_login:
+                await self._persist_visible_login_credentials(
+                    page,
+                    last_state,
+                    remaining_uses=-1,
+                    quota_text=quota_text,
+                )
             await self._write_quota_probe_artifacts(page, reason="quota_not_found", quota_state=last_state)
             return {
                 "remaining_uses": -1,
                 "button_enabled": bool(last_state.get("button_enabled")),
                 "page_found": bool(last_state.get("page_found")),
-                "quota_text": last_state.get("submit_button_text") or "",
+                "quota_text": quota_text,
                 "fp": str(last_state.get("fp") or "").strip(),
                 "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
                 "has_token": page_has_login,
@@ -2135,6 +2364,129 @@ class ZhuqueAPI:
                 "quota_text": "",
                 "message": f"朱雀页面探测失败: {exc}",
             }
+
+    async def _persist_visible_login_credentials(
+        self,
+        page,
+        page_state: dict | None = None,
+        *,
+        remaining_uses: int = -1,
+        quota_text: str = "",
+    ) -> bool:
+        """Persist token-bearing credentials from the visible Zhuque page.
+
+        The lightweight quota probe already proves that the real page is logged
+        in, but the workspace status/detect path reads ``creds_latest.json``.
+        Persist the same localStorage/cookie snapshot here so a visible login is
+        immediately usable instead of degrading to the anonymous fp cache.
+        """
+        page_state = page_state or {}
+        try:
+            cookies = await page.context.cookies()
+            snapshot = await page.evaluate(
+                r"""() => {
+                    const localStorageValues = {};
+                    for (let i = 0; i < localStorage.length; i += 1) {
+                        const key = localStorage.key(i);
+                        localStorageValues[key] = localStorage.getItem(key);
+                    }
+                    const userNameEl = document.querySelector('.user-name');
+                    const avatarEl = document.querySelector('.user-info img, .avatar img');
+                    const submitBtn = document.querySelector('.submit-btn')
+                        || [...document.querySelectorAll('button')].find((button) => /立即检测|Detect/i.test(button.textContent || ''));
+                    let quotaEl = null;
+                    let bestLen = Infinity;
+                    for (const el of document.querySelectorAll('*')) {
+                        const text = (el.textContent || '').trim();
+                        if (/(今日剩余|剩余.*次|可用.*次|\d+\s*left)/i.test(text) && text.length < bestLen && text.length < 120) {
+                            quotaEl = el;
+                            bestLen = text.length;
+                        }
+                    }
+                    return {
+                        localStorage: localStorageValues,
+                        userName: userNameEl ? userNameEl.textContent.trim() : '',
+                        avatarUrl: avatarEl ? (avatarEl.src || '') : '',
+                        quotaText: quotaEl ? quotaEl.textContent.trim() : (submitBtn ? submitBtn.textContent.trim() : ''),
+                        submitButtonText: submitBtn ? submitBtn.textContent.trim() : '',
+                        url: location.href,
+                        timestamp: new Date().toISOString(),
+                    };
+                }"""
+            )
+        except Exception:
+            logger.debug("Failed to inspect visible Zhuque login credentials", exc_info=True)
+            return False
+
+        if not isinstance(snapshot, dict):
+            return False
+        local_storage = snapshot.get("localStorage") if isinstance(snapshot.get("localStorage"), dict) else {}
+        access_token = self._token_from_local_storage(local_storage)
+        access_token_source = "localStorage"
+        if not access_token and isinstance(cookies, list):
+            for cookie in cookies:
+                if not isinstance(cookie, dict) or not cookie.get("value"):
+                    continue
+                cookie_name = str(cookie.get("name") or "")
+                cookie_key = cookie_name.lower()
+                if cookie_key in {"access_token", "accesstoken", "access-token", "auth_token", "authtoken"}:
+                    access_token = str(cookie.get("value") or "")
+                    access_token_source = f"cookie:{cookie_name}"
+                    break
+        if not access_token:
+            return False
+
+        user_name = str(snapshot.get("userName") or page_state.get("user_name") or "").strip()
+        if _is_login_prompt_text(user_name):
+            user_name = ""
+        quota_text = str(quota_text or snapshot.get("quotaText") or snapshot.get("submitButtonText") or "").strip()
+        remaining = _coerce_remaining_uses(remaining_uses, page_state.get("remaining_uses"), quota_text)
+        creds = {
+            "localStorage": local_storage,
+            "userName": user_name,
+            "avatarUrl": snapshot.get("avatarUrl") or "",
+            "quotaText": quota_text,
+            "submitButtonText": snapshot.get("submitButtonText") or "",
+            "url": snapshot.get("url") or self.http_base_url,
+            "timestamp": snapshot.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "cookies": cookies if isinstance(cookies, list) else [],
+            "cookieString": "; ".join(
+                f"{cookie.get('name')}={cookie.get('value')}"
+                for cookie in (cookies if isinstance(cookies, list) else [])
+                if isinstance(cookie, dict) and cookie.get("name") is not None
+            ),
+            "access_token": access_token,
+            "access_token_source": access_token_source,
+            "remainingUses": remaining,
+        }
+        if local_storage.get("fp"):
+            creds["fp"] = local_storage["fp"]
+
+        try:
+            self.credentials_file.parent.mkdir(parents=True, exist_ok=True)
+            creds_tmp = self.credentials_file.with_suffix(".tmp")
+            creds_tmp.write_text(json.dumps(creds, ensure_ascii=False, indent=2), encoding="utf-8")
+            creds_tmp.replace(self.credentials_file)
+            browser_state = await page.context.storage_state()
+            state_file = self.credentials_file.parent / "browser_state.json"
+            state_tmp = state_file.with_suffix(".tmp")
+            state_tmp.write_text(json.dumps(browser_state, ensure_ascii=False, indent=2), encoding="utf-8")
+            state_tmp.replace(state_file)
+            self._credentials_cache = None
+            logger.info(
+                "[ZhuqueAPI] persisted visible login credentials | credential_file=%s | user=%s | remaining=%s",
+                self.credentials_file,
+                user_name,
+                remaining,
+            )
+            return True
+        except Exception:
+            logger.warning(
+                "[ZhuqueAPI] failed to persist visible login credentials | credential_file=%s",
+                self.credentials_file,
+                exc_info=True,
+            )
+            return False
 
     async def _peek_remaining_uses_with_page(self, timeout: float = 5.0) -> Optional[int]:
         """Compatibility wrapper returning only a known numeric anonymous quota."""
@@ -2575,6 +2927,18 @@ class ZhuqueAPI:
 
             if not button_state.get("found"):
                 return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
+            if _zhuque_quota_exhausted_state(button_state):
+                await self._write_quota_probe_artifacts(
+                    page,
+                    reason="detect_quota_exhausted_before_click",
+                    quota_state={
+                        "button_text": button_state.get("text") or "",
+                        "input_length": button_state.get("input_length"),
+                        "set_result": str(set_result),
+                        "headless": self._browser_headless,
+                    },
+                )
+                return self._failure("朱雀剩余次数不足，请切换朱雀账号、退出后使用可用免费次数，或等待次数恢复", len(text), remaining_uses=0)
             if button_state.get("disabled"):
                 if _zhuque_page_captcha_detected(button_state):
                     return _captcha_required_zhuque_result(
@@ -2610,6 +2974,8 @@ class ZhuqueAPI:
             if "NOT_FOUND" in str(click_result):
                 return self._failure("朱雀真实页面检测失败：找不到检测按钮", len(text))
             if "DISABLED" in str(click_result):
+                if _zhuque_quota_exhausted_state({"button_text": str(click_result)}):
+                    return self._failure("朱雀剩余次数不足，请切换朱雀账号、退出后使用可用免费次数，或等待次数恢复", len(text), remaining_uses=0)
                 await self._close_persistent_page_context()
                 return self._failure("朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试", len(text))
 
@@ -2771,6 +3137,7 @@ class ZhuqueAPI:
                             alert: alert ? alert.textContent.trim() : '',
                             alert_title: title ? title.textContent.trim() : '',
                             button_text: btn ? btn.textContent.trim() : '',
+                            body_preview: document.body ? document.body.innerText.slice(0, 1500) : '',
                             fp: anonymousFp,
                             anonymous_fp: anonymousFp
                         };
@@ -2795,6 +3162,18 @@ class ZhuqueAPI:
                             }
                         )
                     return observed_result
+                if _zhuque_quota_exhausted_state(data):
+                    await self._write_quota_probe_artifacts(
+                        page,
+                        reason="detect_quota_exhausted_after_click",
+                        quota_state={
+                            "button_text": data.get("button_text") or "",
+                            "alert": data.get("alert") or "",
+                            "alert_title": data.get("alert_title") or "",
+                            "headless": self._browser_headless,
+                        },
+                    )
+                    return self._failure("朱雀剩余次数不足，请切换朱雀账号、退出后使用可用免费次数，或等待次数恢复", len(text), remaining_uses=0)
                 if _zhuque_page_captcha_detected(data):
                     captcha_seen = True
                     if not captcha_artifact_written:
