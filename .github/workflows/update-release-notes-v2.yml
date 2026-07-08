@@ -1,0 +1,40 @@
+name: Update Release Notes v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/update-release-notes-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          GankAIGC v2.0.0
+
+          - 朱雀检测登录能力升级：支持保存微信登录态，自动同步用户名、登录状态和剩余次数，重启后继续使用账号次数。
+          - 新增朱雀退出与免费次数切换：退出登录会清理专用浏览器状态，可切换到未登录免费检测次数。
+          - 朱雀检测无次数保护：剩余次数为 0 或按钮不可用时立即停止并提示，不再长时间卡在“检测中”。
+          - 朱雀结果可信度修复：防止复用朱雀页面时把上一轮旧检测结果保存成本轮结果，降低前端 AI 率与朱雀网页不一致的问题。
+          - Windows 一键包同步更新：内置本次朱雀检测链路修复，解压后双击 start.bat 即可使用。
+
+          下载建议：
+          - Windows 新手用户请下载 GankAIGC-Windows-OneClick.zip。
+          - 源码/Docker 用户可直接拉取 v2.0.0 对应代码部署。
+          EOF
+
+      - name: Update v2.0.0 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release edit v2.0.0 \
+            --title "GankAIGC v2.0.0" \
+            --notes-file release-notes.md
