@@ -2310,6 +2310,52 @@ def test_zhuque_api_quota_probe_reuses_visible_page_without_headless_browser(tmp
     assert calls[0] == "open_detect_page"
 
 
+def test_zhuque_api_peek_quota_status_prefers_visible_login_page_over_cached_anonymous_fp(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    api = ZhuqueAPI(debug=False, credentials_file=tmp_path / "creds_latest.json")
+    (tmp_path / "session_status.json").write_text(
+        json.dumps(
+            {
+                "connected": False,
+                "has_token": False,
+                "has_anonymous_fp": True,
+                "anonymous_fp": "anonymous-fp",
+                "remaining_uses": 4,
+                "quota_text": "剩余 4 次",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        api,
+        "_peek_quota_status_with_page",
+        lambda timeout=3.0: asyncio.sleep(
+            0,
+            result={
+                "remaining_uses": 20,
+                "button_enabled": True,
+                "page_found": True,
+                "has_token": True,
+                "user_name": "木木",
+                "quota_text": "Detect now(20 left)",
+            },
+        ),
+    )
+
+    async def fail_ws_peek(*args, **kwargs):
+        raise AssertionError("anonymous fp WebSocket quota must not override visible logged-in page")
+
+    monkeypatch.setattr(api, "peek_remaining_uses", fail_ws_peek)
+
+    result = asyncio.run(api.peek_quota_status(timeout=1.0, allow_anonymous=True))
+
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert result["remaining_uses"] == 20
+
+
 def test_zhuque_service_detect_preserves_visible_login_quota_over_anonymous_result(tmp_path):
     from app.services.zhuque_service import ZhuqueService
 

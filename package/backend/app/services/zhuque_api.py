@@ -2082,15 +2082,25 @@ class ZhuqueAPI:
         return remaining_uses if remaining_uses >= 0 else None
 
     async def peek_quota_status(self, timeout: float = 3.0, *, allow_anonymous: bool = False) -> dict:
-        """Return live quota state, preserving button availability when count is hidden."""
+        """Return live quota state, preserving button availability when count is hidden.
+
+        In local/one-click visible-browser mode, the open Zhuque page is the
+        source of truth. A cached anonymous fp can legitimately report the free
+        quota even while the visible page is logged into a real account, so page
+        probing must run before the anonymous WebSocket fp fallback.
+        """
         creds = None
         if allow_anonymous:
+            page_status = await self._peek_quota_status_with_page(timeout=timeout)
+            page_remaining = _coerce_remaining_uses(page_status.get("remaining_uses"), page_status.get("quota_text"))
+            if page_status.get("has_token") or page_remaining >= 0 or page_status.get("button_enabled"):
+                return page_status
             try:
                 creds = self.load_credentials(refresh=True)
             except RuntimeError:
-                return await self._peek_quota_status_with_page(timeout=timeout)
+                return page_status
             if not creds.get("access_token") and not creds.get("fp"):
-                return await self._peek_quota_status_with_page(timeout=timeout)
+                return page_status
         remaining_uses = await self.peek_remaining_uses(timeout=timeout, allow_anonymous=allow_anonymous)
         remaining_uses = _coerce_remaining_uses(remaining_uses)
         if allow_anonymous and remaining_uses < 0 and creds and not creds.get("access_token"):
