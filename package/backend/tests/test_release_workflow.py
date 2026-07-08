@@ -49,6 +49,17 @@ def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     assert "capture_zhuque_creds.py" not in local_transport.split("open_detection_page = getattr", 1)[0]
 
 
+def test_windows_build_script_uses_dedicated_windows_venv():
+    script = (PROJECT_ROOT / "package" / "build.ps1").read_text(encoding="utf-8-sig")
+
+    assert '$VenvDir = "venv-windows"' in script
+    assert 'Scripts\\python.exe' in script
+    assert '& $VenvPython -m pip install -r requirements.txt' in script
+    assert '& $VenvPython -m PyInstaller app.spec --clean' in script
+    assert '.\\venv\\Scripts\\Activate.ps1' not in script
+    assert 'python -m pip install -r requirements.txt' not in script
+
+
 def test_windows_powershell_scripts_use_utf8_bom_for_legacy_powershell():
     scripts = [
         PROJECT_ROOT / "package" / "build.ps1",

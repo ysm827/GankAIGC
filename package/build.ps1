@@ -44,16 +44,23 @@ try {
     exit 1
 }
 
-# 创建虚拟环境并安装依赖
+# 创建 Windows 专用虚拟环境并安装依赖
 Write-Host ""
 Write-Host "3. 安装后端依赖..." -ForegroundColor Yellow
-if (-not (Test-Path "venv")) {
-    python -m venv venv
-    Assert-LastExitCode "python -m venv venv"
+$VenvDir = "venv-windows"
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+if (-not (Test-Path $VenvPython)) {
+    if (Test-Path $VenvDir) {
+        Write-Host "检测到不可用的 Windows 虚拟环境目录，正在重建：$VenvDir" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $VenvDir
+    }
+    python -m venv $VenvDir
+    Assert-LastExitCode "python -m venv $VenvDir"
 }
-& .\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Assert-LastExitCode "python -m pip install -r requirements.txt"
+& $VenvPython -m pip install --upgrade pip
+Assert-LastExitCode "$VenvPython -m pip install --upgrade pip"
+& $VenvPython -m pip install -r requirements.txt
+Assert-LastExitCode "$VenvPython -m pip install -r requirements.txt"
 
 # 构建前端
 Write-Host ""
@@ -76,8 +83,8 @@ Copy-Item -Recurse frontend\dist static
 # 使用 PyInstaller 打包
 Write-Host ""
 Write-Host "6. 使用 PyInstaller 打包..." -ForegroundColor Yellow
-pyinstaller app.spec --clean
-Assert-LastExitCode "pyinstaller app.spec --clean"
+& $VenvPython -m PyInstaller app.spec --clean
+Assert-LastExitCode "$VenvPython -m PyInstaller app.spec --clean"
 
 if (-not (Test-Path "dist\GankAIGC.exe")) {
     throw "构建失败: dist\GankAIGC.exe 未生成"
