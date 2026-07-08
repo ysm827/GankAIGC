@@ -18,6 +18,18 @@ start.bat
   → ZhuqueAPI.open_detect_page()
 ```
 
+同步朱雀账号/剩余次数：
+
+```text
+WorkspacePage refresh
+  → LocalBrowserZhuqueTransport.sync_status()
+  → ZhuqueService.refresh_free_quota()
+  → ZhuqueAPI._peek_quota_status_with_page()
+  → 复用/打开本机可见朱雀页面读取按钮文本、账号名、localStorage token
+```
+
+一键包不打包 Playwright Chromium 浏览器本体，因此 quota sync 禁止启动 `pw.chromium.launch(headless=True)` 的 bundled browser 路径。
+
 ## 设计
 
 ### `.env.template`

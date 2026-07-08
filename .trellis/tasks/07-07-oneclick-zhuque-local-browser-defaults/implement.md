@@ -13,6 +13,7 @@
 - [x] 更新 `package/windows-oneclick/runtime/start.ps1` 的默认值和写出字段。
 - [x] 更新 `package/windows-oneclick/README.txt`。
 - [x] 更新 `package/app.spec`，确保 PyInstaller 收入 Playwright 控制代码。
+- [x] 修正本机/一键包朱雀账号与剩余次数同步，复用可见朱雀页而不是 Playwright bundled headless Chromium。
 - [x] 新增/更新静态测试。
 
 ## Phase 3：验证

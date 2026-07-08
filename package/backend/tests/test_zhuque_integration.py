@@ -2266,6 +2266,86 @@ def test_zhuque_local_open_endpoint_reuses_or_launches_local_browser(client, mon
     assert calls == ["open_page", ("reset", user_id), "started"]
 
 
+def test_zhuque_api_quota_probe_reuses_visible_page_without_headless_browser(tmp_path, monkeypatch):
+    from app.services.zhuque_api import ZhuqueAPI
+
+    api = ZhuqueAPI(debug=False, credentials_file=tmp_path / "creds_latest.json")
+    calls = []
+
+    class FakePage:
+        url = "https://matrix.tencent.com/ai-detect/"
+
+        async def evaluate(self, script, *args):
+            calls.append("evaluate")
+            return {
+                "quota_texts": ["Detect now(20 left)"],
+                "submit_button_text": "Detect now(20 left)",
+                "button_enabled": True,
+                "page_found": True,
+                "has_token": True,
+                "logged_in": True,
+                "user_name": "木木",
+            }
+
+        async def wait_for_timeout(self, timeout_ms):
+            calls.append(("wait", timeout_ms))
+
+    async def fake_open_detect_page():
+        calls.append("open_detect_page")
+        api._cached_page = FakePage()
+        return {"available": True, "status": "opened"}
+
+    monkeypatch.setattr(api, "open_detect_page", fake_open_detect_page)
+
+    result = asyncio.run(api._peek_quota_status_with_page(timeout=1.0))
+
+    assert result["remaining_uses"] == 20
+    assert result["button_enabled"] is True
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert calls[0] == "open_detect_page"
+
+
+def test_zhuque_service_refresh_free_quota_uses_live_visible_login_status(tmp_path):
+    from app.services.zhuque_service import ZhuqueService
+
+    class FakeAPI:
+        credentials_file = tmp_path / "creds_latest.json"
+
+        def credential_status(self):
+            return {
+                "has_token": False,
+                "connected": False,
+                "ready": False,
+                "remaining_uses": -1,
+                "button_enabled": False,
+                "credential_file": str(self.credentials_file),
+            }
+
+        async def peek_quota_status(self, timeout=5.0, allow_anonymous=False):
+            assert allow_anonymous is True
+            return {
+                "remaining_uses": 20,
+                "button_enabled": True,
+                "page_found": True,
+                "has_token": True,
+                "user_name": "木木",
+                "quota_text": "Detect now(20 left)",
+                "message": "朱雀页面剩余次数已解析",
+            }
+
+    service = ZhuqueService(credentials_file=tmp_path / "creds_latest.json", owner_label="test")
+    service.api = FakeAPI()
+
+    result = asyncio.run(service.refresh_free_quota(timeout=1.0))
+
+    assert result["connected"] is True
+    assert result["has_token"] is True
+    assert result["user_name"] == "木木"
+    assert result["remaining_uses"] == 20
+    assert result["button_enabled"] is True
+
+
 def test_local_browser_transport_opens_builtin_page_before_legacy_capture():
     from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
 

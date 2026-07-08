@@ -139,6 +139,8 @@ class ZhuqueService:
             "quota_text": payload.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
             "message": payload.get("message", ""),
             "probe_state": payload.get("probe_state") or {},
+            "has_token": bool(payload.get("has_token") or payload.get("access_token_present") or payload.get("logged_in")),
+            "user_name": str(payload.get("user_name") or payload.get("userName") or "").strip(),
             "anonymous_fp": str(payload.get("anonymous_fp") or payload.get("fp") or "").strip(),
             "has_anonymous_fp": bool(payload.get("has_anonymous_fp") or payload.get("anonymous_fp") or payload.get("fp")),
         }
@@ -614,10 +616,21 @@ class ZhuqueService:
             button_enabled = live_quota_status["button_enabled"]
             page_found = page_found or live_quota_status["page_found"]
             quota_text = live_quota_status.get("quota_text") or quota_text
-            has_anonymous_fp = bool(
-                has_anonymous_fp
-                or (not has_token and self._anonymous_fp_from_api(api, status, live_quota_status))
-            )
+            if live_quota_status.get("has_token"):
+                has_token = True
+                status = {
+                    **status,
+                    "has_token": True,
+                    "connected": True,
+                    "ready": True,
+                    "user_name": live_quota_status.get("user_name") or status.get("user_name", ""),
+                }
+                has_anonymous_fp = False
+            else:
+                has_anonymous_fp = bool(
+                    has_anonymous_fp
+                    or (not has_token and self._anonymous_fp_from_api(api, status, live_quota_status))
+                )
         elif self._last_remaining_uses is not None:
             remaining_uses = self._last_remaining_uses
             button_enabled = remaining_uses > 0
@@ -696,6 +709,8 @@ class ZhuqueService:
             allow_anonymous=True,
             allow_stale_fallback=False,
         )
+        live_has_token = bool(quota_status.get("has_token"))
+        has_token = has_token or live_has_token
         remaining_uses = quota_status["remaining_uses"]
         button_enabled = bool(quota_status["button_enabled"])
         ready = remaining_uses != 0 and button_enabled
@@ -747,7 +762,7 @@ class ZhuqueService:
             "auth_mode": status.get("auth_mode", "headless_api"),
             "login_mode": status.get("login_mode", "wechat_qr"),
             "credential_file": status.get("credential_file", str(api.credentials_file)),
-            "user_name": status.get("user_name", "") if has_token else "",
+            "user_name": (quota_status.get("user_name") or status.get("user_name", "")) if has_token else "",
             "quota_text": quota_status.get("quota_text") or status.get("quota_text", "") or (f"剩余 {remaining_uses} 次" if remaining_uses >= 0 else ""),
             "captured_at": status.get("captured_at", ""),
         }

@@ -1775,43 +1775,26 @@ class ZhuqueAPI:
         same Vue state and submit button the real UI uses, and never clicks the
         Detect button, so it does not consume a Zhuque detection.
         """
-        try:
-            from playwright.async_api import async_playwright
-        except Exception as exc:
-            return {
-                "remaining_uses": -1,
-                "button_enabled": False,
-                "page_found": False,
-                "quota_text": "",
-                "message": f"Playwright 不可用，无法打开朱雀页面探测免费次数: {exc}",
-            }
-
-        state_file = self.credentials_file.parent / "browser_state.json"
-
-        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(self._playwright_browsers_path()))
-        pw = None
-        browser = None
         last_state: dict = {}
         try:
-            pw = await async_playwright().start()
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
-            ctx_kwargs = {
-                "viewport": {"width": 1280, "height": 720},
-                "user_agent": DEFAULT_USER_AGENT,
-            }
-            anonymous_storage_state = self._anonymous_page_storage_state()
-            if anonymous_storage_state:
-                ctx_kwargs["storage_state"] = anonymous_storage_state
-            ctx = await browser.new_context(**ctx_kwargs)
-            page = await ctx.new_page()
-            page_timeout_ms = int(max(timeout, 5.0) * 1000)
-            await page.goto(f"{self.http_base_url}/ai-detect/", wait_until="domcontentloaded", timeout=page_timeout_ms)
+            open_result = await self.open_detect_page()
+            if not open_result.get("available"):
+                return {
+                    "remaining_uses": -1,
+                    "button_enabled": False,
+                    "page_found": False,
+                    "quota_text": "",
+                    "message": open_result.get("message") or "无法打开本机朱雀页面探测剩余次数",
+                }
+            page = self._cached_page
+            if page is None:
+                return {
+                    "remaining_uses": -1,
+                    "button_enabled": False,
+                    "page_found": False,
+                    "quota_text": "",
+                    "message": "本机朱雀页面未就绪，请重新点击打开朱雀页面",
+                }
             await page.wait_for_timeout(1200)
 
             async def collect_quota_state() -> dict:
@@ -1911,17 +1894,42 @@ class ZhuqueAPI:
                         const textHostFound = !!document.querySelector('.el-textarea__inner, textarea, [contenteditable="true"]')
                             || [...document.querySelectorAll('*')].some((el) => el.__vue__ && Object.prototype.hasOwnProperty.call(el.__vue__, 'text'));
                         let anonymousFp = '';
+                        let accessToken = '';
+                        const readLocalStorage = (key) => {
+                            try { return (localStorage.getItem(key) || '').trim(); } catch (_) { return ''; }
+                        };
                         try {
-                            anonymousFp = (localStorage.getItem('fp') || '').trim();
+                            anonymousFp = readLocalStorage('fp');
+                            const tokenKeys = ['aiGenAccessToken', 'access_token', 'accessToken', 'token', 'authToken'];
+                            for (const key of tokenKeys) {
+                                const raw = readLocalStorage(key);
+                                if (!raw) continue;
+                                try {
+                                    const parsed = JSON.parse(raw);
+                                    accessToken = String(parsed.value || parsed.token || parsed.access_token || raw || '').trim();
+                                } catch (_) {
+                                    accessToken = raw;
+                                }
+                                if (accessToken) break;
+                            }
                         } catch (_) {
                             anonymousFp = '';
+                            accessToken = '';
                         }
+                        const ignoredAccountTexts = /Zhuque AI Detection Assistant|AI Detection Assistant|Free AI Detection Assistant|Text|Image\/Video|Upload|Clear|Detect|Important Notice|Invited tester|Notice|Abilities|Model update|登录|login/i;
+                        const accountName = [...document.querySelectorAll('header *, .header *, [class*="header"] *, [class*="user"] *, [class*="avatar"] *, [class*="account"] *')]
+                            .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+                            .find((text) => text && text.length <= 24 && !ignoredAccountTexts.test(text)) || '';
                         return {
                             quota_texts: candidates.slice(0, 48).map((item) => item.value),
                             quota_sources: candidates.slice(0, 48),
                             vue_signals: vueSignals.slice(0, 48),
                             fp: anonymousFp,
                             anonymous_fp: anonymousFp,
+                            access_token_present: Boolean(accessToken),
+                            has_token: Boolean(accessToken),
+                            logged_in: Boolean(accessToken || accountName),
+                            user_name: accountName,
                             has_anonymous_fp: Boolean(anonymousFp),
                             submit_button_text: submitButtonText,
                             button_enabled: Boolean(submitBtn && submitButtonVisible && !submitButtonDisabled && /Detect|检测/i.test(submitButtonText || 'Detect')),
@@ -1992,6 +2000,8 @@ class ZhuqueAPI:
                         "quota_text": " | ".join(last_state.get("quota_texts") or []),
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                        "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
+                        "user_name": str(last_state.get("user_name") or "").strip(),
                         "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面剩余次数已解析",
@@ -2009,6 +2019,8 @@ class ZhuqueAPI:
                         "quota_text": last_state.get("submit_button_text") or "Detect now",
                         "fp": str(last_state.get("fp") or "").strip(),
                         "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                        "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
+                        "user_name": str(last_state.get("user_name") or "").strip(),
                         "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                         "probe_state": last_state,
                         "message": "朱雀页面检测入口可用，但当前页面未暴露剩余次数数字",
@@ -2023,6 +2035,8 @@ class ZhuqueAPI:
                 "quota_text": last_state.get("submit_button_text") or "",
                 "fp": str(last_state.get("fp") or "").strip(),
                 "anonymous_fp": str(last_state.get("anonymous_fp") or last_state.get("fp") or "").strip(),
+                "has_token": bool(last_state.get("has_token") or last_state.get("access_token_present") or last_state.get("logged_in")),
+                "user_name": str(last_state.get("user_name") or "").strip(),
                 "has_anonymous_fp": bool(last_state.get("has_anonymous_fp") or last_state.get("anonymous_fp") or last_state.get("fp")),
                 "probe_state": last_state,
                 "message": "朱雀页面未暴露剩余次数数字",
@@ -2041,13 +2055,6 @@ class ZhuqueAPI:
                 "quota_text": "",
                 "message": f"朱雀页面探测失败: {exc}",
             }
-        finally:
-            if browser is not None:
-                with contextlib.suppress(Exception):
-                    await browser.close()
-            if pw is not None:
-                with contextlib.suppress(Exception):
-                    await pw.stop()
 
     async def _peek_remaining_uses_with_page(self, timeout: float = 5.0) -> Optional[int]:
         """Compatibility wrapper returning only a known numeric anonymous quota."""
