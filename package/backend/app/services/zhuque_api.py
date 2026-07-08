@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -422,6 +423,22 @@ def _zhuque_payload_has_score_or_ratio(payload: Any) -> bool:
         return True
     labels_ratio = data.get("labels_ratio") or data.get("labelsRatio")
     return isinstance(labels_ratio, dict) and bool(labels_ratio)
+
+
+def _zhuque_response_start_time_ms(response_url: str) -> int:
+    try:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(str(response_url or "")).query)
+        raw_value = (query.get("startTime") or [""])[0]
+        return int(float(raw_value))
+    except Exception:
+        return 0
+
+
+def _zhuque_result_response_belongs_to_current_click(response_url: str, detect_click_epoch_ms: int) -> bool:
+    start_time_ms = _zhuque_response_start_time_ms(response_url)
+    if not start_time_ms or not detect_click_epoch_ms:
+        return True
+    return start_time_ms >= detect_click_epoch_ms - 30000
 
 
 def _infer_raw_labels_ratio_from_segment_labels(segment_labels: Any, text_length: int) -> dict:
@@ -2754,23 +2771,37 @@ class ZhuqueAPI:
                 is_cached = False
             self._cached_page = page
             observed_result_payloads: list[dict] = []
+            capture_results_enabled = False
+            detect_click_epoch_ms = 0
 
-            def remember_result_payload(payload: Any) -> None:
+            def remember_result_payload(payload: Any, *, source: str = "") -> None:
+                if not capture_results_enabled:
+                    return
                 result_payload = _extract_zhuque_terminal_payload(payload)
                 if not result_payload:
                     return
+                if source:
+                    result_payload = {**result_payload, "_observed_source": source}
                 observed_result_payloads.append(result_payload)
                 if len(observed_result_payloads) > 20:
                     del observed_result_payloads[:-20]
 
             def on_websocket(ws) -> None:
-                ws.on("framereceived", remember_result_payload)
+                ws.on("framereceived", lambda payload: remember_result_payload(payload, source="websocket"))
 
             async def on_response(response) -> None:
                 if "/user/detect/result" not in response.url:
                     return
+                if not capture_results_enabled:
+                    return
+                # Cached Zhuque pages may poll and re-render the previous report
+                # after navigation/clear. Only trust result polling belonging to
+                # the current click; otherwise GankAIGC can save a stale score
+                # while the visible page later shows a different result.
+                if not _zhuque_result_response_belongs_to_current_click(response.url, detect_click_epoch_ms):
+                    return
                 with contextlib.suppress(Exception):
-                    remember_result_payload(await response.text())
+                    remember_result_payload(await response.text(), source="http_result")
 
             if is_cached:
                 if self._ws_handler_ref is not None:
@@ -2979,6 +3010,8 @@ class ZhuqueAPI:
                 await self._close_persistent_page_context()
                 return self._failure("朱雀真实页面检测临时失败：检测按钮被禁用，已重开页面重试", len(text))
 
+            detect_click_epoch_ms = int(time.time() * 1000)
+            capture_results_enabled = True
             deadline = time.time() + timeout
             captcha_seen = False
             captcha_artifact_written = False

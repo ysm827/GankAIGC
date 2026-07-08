@@ -2496,6 +2496,24 @@ def test_zhuque_quota_exhausted_state_detects_zero_attempts():
     assert _zhuque_quota_exhausted_state({"button_text": "Detecting..."}) is False
 
 
+def test_zhuque_ignores_stale_result_poll_from_cached_page():
+    from app.services.zhuque_api import _zhuque_result_response_belongs_to_current_click
+
+    click_ms = 1_800_000
+    assert _zhuque_result_response_belongs_to_current_click(
+        "https://matrix.tencent.com/user/detect/result?cos=old&startTime=1700000",
+        click_ms,
+    ) is False
+    assert _zhuque_result_response_belongs_to_current_click(
+        "https://matrix.tencent.com/user/detect/result?cos=current&startTime=1785001",
+        click_ms,
+    ) is True
+    assert _zhuque_result_response_belongs_to_current_click(
+        "https://matrix.tencent.com/user/detect/result?cos=no-start-time",
+        click_ms,
+    ) is True
+
+
 def test_zhuque_service_detect_fails_fast_when_cached_quota_zero(tmp_path):
     from app.services.zhuque_service import ZhuqueService
 
