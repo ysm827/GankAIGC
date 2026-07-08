@@ -494,33 +494,17 @@ docker compose --env-file .env.docker up -d --build
 <details>
 <summary><strong>3. Windows 一键整合包</strong></summary>
 
-解压后双击 `start.bat` 即可运行。
+适合 Windows 用户直接使用：内置便携 PostgreSQL，解压后双击启动。
 
-> 注意：解压路径必须全是英文，路径中不要包含中文、空格或特殊符号。
-
-> **重要：一键包本地部署后，你自己就是管理员。**
-> 用户注册需要邀请码；邀请码需要登录管理后台后，在「用户管理」→「邀请码管理」里自己生成。
-> 后台账号密码首次启动会显示在窗口里，也会保存到 `logs/first-run-admin.txt`。
-
-#### 直接下载使用
-
-进入 [Releases](https://github.com/mumu-0922/GankAIGC/releases/latest)，下载：
-
-```text
-GankAIGC-Windows-OneClick.zip
-```
-
-使用方式：
-
-1. 解压 `GankAIGC-Windows-OneClick.zip`。
-2. 双击 `start.bat`。
-3. 首次运行会自动初始化内置 PostgreSQL，并生成 `.env`、数据库密码、后台密码、JWT 密钥和加密密钥。
-4. 后台账号密码会显示在窗口里，也会保存到 `logs/first-run-admin.txt`。
+1. 到 [Releases](https://github.com/mumu-0922/GankAIGC/releases/latest) 下载 `GankAIGC-Windows-OneClick.zip`。
+2. 解压到英文路径，双击 `start.bat`。
+3. 打开 <http://localhost:9800>；后台为 <http://localhost:9800/admin>。
+4. 首次后台账号密码会显示在窗口里，也会写入 `logs/first-run-admin.txt`。
 5. 停止服务双击 `stop.bat`。
 
-朱雀 AI 检测/降重在一键包里默认走本机可见浏览器链路，不需要安装 Chrome 插件。进入工作台选择「AI检测 + 降重」后点击「打开朱雀页面」，系统会打开或聚焦 Windows Chrome / Edge / Brave；登录或完成验证码后，回到 GankAIGC 点击剩余次数右侧刷新按钮同步 `朱雀账号` / `剩余次数`。
+朱雀检测：一键包默认使用本机可见 Chrome / Edge / Brave，不需要 Chrome 插件，也不需要 `playwright install`。在工作台点击「打开朱雀页面」，登录/验证后刷新「剩余次数」即可。
 
-> 注意：不要删除 `data/`，否则用户、邀请码、兑换码、会话、朱雀状态等数据会丢失。
+> 不要删除 `data/`；升级新版时先备份 `.env`、`data/`、`logs/`。更多说明见解压目录里的 `README.txt`。
 
 </details>
 
