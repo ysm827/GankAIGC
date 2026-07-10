@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag to upload assets to (e.g., v1.0.0)'
+        description: 'Existing release tag to upload assets to (e.g., v2.0.1)'
         required: true
-        default: 'v1.0.0'
+        default: 'v2.0.1'
       postgres_zip_url:
         description: 'PostgreSQL Windows binaries ZIP URL for the one-click package'
         required: true
@@ -20,11 +20,32 @@ permissions:
   contents: read
 
 jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout requested tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify tag and commit identity
+        env:
+          TAG_NAME: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git show-ref --verify --quiet "refs/tags/$TAG_NAME"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG_NAME")"
+
   build-windows:
+    needs: validate-release
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -124,10 +145,14 @@ jobs:
           retention-days: 30
 
   build-linux:
+    needs: validate-release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -206,10 +231,14 @@ jobs:
           retention-days: 30
 
   build-macos:
+    needs: validate-release
     runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version || github.ref }}
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -312,7 +341,15 @@ jobs:
           printf ' - %s\n' "${files[@]}"
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "${files[@]}" --clobber
+            existing_assets="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
+            for file in "${files[@]}"; do
+              asset_name="$(basename "$file")"
+              if printf '%s\n' "$existing_assets" | grep -Fxq "$asset_name"; then
+                echo "Refusing to overwrite immutable release asset: $asset_name" >&2
+                exit 1
+              fi
+            done
+            gh release upload "$TAG_NAME" "${files[@]}"
           else
             gh release create "$TAG_NAME" "${files[@]}" \
               --title "GankAIGC $TAG_NAME" \

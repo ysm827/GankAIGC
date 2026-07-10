@@ -14,6 +14,34 @@ def test_release_workflow_builds_and_uploads_windows_oneclick_package():
     assert "GankAIGC-Windows-OneClick.zip" in workflow
     assert "name: GankAIGC-Windows-OneClick" in workflow
     assert "gh release upload" in workflow
+    assert "--clobber" not in workflow
+    assert "Refusing to overwrite immutable release asset" in workflow
+    assert "Verify tag and commit identity" in workflow
+    assert "ref: ${{ github.event.inputs.version || github.ref }}" in workflow
+
+
+def test_oci_release_publishes_scans_attests_and_signs_one_digest():
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "release-image.yml").read_text(
+        encoding="utf-8"
+    )
+    production_compose = (PROJECT_ROOT / "docker-compose.prod.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docker/build-push-action@v6" in workflow
+    assert "platforms: linux/amd64,linux/arm64" in workflow
+    assert "sbom: true" in workflow
+    assert "provenance: mode=max" in workflow
+    assert "aquasecurity/trivy-action" in workflow
+    assert "sigstore/cosign-installer" in workflow
+    assert "cosign sign --yes" in workflow
+    assert "@${{ steps.build.outputs.digest }}" in workflow
+    assert "git show-ref --verify" in workflow
+    assert "tr -d '\\r\\n' < package/VERSION" in workflow
+    assert '"$TAG_NAME"' in workflow
+    assert "GANKAIGC_IMAGE" in production_compose
+    assert "build: null" in production_compose
+    assert "pull_policy: always" in production_compose
 
 
 def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():

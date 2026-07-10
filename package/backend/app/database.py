@@ -1,7 +1,13 @@
-from sqlalchemy import create_engine, inspect, text
+import re
+
+from psycopg import sql as pg_sql
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 from app.config import settings
+
+
+DATABASE_ROLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
 def normalize_database_url(database_url: str) -> str:
@@ -15,6 +21,28 @@ def normalize_database_url(database_url: str) -> str:
         return normalized_url
 
     raise ValueError("Only PostgreSQL DATABASE_URL values are supported")
+
+
+def get_database_session_role() -> str:
+    role = settings.DATABASE_SESSION_ROLE.strip()
+    if role and not DATABASE_ROLE_PATTERN.fullmatch(role):
+        raise ValueError("DATABASE_SESSION_ROLE must be a simple PostgreSQL role name")
+    return role
+
+
+def _set_database_session_role(dbapi_connection) -> None:
+    """Assume the migration owner without putting role SQL in the URL."""
+    role = get_database_session_role()
+    if not role:
+        return
+    with dbapi_connection.cursor() as cursor:
+        cursor.execute(pg_sql.SQL("SET ROLE {}").format(pg_sql.Identifier(role)))
+    dbapi_connection.commit()
+
+
+def apply_database_session_role(connection) -> None:
+    """Apply the same role to an independently-created Alembic connection."""
+    _set_database_session_role(connection.connection.driver_connection)
 
 
 def _safe_database_url(database_url: str | None = None) -> str:
@@ -46,6 +74,11 @@ def build_database_connection_error(error: Exception, database_url: str | None =
 DATABASE_URL = normalize_database_url(settings.DATABASE_URL)
 
 engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 10})
+
+
+@event.listens_for(engine, "checkout")
+def _assume_configured_database_role(dbapi_connection, connection_record, connection_proxy):
+    _set_database_session_role(dbapi_connection)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -284,8 +284,20 @@ def test_frontend_routes_are_lazy_loaded_and_sse_updates_are_throttled():
     assert "tokenResponse.data.stream_token" in session_detail
     assert "createStreamToken" in api
     assert "/stream-token" in api
-    assert "stream_token=" in api
+    assert "params.set('stream_token', streamToken)" in api
+    assert "params.set('last_event_id', String(lastEventId))" in api
+    assert "lastStreamEventIdRef" in session_detail
+    assert "STREAM_RECONNECT_DELAY_MS = 2000" in session_detail
+    assert "ACTIVE_DETAIL_POLL_INTERVAL_MS = 5000" in session_detail
     assert "access_token=${encodeURIComponent(userToken)}" not in api
+
+
+def test_admin_audit_ui_never_fabricates_client_ip_addresses():
+    admin_dashboard = (FRONTEND_SRC / "pages" / "AdminDashboard.jsx").read_text(encoding="utf-8")
+
+    assert "|| '未知'" in admin_dashboard
+    assert "192.168.1.10" not in admin_dashboard
+    assert "192.168.1.22" not in admin_dashboard
 
 
 def test_session_detail_does_not_render_failed_zhuque_detection_as_zero_percent():

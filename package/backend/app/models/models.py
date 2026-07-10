@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.config import settings
@@ -170,6 +170,7 @@ class OptimizationSession(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     worker_id = Column(String(100), nullable=True, index=True)
+    worker_attempt_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=utcnow, index=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     completed_at = Column(DateTime, nullable=True)
@@ -208,6 +209,7 @@ class OptimizationSession(Base):
     segments = relationship("OptimizationSegment", back_populates="session", cascade="all, delete-orphan")
     history = relationship("SessionHistory", back_populates="session", cascade="all, delete-orphan")
     zhuque_agent_jobs = relationship("ZhuqueAgentJob", back_populates="session")
+    task_events = relationship("TaskEvent", back_populates="session", cascade="all, delete-orphan")
 
     @property
     def completed_segments(self) -> int:
@@ -217,6 +219,41 @@ class OptimizationSession(Base):
     @property
     def project_title(self) -> str | None:
         return self.project.title if self.project else None
+
+
+class TaskEvent(Base):
+    """Durable SSE outbox event for one optimization session."""
+
+    __tablename__ = "task_events"
+    __table_args__ = (
+        Index("ix_task_events_session_id_id", "session_id", "id"),
+        Index("ix_task_events_session_event_key", "session_id", "event_key"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    session_id = Column(Integer, ForeignKey("optimization_sessions.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String(64), nullable=False)
+    event_key = Column(String(160), nullable=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+
+    session = relationship("OptimizationSession", back_populates="task_events")
+
+
+class WorkerLease(Base):
+    """Independent worker liveness/boot lease, refreshed even while idle."""
+
+    __tablename__ = "worker_leases"
+
+    worker_id = Column(String(128), primary_key=True)
+    boot_id = Column(String(64), nullable=False)
+    version = Column(String(64), nullable=True)
+    state = Column(String(32), nullable=False, default="idle", index=True)
+    capacity = Column(Integer, nullable=False, default=1)
+    current_session_id = Column(Integer, ForeignKey("optimization_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    started_at = Column(DateTime, default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class OptimizationSegment(Base):

@@ -11,6 +11,8 @@ import BrandLogo from '../components/BrandLogo';
 import { formatChinaDate } from '../utils/dateTime';
 
 const STREAM_FLUSH_INTERVAL_MS = 100;
+const STREAM_RECONNECT_DELAY_MS = 2000;
+const ACTIVE_DETAIL_POLL_INTERVAL_MS = 5000;
 const ZHUQUE_MANUAL_VERIFICATION_TEXT_MARKERS = [
   'zhuque_captcha_required',
   'manual_verification_required',
@@ -53,62 +55,109 @@ const SessionDetailPage = () => {
   const pendingContentUpdatesRef = useRef([]);
   const pendingZhuqueEventsRef = useRef([]);
   const streamFlushTimerRef = useRef(null);
+  const lastStreamEventIdRef = useRef(0);
+  const sessionStatusRef = useRef(null);
 
   useEffect(() => {
     setCollapsedZhuqueEventKeys(new Set());
+    lastStreamEventIdRef.current = 0;
   }, [sessionId]);
 
   useEffect(() => {
     let eventSource = null;
-    
+    let reconnectTimer = null;
+    let progressPollTimer = null;
+    let disposed = false;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connectStream();
+      }, STREAM_RECONNECT_DELAY_MS);
+    };
+
+    const connectStream = async () => {
+      try {
+        const tokenResponse = await optimizationAPI.createStreamToken(sessionId);
+        if (disposed) return;
+        const streamUrl = optimizationAPI.getStreamUrl(
+          sessionId,
+          tokenResponse.data.stream_token,
+          lastStreamEventIdRef.current,
+        );
+        eventSource = new EventSource(streamUrl);
+
+        eventSource.onmessage = (event) => {
+          if (event.lastEventId) {
+            const parsedEventId = Number(event.lastEventId);
+            if (Number.isFinite(parsedEventId)) {
+              lastStreamEventIdRef.current = Math.max(lastStreamEventIdRef.current, parsedEventId);
+            }
+          }
+          try {
+            if (!event.data || event.data.startsWith(':')) {
+              return;
+            }
+            const data = JSON.parse(event.data);
+            if (data.type === 'content') {
+              enqueueStreamUpdate({ kind: 'content', data });
+            } else if (
+              data.type === 'zhuque_agent_event'
+              || data.agent_event
+              || data.type === 'zhuque_detect'
+              || data.type === 'zhuque_reduce'
+            ) {
+              const liveEvent = normalizeZhuqueLiveEvent(data);
+              if (liveEvent) {
+                enqueueStreamUpdate({ kind: 'zhuque', data: liveEvent });
+              }
+            } else if (data.type === 'history_compressed') {
+              toast.info(data.message);
+            } else if (data.type === 'status') {
+              loadSessionDetail();
+            }
+          } catch (error) {
+            console.error('Error parsing SSE data:', error);
+          }
+        };
+
+        eventSource.onerror = (error) => {
+          console.error('SSE Error:', error);
+          eventSource.close();
+          eventSource = null;
+          scheduleReconnect();
+        };
+      } catch (error) {
+        console.error('SSE connection failed:', error);
+        scheduleReconnect();
+      }
+    };
+
     const initializeSession = async () => {
-      // 先加载数据
       await loadSessionDetail();
       await loadChanges();
-      
-      // 数据加载完成后再建立 SSE 连接
-      const tokenResponse = await optimizationAPI.createStreamToken(sessionId);
-      const streamUrl = optimizationAPI.getStreamUrl(sessionId, tokenResponse.data.stream_token);
-      eventSource = new EventSource(streamUrl);
-
-      eventSource.onmessage = (event) => {
-        try {
-          if (!event.data || event.data.startsWith(':')) {
-            return;
-          }
-          const data = JSON.parse(event.data);
-          if (data.type === 'content') {
-            enqueueStreamUpdate({ kind: 'content', data });
-          } else if (
-            data.type === 'zhuque_agent_event'
-            || data.agent_event
-            || data.type === 'zhuque_detect'
-            || data.type === 'zhuque_reduce'
-          ) {
-            const liveEvent = normalizeZhuqueLiveEvent(data);
-            if (liveEvent) {
-              enqueueStreamUpdate({ kind: 'zhuque', data: liveEvent });
-            }
-          } else if (data.type === 'history_compressed') {
-            toast.info(data.message);
-          }
-        } catch (error) {
-          console.error('Error parsing SSE data:', error);
+      if (disposed) return;
+      await connectStream();
+      progressPollTimer = window.setInterval(() => {
+        if (
+          document.visibilityState === 'visible'
+          && ['queued', 'processing'].includes(sessionStatusRef.current)
+        ) {
+          loadSessionDetail();
         }
-      };
-
-      eventSource.onerror = (error) => {
-        console.error('SSE Error:', error);
-        eventSource.close();
-      };
+      }, ACTIVE_DETAIL_POLL_INTERVAL_MS);
     };
-    
+
     initializeSession();
-    
+
     return () => {
+      disposed = true;
       if (eventSource) {
         eventSource.close();
       }
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (progressPollTimer) window.clearInterval(progressPollTimer);
       if (streamFlushTimerRef.current) {
         window.clearTimeout(streamFlushTimerRef.current);
         streamFlushTimerRef.current = null;
@@ -179,9 +228,13 @@ const SessionDetailPage = () => {
 
         // 更新内容
         if (data.stage === 'polish' || data.stage === 'emotion_polish') {
-          segment.polished_text = (segment.polished_text || "") + data.content;
+          segment.polished_text = typeof data.full_text === 'string'
+            ? data.full_text
+            : (segment.polished_text || "") + data.content;
         } else if (data.stage === 'enhance') {
-          segment.enhanced_text = (segment.enhanced_text || "") + data.content;
+          segment.enhanced_text = typeof data.full_text === 'string'
+            ? data.full_text
+            : (segment.enhanced_text || "") + data.content;
         }
 
         // 标记为处理中（如果尚未标记）
@@ -213,6 +266,7 @@ const SessionDetailPage = () => {
           return null;
         }),
       ]);
+      sessionStatusRef.current = sessionResponse.data.status;
       setSession(sessionResponse.data);
       setSegments(sessionResponse.data.segments || []);
       if (zhuqueStatusResponse?.data) {

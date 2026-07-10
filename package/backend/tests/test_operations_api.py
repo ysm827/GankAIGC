@@ -1,8 +1,9 @@
 from pathlib import Path
+from datetime import timedelta
 
 import app.config as config_module
 from app.database import SessionLocal
-from app.models.models import AdminAuditLog, OptimizationSession, RegistrationInvite
+from app.models.models import AdminAuditLog, OptimizationSession, RegistrationInvite, WorkerLease
 from app.services import operations_service, update_service
 from app.utils.time import utcnow
 
@@ -48,6 +49,19 @@ def test_admin_operations_status_reports_database_worker_backup_and_update(clien
             updated_at=utcnow(),
         )
         db.add(session)
+        db.add(
+            WorkerLease(
+                worker_id="worker-1",
+                boot_id="boot-1",
+                version="test",
+                state="busy",
+                capacity=1,
+                current_session_id=None,
+                started_at=utcnow(),
+                last_seen_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -126,6 +140,40 @@ def test_admin_operations_status_includes_onboarding_checklist(client, monkeypat
         "test_task": True,
         "backup": True,
     }
+
+
+def test_idle_worker_lease_is_healthy_and_stale_lease_is_offline(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "INLINE_TASK_WORKER_ENABLED", False, raising=False)
+    monkeypatch.setattr(config_module.settings, "TASK_WORKER_LEASE_TIMEOUT_SECONDS", 60, raising=False)
+    db = SessionLocal()
+    try:
+        lease = WorkerLease(
+            worker_id="idle-worker",
+            boot_id="boot-idle",
+            version="test",
+            state="idle",
+            capacity=1,
+            started_at=utcnow(),
+            last_seen_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db.add(lease)
+        db.commit()
+
+        healthy = operations_service.get_worker_status(db)
+        assert healthy["ok"] is True
+        assert healthy["worker_count"] == 1
+        assert healthy["available_slots"] == 1
+
+        lease.last_seen_at = utcnow() - timedelta(seconds=61)
+        lease.updated_at = lease.last_seen_at
+        db.commit()
+        stale = operations_service.get_worker_status(db)
+        assert stale["ok"] is False
+        assert stale["worker_count"] == 0
+        assert stale["available_slots"] == 0
+    finally:
+        db.close()
 
 
 def test_admin_onboarding_does_not_treat_placeholder_model_api_as_configured(client, monkeypatch):

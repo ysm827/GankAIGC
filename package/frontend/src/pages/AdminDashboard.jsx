@@ -65,7 +65,7 @@ const ACCOUNT_PANEL_TABS = [
   { id: 'creditTransactions', label: '啤酒流水' },
   { id: 'apiConfigs', label: 'API 配置' },
 ];
-const CURRENT_APP_VERSION = window.__GANKAIGC_RUNTIME__?.appVersion || import.meta.env.VITE_APP_VERSION || 'v1.0.9';
+const CURRENT_APP_VERSION = window.__GANKAIGC_RUNTIME__?.appVersion || import.meta.env.VITE_APP_VERSION || 'v2.0.1';
 const ANNOUNCEMENT_MARKDOWN_TOOLS = [
   { id: 'heading', label: 'H', title: '标题', syntax: 'line-prefix', prefix: '## ' },
   { id: 'bold', label: 'B', title: '加粗', syntax: 'wrap', prefix: '**', suffix: '**', sample: '加粗文字' },
@@ -143,7 +143,7 @@ const getAuditIp = (log, index = 0) => (
   log?.detail?.ip
   || log?.detail?.ip_address
   || log?.ip_address
-  || (index % 3 === 0 ? '192.168.1.10' : index % 3 === 1 ? '192.168.1.22' : '127.0.0.1')
+  || '未知'
 );
 
 const getAdminUserRole = (user, providerConfig) => {

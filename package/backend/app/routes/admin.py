@@ -13,6 +13,7 @@ from sqlalchemy import inspect, func, case
 from sqlalchemy.orm import Session, defer, joinedload
 
 from app.config import (
+    get_file_backed_settings,
     is_placeholder_admin_password,
     is_weak_admin_password,
     reload_settings,
@@ -304,12 +305,18 @@ def write_admin_audit_log(
     target_id: Optional[int] = None,
     detail: Optional[Dict[str, Any]] = None,
 ) -> AdminAuditLog:
+    from app.utils.client_ip import get_current_client_ip
+
+    client_ip = get_current_client_ip()
+    audit_detail = dict(detail or {})
+    if client_ip:
+        audit_detail["ip_address"] = client_ip
     log = AdminAuditLog(
         admin_username=admin_username,
         action=action,
         target_type=target_type,
         target_id=target_id,
-        detail=json.dumps(detail, ensure_ascii=False) if detail is not None else None,
+        detail=json.dumps(audit_detail, ensure_ascii=False) if audit_detail else None,
     )
     db.add(log)
     return log
@@ -385,6 +392,14 @@ def _validate_model_base_url_updates(updates: Dict[str, str]) -> Dict[str, str]:
 def _persist_runtime_env_updates(updates: Dict[str, str]) -> None:
     """Persist known runtime settings into .env and hot-reload the settings object."""
     from app.config import get_env_file_path
+
+    file_backed_updates = sorted(set(updates).intersection(get_file_backed_settings()))
+    if file_backed_updates:
+        raise ValueError(
+            "以下配置由只读 *_FILE Secret 管理，不能从后台修改: "
+            + ", ".join(file_backed_updates)
+            + "。请更新对应 /run/secrets 文件并重建 app/worker 容器。"
+        )
 
     normalized_updates: Dict[str, str] = {}
     for key, value in updates.items():

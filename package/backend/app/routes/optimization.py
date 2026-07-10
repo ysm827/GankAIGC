@@ -4,6 +4,7 @@ from sqlalchemy import func, and_, case
 from starlette.concurrency import run_in_threadpool
 from typing import List, Optional
 import base64
+import contextlib
 import importlib.util
 import os
 import subprocess
@@ -22,11 +23,11 @@ from app.schemas import (
     ZhuqueBrowserLaunchResponse, ZhuqueBrowserStatusResponse,
     ZhuquePreflightRequest, ZhuqueReadinessResponse,
 )
-from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService, calculate_optimization_credits
 from app.services.provider_config_service import ProviderConfigService
+from app.services.session_credentials import clear_transient_session_api_keys
 from app.services.stream_manager import stream_manager
-from app.services.task_queue import process_session_by_id
+from app.services.task_queue import get_persistent_queue_status, process_session_by_id
 from app.services.optimization_service import parse_zhuque_segment_position
 from app.services.zhuque_service import zhuque_service, zhuque_user_data_root, zhuque_user_dir
 from app.services.zhuque_local_browser_transport import LocalBrowserZhuqueTransport
@@ -1407,7 +1408,11 @@ async def get_queue_status(
     db: Session = Depends(get_db)
 ):
     """获取队列状态"""
-    status = await concurrency_manager.get_status(session_id)
+    status = get_persistent_queue_status(
+        db,
+        user_id=user.id,
+        session_id=session_id,
+    )
     online_since = utcnow() - timedelta(seconds=ONLINE_USER_WINDOW_SECONDS)
     status["online_users"] = (
         db.query(User)
@@ -1596,6 +1601,7 @@ async def stream_session_progress(
     session_id: str,
     request: Request,
     stream_token: str = "",
+    last_event_id: int = 0,
     db: Session = Depends(get_db)
 ):
     """流式获取会话进度和内容"""
@@ -1609,21 +1615,47 @@ async def stream_session_progress(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
 
+    header_last_event_id = request.headers.get("last-event-id", "").strip()
+    if header_last_event_id:
+        try:
+            last_event_id = max(last_event_id, int(header_last_event_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Last-Event-ID 不合法")
+    session_db_id = session.id
+
     async def event_generator():
         queue = await stream_manager.connect(session_id)
+        cursor = max(0, last_event_id)
         try:
             while True:
                 if await request.is_disconnected():
                     break
-                
-                # 从队列获取消息，设置超时以便检查连接状态
+
+                events = await asyncio.to_thread(
+                    stream_manager.fetch_events,
+                    session_db_id,
+                    cursor,
+                )
+                if events:
+                    for event in events:
+                        cursor = int(event.id)
+                        yield {
+                            "id": str(event.id),
+                            "event": "message",
+                            "data": event.payload_json,
+                        }
+                    continue
+
+                # LISTEN/NOTIFY only wakes this loop. Polling remains the
+                # correctness fallback when a notification is missed.
                 try:
-                    message = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    yield message
+                    await asyncio.wait_for(
+                        queue.get(),
+                        timeout=max(0.2, settings.TASK_EVENT_POLL_INTERVAL_SECONDS),
+                    )
                 except asyncio.TimeoutError:
-                    # 发送心跳注释以保持连接活跃
                     yield ": keep-alive\n\n"
-                    
+
         finally:
             await stream_manager.disconnect(session_id, queue)
 
@@ -1824,6 +1856,7 @@ async def retry_session(
     session.started_at = None
     session.finished_at = None
     session.worker_id = None
+    session.worker_attempt_count = 0
     session.error_message = f"[重试中] 上次失败原因: {old_error}"
     _clear_retry_zhuque_trace_final(session)
     if session.processing_mode == "ai_detect_reduce":
@@ -1864,6 +1897,18 @@ async def stop_session(
     # 更新状态为 stopped
     session.status = "stopped"
     session.error_message = "用户手动停止"
+    session.finished_at = utcnow()
+    clear_transient_session_api_keys(session)
     db.commit()
+    with contextlib.suppress(Exception):
+        await stream_manager.broadcast(
+            session.session_id,
+            {
+                "type": "status",
+                "status": "stopped",
+                "progress": float(session.progress or 0),
+                "error_message": session.error_message,
+            },
+        )
 
     return {"message": "会话已停止"}

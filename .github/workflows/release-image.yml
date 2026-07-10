@@ -1,0 +1,100 @@
+name: Release OCI Image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing protected release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify tag and commit identity
+        id: identity
+        env:
+          TAG_NAME: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git show-ref --verify --quiet "refs/tags/$TAG_NAME"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG_NAME")"
+          test "$(tr -d '\r\n' < package/VERSION)" = "$TAG_NAME"
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Normalize GHCR image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push immutable image with SBOM and provenance
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.image.outputs.name }}:${{ steps.identity.outputs.tag }}
+          build-args: DOCKER_IMAGE_PREFIX=
+          sbom: true
+          provenance: mode=max
+
+      - name: Scan published digest
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.8.2
+
+      - name: Sign published digest with GitHub OIDC
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE_REF"
+
+      - name: Record immutable deployment identity
+        env:
+          TAG_NAME: ${{ steps.identity.outputs.tag }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf 'tag=%s\ncommit=%s\ndigest=%s\nschema=0010_task_events_worker_leases\n' \
+            "$TAG_NAME" "$GITHUB_SHA" "$IMAGE_DIGEST" | tee release-identity.txt
+
+      - name: Upload release identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: oci-release-identity-${{ steps.identity.outputs.tag }}
+          path: release-identity.txt
+          retention-days: 90

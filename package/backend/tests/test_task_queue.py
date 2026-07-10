@@ -2,11 +2,13 @@ import asyncio
 from datetime import timedelta
 
 import app.config as config_module
+from sqlalchemy import text
 from app.database import SessionLocal
-from app.models.models import CreditTransaction, OptimizationSession, User
+from app.models.models import CreditTransaction, OptimizationSession, User, WorkerLease
 from app.services.credit_service import CreditService
 from app.services import task_queue
 from app.services.task_queue import process_next_queued_session
+from app.services.worker_lease import register_worker_lease, update_worker_lease
 from app.utils.auth import create_user_access_token, get_password_hash
 from app.utils.time import utcnow
 
@@ -40,6 +42,7 @@ def _create_session(
     started_at=None,
     worker_id=None,
     charged_credits=0,
+    worker_attempt_count=0,
 ):
     db = SessionLocal()
     try:
@@ -54,6 +57,7 @@ def _create_session(
             billing_mode="platform",
             charge_status="held" if charged_credits else "not_charged",
             charged_credits=charged_credits,
+            worker_attempt_count=worker_attempt_count,
             created_at=created_at or utcnow(),
             updated_at=updated_at or created_at or utcnow(),
             started_at=started_at,
@@ -156,6 +160,7 @@ def test_process_next_queued_session_runs_oldest_queued_session():
         assert older.worker_id == "test-worker"
         assert older.started_at is not None
         assert older.finished_at is not None
+        assert older.worker_attempt_count == 1
         assert newer.status == "queued"
         assert newer.worker_id is None
     finally:
@@ -227,6 +232,69 @@ def test_recover_stale_processing_sessions_requeues_dead_worker_session():
         assert "dead-worker" in stale.error_message
         assert fresh.status == "processing"
         assert fresh.worker_id == "live-worker"
+    finally:
+        db.close()
+
+
+def test_recover_stale_processing_session_stops_after_bounded_attempts(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "TASK_WORKER_MAX_ATTEMPTS", 3, raising=False)
+    user_id, _ = _create_user()
+    stale_time = utcnow() - timedelta(minutes=30)
+    session_id = _create_session(
+        user_id,
+        "dead-letter-session",
+        status="processing",
+        created_at=stale_time,
+        updated_at=stale_time,
+        started_at=stale_time,
+        worker_id="dead-worker",
+        worker_attempt_count=3,
+    )
+    db = SessionLocal()
+    try:
+        session = db.get(OptimizationSession, session_id)
+        session.billing_mode = "byok"
+        session.credential_source = "request"
+        session.polish_api_key = "transient-secret"
+        session.updated_at = stale_time
+        db.commit()
+        db.execute(
+            text("UPDATE optimization_sessions SET updated_at = :stale WHERE id = :session_id"),
+            {"stale": stale_time, "session_id": session_id},
+        )
+        db.commit()
+
+        assert task_queue.recover_stale_processing_sessions(db, stale_after_seconds=60) == 1
+        db.refresh(session)
+        assert session.status == "failed"
+        assert session.polish_api_key is None
+        assert session.finished_at is not None
+        assert "最大尝试次数" in session.error_message
+    finally:
+        db.close()
+
+
+def test_queue_status_uses_database_order_and_idle_worker_lease(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "INLINE_TASK_WORKER_ENABLED", False, raising=False)
+    user_id, _ = _create_user()
+    _create_session(user_id, "queue-first", created_at=utcnow() - timedelta(minutes=5))
+    _create_session(user_id, "queue-second", created_at=utcnow())
+    register_worker_lease("lease-worker", "boot-1", version="test", capacity=1)
+
+    db = SessionLocal()
+    try:
+        status = task_queue.get_persistent_queue_status(
+            db,
+            user_id=user_id,
+            session_id="queue-second",
+        )
+        lease = db.get(WorkerLease, "lease-worker")
+        assert status["queue_length"] == 2
+        assert status["your_position"] == 2
+        assert status["max_users"] == 1
+        assert status["estimated_wait_time"] == 600
+        assert lease.state == "idle"
+        assert update_worker_lease("lease-worker", "wrong-boot", state="busy") is False
     finally:
         db.close()
 

@@ -22,6 +22,9 @@ backups/
 .env
 .env.local
 .env.docker
+.env.runtime
+secrets/
+.ci-secrets/
 
 # IDE
 .vscode/

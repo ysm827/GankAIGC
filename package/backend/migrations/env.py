@@ -19,8 +19,13 @@ if "GANKAIGC_ENV_FILE" not in os.environ and runtime_env_file.exists():
     os.environ["GANKAIGC_ENV_FILE"] = str(runtime_env_file)
 
 from app.config import settings  # noqa: E402
-from app.database import Base, normalize_database_url  # noqa: E402
+from app.database import (  # noqa: E402
+    Base,
+    apply_database_session_role,
+    normalize_database_url,
+)
 from app.models import models  # noqa: F401,E402
+from app.schema import include_schema_object  # noqa: E402
 
 
 if config.config_file_name is not None:
@@ -29,24 +34,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-MANAGED_PERFORMANCE_INDEX_PREFIXES = (
-    "idx_opt_",
-    "idx_change_log_",
-    "idx_registration_invites_",
-)
-
-
 def get_database_url() -> str:
     return normalize_database_url(settings.DATABASE_URL).replace("%", "%%")
 
 
 config.set_main_option("sqlalchemy.url", get_database_url())
-
-
-def include_object(object_, name, type_, reflected, compare_to):
-    if type_ == "index" and reflected and name:
-        return not name.startswith(MANAGED_PERFORMANCE_INDEX_PREFIXES)
-    return True
 
 
 def run_migrations_offline() -> None:
@@ -56,7 +48,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        include_object=include_object,
+        include_object=include_schema_object,
     )
 
     with context.begin_transaction():
@@ -71,11 +63,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        apply_database_session_role(connection)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            include_object=include_object,
+            include_object=include_schema_object,
         )
 
         with context.begin_transaction():

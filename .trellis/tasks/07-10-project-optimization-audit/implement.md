@@ -1,0 +1,182 @@
+# Docker / VPS Production Optimization Implementation Plan
+
+The user reviewed the plan and authorized implementation on 2026-07-10. The task is `in_progress`; execute phases in order and keep production-side operations outside this repository change.
+
+## Progress — 2026-07-10
+
+- [x] Task activated under developer `mumu`.
+- [x] Docker build context rejects env files, local state, venvs, browser caches and generated artifacts.
+- [x] Runtime image uses explicit source COPY entries instead of copying all of `package/`.
+- [x] app published port defaults to loopback for the 1Panel reverse-proxy deployment.
+- [x] uploads use a durable host bind at `package/uploads/`, with migration instructions for existing containers.
+- [x] Local ignored env/Zhuque credential files were tightened to `0600` and local state directories to `0700`; VPS instructions now create the same baseline.
+- [x] Static Docker/Compose regression tests and resolved Compose validation pass.
+- [x] Full Docker build completed successfully; runtime allowlist checks passed and the resulting image is 246.32 MiB (`gankaigc:phase1`).
+- [!] Frontend build reported 12 `npm audit` findings (1 low, 5 moderate, 6 high). Advisory and compatibility review is required before dependency changes; do not run `npm audit fix --force` blindly.
+- [x] Upload bind persistence was verified across two fresh app containers with the same SHA-256.
+- [x] Phase 2 now has a one-shot Alembic migrator, PostgreSQL advisory locking, exact legacy-schema comparison/reconciliation and production revision-only startup.
+- [x] Empty install, unversioned current schema, missing 0007 columns, repeated migration, forced failure, downgrade/re-upgrade and Compose migrator checks passed.
+- [x] Full backend regression suite passed at the Phase 4 checkpoint: 543 tests; subsequent least-secret/log-redaction changes passed their targeted suites.
+- [x] Phase 3 adds a PostgreSQL task-event outbox, event-ID replay, `LISTEN/NOTIFY` wakeups with polling fallback, database-backed queue status and reconnecting frontend SSE.
+- [x] Independent idle worker leases, boot IDs, SIGTERM drain, 120-second stale recovery, three-attempt stop semantics and terminal request-BYOK scrubbing are implemented.
+- [x] Cross-manager PostgreSQL notification/replay tests and an actual Docker worker `idle -> stopped` lease integration check passed.
+- [x] Trusted-proxy client IP capture replaces fabricated audit IPs; Zhuque tooling no longer prints Token/Cookie values.
+- [x] App/worker/migrator drop Linux capabilities, set `no-new-privileges` and PID limits; production docs/database-manager defaults are closed.
+- [x] Local PostgreSQL backups are partial-first, archive-validated, atomically published and checksummed; optional restic offsite encryption is service-scoped.
+- [x] Immutable GHCR release workflow, SBOM/provenance, Trivy gate, keyless Cosign signing, digest-only Compose overlay and non-clobbering release assets are implemented but not yet executed in remote CI.
+- [x] `/live` and `/ready` split process liveness from PostgreSQL/schema/upload readiness.
+- [x] Final Docker smoke proved non-root UID, read-only rootfs, writable tmpfs, dropped capabilities, PID limit, production docs 404 and readiness at revision `0010`.
+- [x] Local backup drills proved atomic dump/checksum validation, encrypted restic backup/file restore and PostgreSQL restore into an isolated database.
+- [x] Uvicorn access logging redacts query credentials; migrator/backup/offsite services no longer receive the whole application env file.
+- [x] Production Compose removes the app/worker compatibility `env_file`, mounts
+  service-specific `0600` Secrets, keeps file values out of child-process
+  environment, and blocks admin writes to file-backed settings.
+- [x] PostgreSQL bootstrap/owner/migrator/app/backup roles are provisioned by an
+  explicit fail-closed job with default-privilege reconciliation and opt-in
+  legacy object ownership transition.
+- [x] Isolated role tests proved app DML succeeds/DDL fails, backup SELECT and
+  `pg_dump` succeed/INSERT fails, and the migrator upgrades a fresh database to
+  `0010` with app-readable new tables.
+- [x] Full backend regression now passes 557 tests; production overlay smoke
+  proved file-secret auth, exact service mounts, non-root app/worker, readiness,
+  migration, and backup dump/checksum.
+- [x] Release candidate identity is aligned to `v2.0.1`; OCI publication now
+  rejects a tag whose value differs from `package/VERSION` before any build or
+  registry write.
+
+## Phase 0 — Containment and Baseline (S, before public go-live)
+
+- [ ] Inventory any locally/registry-built images that may contain `package/data`; rotate Zhuque sessions/API credentials if exposure is possible.
+- [ ] Record current production tag/commit/image ID, actual schema, volume list, queue state and backup age without printing secret values.
+- [ ] Create a verified pre-change PostgreSQL dump and export existing uploads/Zhuque state from live containers.
+- [ ] Validate the existing 1Panel domain proxy: force HTTPS, proxy to `127.0.0.1:9800`, disable SSE buffering, allow the configured upload size, and use bounded long-request timeouts.
+- [ ] Restrict VPS ingress to 22 (allowlisted), 80 and 443; block public 9800/5432/CDP ports. Do not rely on the 1Panel/firewall rule alone when Docker still publishes 9800 to all interfaces.
+- [ ] Put admin routes behind VPN/identity-aware proxy or an explicit allowlist.
+- [ ] Set secret directories/files to `0700/0600`; configure Docker log rotation and disk alerts.
+
+**Gate:** no public launch while 9800 is directly reachable, state is not backed up, or possible leaked credentials remain valid.
+
+## Phase 1 — Image Context and Persistent Data (S–M)
+
+- [x] Expand `.dockerignore` for root `.env*`, backups, venvs, browser caches, data, uploads and build/test artifacts.
+- [x] Replace `COPY package/ ./` with an explicit runtime allowlist.
+- [x] Add dedicated uploads persistence; do not add server Zhuque state for the recommended `browser_agent` deployment.
+- [ ] Copy existing data into the new volumes before switching paths.
+- [ ] Add uploads to encrypted backup scope.
+
+**Validation**
+
+```bash
+docker compose --env-file .env.docker config --quiet
+trivy image --scanners secret,vuln <image-ref>
+docker run --rm <image-ref> sh -c 'test ! -e /app/package/venv && test ! -e /app/package/data/zhuque'
+```
+
+- Upload an avatar, record its SHA-256, force-recreate app, and verify the same URL/hash.
+- Verify app/worker see the same optional state volume where required.
+
+**Rollback:** copy-first migration; retain the old exported state until one restore drill passes.
+
+## Phase 2 — Schema Authority (M, highest correctness risk)
+
+- [ ] Dump production schema and compare it to SQLAlchemy metadata and Alembic head.
+- [x] Write and test reconciliation for databases created by `create_all`; never blindly `stamp head`.
+- [x] Add a one-shot `migrate` service with advisory locking and migrator credentials.
+- [x] Make app/worker depend on successful migration and remove production startup DDL.
+- [x] Test empty install, previous snapshot upgrade, repeat run and forced migration failure.
+
+**Validation**
+
+```bash
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic heads
+docker compose run --rm migrate alembic check
+```
+
+**Rollback:** retain pre-migration dump and previous image digest; use expand/contract. Restore DB only for an incompatible migration.
+
+## Phase 3 — Cross-Process Correctness (L)
+
+- [x] Add durable task event outbox and event IDs.
+- [x] Dual-write existing stream events, wake app with `LISTEN/NOTIFY`, replay by `Last-Event-ID`.
+- [x] Query queue state from PostgreSQL.
+- [x] Add active-task polling fallback and SSE reconnect handling.
+- [x] Add independent worker leases, unique boot IDs, drain/SIGTERM handling, bounded retries and DLQ semantics.
+- [x] Clear or securely dereference transient BYOK Keys on every terminal path.
+
+**Validation**
+
+- Worker-container events arrive at app SSE.
+- Disconnect/restart app for 30 seconds; replay is complete and duplicate-free.
+- Kill worker during a task; work recovers inside the lease target without duplicate charge or segment.
+- Idle worker stays healthy; stopped worker becomes unhealthy inside the lease timeout.
+
+**Rollback:** feature-flag new SSE delivery; keep database polling as the safe fallback.
+
+## Phase 4 — Edge, Secrets and Container Hardening (M)
+
+- [x] Bind app to loopback by default; document the shared-network option for a bridge-container 1Panel proxy.
+- [ ] Configure TLS, SSE no-buffering, upload body limit, trusted proxy handling and query-token log redaction.
+- [x] Split Secrets per service; use migrator/app/backup DB roles and a DML-only application connection.
+- [x] Run app/worker as non-root with all capabilities dropped, `no-new-privileges`, read-only rootfs, explicit writable mounts/tmpfs and PID/resource limits.
+- [x] Remove full credential output from Zhuque tooling/logs and replace fake audit IP fallback with trusted backend capture.
+- [x] Disable or separately protect production docs and database-manager endpoints.
+
+**Validation**
+
+- External `VPS_IP:9800` fails while domain 443 succeeds.
+- `id -u` in app/worker is non-zero; writes outside explicit state paths fail.
+- `docker inspect` shows only service-required secret names; backup cannot see JWT/admin/model secrets.
+- Login rate-limit and audit IP tests work through the real proxy and reject spoofed forwarding headers.
+
+**Rollback:** enable hardening per service. Fix explicit ownership/mounts on write failures; do not restore root or world-readable Secrets.
+
+## Phase 5 — Recoverable Release and Backup (M)
+
+- [ ] Build/publish a tag- and commit-bound OCI image with digest, SBOM, provenance and signature.
+- [ ] VPS deploys verified digest rather than building mutable `main`.
+- [x] Remove release asset clobber and reject version/tag/ref mismatches.
+- [ ] Make backup atomic, validated and encrypted; upload to a separate failure domain.
+- [ ] Restore weekly to an isolated database and record actual RPO/RTO.
+- [x] Add `live/ready`, migration/volume checks and deployment smoke tests.
+
+**Validation**
+
+```bash
+cosign verify <image-ref>@sha256:<digest>
+docker compose --env-file .env.docker up -d --wait
+pg_restore --list <validated.dump>
+```
+
+- A deliberately unhealthy image must fail the gate and leave the previous digest available.
+- Interrupted dump leaves only `.partial`; it is never shown as a successful backup.
+
+**Rollback:** retain two or three verified digests; run old/new backup chains in parallel for one retention cycle.
+
+## Phase 6 — Performance and Maintainability (P1/P2 after production gates)
+
+- [ ] Stop committing `User.last_used` on every authenticated request; throttle/batch presence writes.
+- [ ] Move blocking synchronous ORM work away from async request paths or adopt a consistent sync/async execution model.
+- [ ] Rewrite admin statistics as SQL aggregates/cache; do not load complete paper bodies every 30 seconds.
+- [ ] Remove duplicate/PK indexes only after `pg_stat_user_indexes` and query-plan verification.
+- [ ] Close/reuse `AsyncOpenAI/httpx` clients and bound stream queues.
+- [ ] Split runtime/dev/package dependency locks; remove test/PyInstaller/optional Playwright from production image.
+- [ ] Add history pagination and decompose the largest backend/frontend modules after behavior is protected by tests.
+
+## Required Review Gates
+
+1. Security: secret scan, least-privilege service inventory, proxy spoof test.
+2. Data: state persistence and isolated restore proof.
+3. Correctness: empty/upgrade migration, cross-process SSE, worker-kill recovery.
+4. Release: tag/commit/digest/schema identity and rollback rehearsal.
+5. Capacity: collect p95 task duration, queue age, RSS/CPU/DB pool data before increasing worker count.
+
+## High-Risk Files for Future Work
+
+- `.dockerignore`, `Dockerfile`, `docker-compose.yml`
+- `package/backend/app/database.py`, `package/backend/migrations/`
+- `package/backend/worker.py`, `package/backend/app/services/task_queue.py`
+- `package/backend/app/services/stream_manager.py`, `concurrency.py`, `optimization_service.py`
+- `package/backend/app/routes/optimization.py`, `admin.py`
+- `scripts/docker-postgres-backup.sh`, restore scripts
+- `.github/workflows/ci.yml`, `.github/workflows/build-exe.yml`

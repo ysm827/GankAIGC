@@ -13,11 +13,12 @@ from typing import Optional
 # 先导入 config 以便加载环境变量
 from app.config import (
     ensure_runtime_secrets_safe,
+    is_server_deployment,
     is_placeholder_admin_password,
     is_placeholder_secret,
     settings,
 )
-from app.database import check_database_connection, init_db
+from app.schema import prepare_database, verify_database_schema
 from app.routes import admin, auth, browser_agent, prompts, optimization, user
 from app.runtime import refresh_cors_middleware
 from app.services.rate_limit import SlidingWindowLimiter
@@ -29,9 +30,17 @@ from app.utils.security_headers import (
     csp_hash_for_inline_script,
     update_security_headers,
 )
+from app.utils.client_ip import (
+    reset_current_client_ip,
+    resolve_request_client_ip,
+    set_current_client_ip,
+)
+from app.utils.log_redaction import install_uvicorn_access_log_redaction
 from app.models.models import CustomPrompt
 from app.database import SessionLocal
 from app.services.ai_service import get_default_polish_prompt, get_default_enhance_prompt
+
+install_uvicorn_access_log_redaction()
 
 
 # 响应缓存头中间件 - 优化浏览器缓存
@@ -103,10 +112,22 @@ app = FastAPI(
     description="高质量论文润色与原创性学术表达增强",
     version=get_current_app_version(),
     lifespan=lifespan,
+    docs_url=None if is_server_deployment() else "/docs",
+    redoc_url=None if is_server_deployment() else "/redoc",
+    openapi_url=None if is_server_deployment() else "/openapi.json",
 )
 
 # 添加 Gzip 压缩中间件以减少响应体积
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.middleware("http")
+async def capture_trusted_client_ip(request: Request, call_next):
+    token = set_current_client_ip(resolve_request_client_ip(request))
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_client_ip(token)
 
 # 添加缓存控制中间件
 app.add_middleware(CacheControlMiddleware)
@@ -179,9 +200,8 @@ async def enforce_sensitive_endpoint_rate_limits(request: Request, call_next):
 
 async def startup_event():
     """启动时初始化"""
-    # 先检查连接，再初始化数据库结构
-    check_database_connection()
-    init_db()
+    # Docker/VPS 生产环境只校验 Alembic revision；DDL 由 migrate 服务独占。
+    prepare_database()
 
     # 创建系统默认提示词
     db = SessionLocal()
@@ -224,8 +244,10 @@ async def startup_event():
 
 async def shutdown_event():
     """关闭时清理资源"""
+    from app.services.stream_manager import stream_manager
     from app.services.zhuque_service import zhuque_service
 
+    await stream_manager.close()
     await zhuque_service.close()
     if settings.WORD_FORMATTER_ENABLED:
         from app.word_formatter.services import get_job_manager
@@ -254,6 +276,23 @@ async def head_root():
 async def health_check():
     """健康检查"""
     return {"status": "healthy"}
+
+
+@app.get("/live")
+async def liveness_check():
+    return {"status": "live"}
+
+
+@app.get("/ready")
+async def readiness_check():
+    try:
+        revision = verify_database_schema()
+        upload_root = get_uploads_mount_dir()
+        if not upload_root.is_dir() or not os.access(upload_root, os.W_OK):
+            raise RuntimeError(f"上传目录不可写: {upload_root}")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"服务未就绪: {exc}") from exc
+    return {"status": "ready", "schema_revision": revision}
 
 
 def _runtime_bootstrap_script_content() -> str:

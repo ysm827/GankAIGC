@@ -455,12 +455,11 @@ class ZhuqueService:
         self._ready = True
         self._ensure_consumer_task()
         logger.info(
-            "[ZhuqueService:%s] 无头 API 就绪 | logged_in=%s | remaining=%s | user=%s | Token: %s...",
+            "[ZhuqueService:%s] 无头 API 就绪 | logged_in=%s | remaining=%s | user=%s | token=<redacted>",
             self.owner_label,
             bool(status.get("has_token")),
             status.get("remaining_uses"),
             status.get("user_name", ""),
-            status.get("token_preview", "")[:10],
         )
 
     async def _consumer(self) -> None:

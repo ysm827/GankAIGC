@@ -19,6 +19,7 @@ from app.services.concurrency import concurrency_manager
 from app.services.credit_service import CreditService
 from app.services.error_messages import build_task_error_message
 from app.services.stream_manager import stream_manager
+from app.services.session_credentials import clear_transient_session_api_keys
 from app.services.zhuque_service import zhuque_service
 from app.services.zhuque_prompt_evolution_service import ZhuquePromptEvolutionService
 from app.services.document_structure_service import (
@@ -403,6 +404,7 @@ class OptimizationService:
     
     async def start_optimization(self):
         """开始优化流程"""
+        acquired_concurrency = False
         try:
             processing_mode = self.session_obj.processing_mode or 'paper_polish_enhance'
             if processing_mode != 'ai_detect_reduce':
@@ -414,15 +416,13 @@ class OptimizationService:
             self.session_obj.failed_segment_index = None
             self.db.commit()
             
-            # 获取并发权限
-            acquired = await concurrency_manager.acquire(self.session_obj.session_id)
-            if not acquired:
-                self.session_obj.status = "queued"
-                self.db.commit()
-                
-                # 等待获取权限 - acquire 方法内部已包含等待逻辑
-                acquired = await concurrency_manager.acquire(self.session_obj.session_id)
-                if not acquired:
+            # 本地 inline 模式保留进程内并发门；Docker worker 已由
+            # PostgreSQL claim/lease 控制，不能依赖另一个进程的内存状态。
+            if settings.INLINE_TASK_WORKER_ENABLED:
+                acquired_concurrency = await concurrency_manager.acquire(
+                    self.session_obj.session_id
+                )
+                if not acquired_concurrency:
                     raise Exception("等待并发权限超时")
             
             # 更新状态为处理中
@@ -484,17 +484,20 @@ class OptimizationService:
             self.session_obj.completed_at = utcnow()
             self.session_obj.progress = 100.0
             self.session_obj.failed_segment_index = None
+            clear_transient_session_api_keys(self.session_obj)
             self.db.commit()
             
         except Exception as e:
             self.session_obj.status = "failed"
             CreditService(self.db).refund_held_platform_credit(self.session_obj)
             self.session_obj.error_message = build_task_error_message(e, max_length=MAX_ERROR_MESSAGE_LENGTH)
+            clear_transient_session_api_keys(self.session_obj)
             self.db.commit()
             raise
         finally:
             # 释放并发权限
-            await concurrency_manager.release(self.session_obj.session_id)
+            if acquired_concurrency:
+                await concurrency_manager.release(self.session_obj.session_id)
             # 清理 AI 服务资源
             self._cleanup_ai_services()
     

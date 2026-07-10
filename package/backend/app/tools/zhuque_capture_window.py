@@ -26,7 +26,7 @@
     creds_latest.json        # 最新凭证
     qrcode_latest.png        # 二维码截图（供调试）
 """
-import asyncio, json, sys, time, os, re, subprocess, tempfile, urllib.error, urllib.request
+import asyncio, json, sys, time, os, re, shlex, subprocess, tempfile, urllib.error, urllib.request
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
@@ -1148,7 +1148,7 @@ async def wait_for_login(page, timeout=WAIT_TIMEOUT):
                 elapsed = time.time() - start
                 print(f"\n[OK] 检测到登录态！（耗时 {elapsed:.0f}s）")
                 if token:
-                    print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
+                    print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，值已脱敏")
                 elif auth_state.get("userName"):
                     print(f"   用户: {auth_state.get('userName')}（未暴露 localStorage token，改用 cookie/fp 凭证）")
                 return True
@@ -1479,7 +1479,7 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
 
         if token:
             print(f"  [info] 浏览器已有登录态: {user_name}")
-            print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，前60字符: {token[:60]}...")
+            print(f"   Token 来源: {auth_state.get('tokenSource') or '?'}，值已脱敏")
 
             if force_login:
                 print("\n  [switch] 强制切号模式 — 先退出当前账号")
@@ -1539,14 +1539,14 @@ async def capture_flow(headless=False, force_login=False, sync_session=False):
         print(f"   用户:  {creds.get('userName', '?')}")
         print(f"   配额:  {creds.get('quotaText', '?')}")
         ls = creds.get("localStorage", {})
-        print(f"   Token: {ls.get('aiGenAccessToken', '')[:60]}...")
-        print(f"   FP:    {ls.get('fp', '')}")
+        print(f"   Token: {'存在（已脱敏）' if ls.get('aiGenAccessToken') else '无'}")
+        print(f"   FP:    {'存在（已脱敏）' if ls.get('fp') else '无'}")
         print(f"   Cook:  {len(creds.get('cookies', []))} 个")
 
         key_cookies = ["ACCESS_TOKEN", "DEFAULT_COOKIES", "JSESSIONID"]
         for c in creds.get("cookies", []):
             if c["name"] in key_cookies:
-                print(f"     [cookie] {c['name']}: {c['value'][:50]}...")
+                print(f"     [cookie] {c['name']}: <redacted>")
 
         await save_browser_state(ctx)
         return creds
@@ -1576,19 +1576,19 @@ def print_creds_summary(creds):
     print(f"   配额: {creds.get('quotaText', '?')}")
     print(f"   时间: {creds.get('timestamp', '?')}")
     ls = creds.get('localStorage', {})
-    print(f"   Token: {ls.get('aiGenAccessToken', '')[:60]}...")
-    print(f"   FP: {ls.get('fp', '')}")
+    print(f"   Token: {'存在（已脱敏）' if ls.get('aiGenAccessToken') else '无'}")
+    print(f"   FP: {'存在（已脱敏）' if ls.get('fp') else '无'}")
     print(f"   localStorage ({len(ls)} keys):")
-    for k, v in ls.items():
-        print(f"     {k}: {str(v)[:60]}")
+    for k in ls:
+        print(f"     {k}: <redacted>")
     cookies = creds.get('cookies', [])
     print(f"   Cookies ({len(cookies)}):")
     for c in cookies:
-        print(f"     {c['name']}: {c['value'][:50]}{'...' if len(c['value'])>50 else ''}")
+        print(f"     {c['name']}: <redacted>")
 
 
 def export_shell(creds_file=None):
-    """导出为 shell 环境变量"""
+    """写入权限为 0600 的 shell 文件，绝不把凭证打印到 stdout。"""
     creds = load_creds(creds_file)
     if not creds:
         return
@@ -1596,13 +1596,19 @@ def export_shell(creds_file=None):
     token = ls.get('aiGenAccessToken', '')
     fp = ls.get('fp', '')
     cookie_str = creds.get('cookieString', '')
-    print(f'export ZHUQUE_TOKEN="{token}"')
-    print(f'export ZHUQUE_FP="{fp}"')
-    print(f'export ZHUQUE_COOKIES="{cookie_str}"')
+    lines = [
+        f"export ZHUQUE_TOKEN={shlex.quote(token)}",
+        f"export ZHUQUE_FP={shlex.quote(fp)}",
+        f"export ZHUQUE_COOKIES={shlex.quote(cookie_str)}",
+    ]
     # 单独 key cookies
     for c in creds.get('cookies', []):
         if c['name'] in ['ACCESS_TOKEN', 'DEFAULT_COOKIES']:
-            print(f'export ZHUQUE_{c["name"]}="{c["value"]}"')
+            lines.append(f'export ZHUQUE_{c["name"]}={shlex.quote(c["value"])}')
+    output_file = TEMP / "zhuque_credentials_export.sh"
+    output_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(output_file, 0o600)
+    print(f"[OK] 已写入私有凭证文件: {output_file} (0600)")
 
 
 def export_json_creds(creds_file=None):
@@ -1625,7 +1631,13 @@ def export_json_creds(creds_file=None):
         "captured_at": creds.get('timestamp', ''),
         "localStorage": ls,
     }
-    print(json.dumps(exported, ensure_ascii=False, indent=2))
+    output_file = TEMP / "zhuque_credentials_export.json"
+    output_file.write_text(
+        json.dumps(exported, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.chmod(output_file, 0o600)
+    print(f"[OK] 已写入私有凭证文件: {output_file} (0600)")
 
 
 # ===================== CLI =====================

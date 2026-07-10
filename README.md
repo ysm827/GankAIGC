@@ -332,9 +332,11 @@ Docker Compose 会一次启动完整服务：
 
 - `app`：GankAIGC Web 应用。
 - `worker`：后台任务处理进程。
+- `migrate`：持有 PostgreSQL advisory lock 的一次性 Alembic 迁移任务；成功后 `app` / `worker` 才会启动。
 - `postgres`：PostgreSQL 16 数据库。
+- `backup`：定时 PostgreSQL 逻辑备份。
 
-数据库数据保存在 Docker volume `postgres_data` 中。重建 `app` / `worker` 容器不会删除数据。
+数据库数据保存在 Docker volume `postgres_data` 中，头像等上传文件保存在宿主机 `package/uploads/`。重建 `app` / `worker` 容器不会删除这些持久化数据。
 
 #### 1）拉取项目并复制配置
 
@@ -353,6 +355,8 @@ Linux / VPS：
 git clone https://github.com/mumu-0922/GankAIGC.git
 cd GankAIGC
 cp .env.docker.example .env.docker
+chmod 600 .env.docker
+install -d -m 700 package/uploads backups
 nano .env.docker
 ```
 
@@ -361,6 +365,7 @@ nano .env.docker
 至少修改：
 
 ```env
+APP_BIND_IP=127.0.0.1
 POSTGRES_PASSWORD=换成强数据库密码
 SECRET_KEY=换成随机长字符串
 ADMIN_USERNAME=admin
@@ -369,16 +374,22 @@ ENCRYPTION_KEY=换成Fernet加密密钥
 ALLOWED_ORIGINS=http://localhost:9800
 ```
 
-如果部署到 VPS，并直接用 IP 访问：
+VPS 正式部署推荐让 1Panel/Nginx/Caddy 反向代理 `127.0.0.1:9800`，只向公网开放 80/443。绑定域名时：
 
 ```env
-ALLOWED_ORIGINS=http://你的服务器IP:9800
+APP_BIND_IP=127.0.0.1
+ALLOWED_ORIGINS=https://你的域名
 ```
 
-如果绑定域名：
+如果 1Panel 的 OpenResty 运行在独立 bridge 容器中，无法访问宿主机 loopback，应把代理与 `app` 接入同一受控 Docker 网络并使用服务名转发；不要为省事重新把 9800 暴露到公网。
+
+审计 IP 只信任明确配置的代理 peer。把 1Panel/OpenResty 直连 `app` 时实际使用的 IP 或最小 CIDR 写入 `TRUSTED_PROXY_IPS`，不要写 `0.0.0.0/0`；其他来源伪造的 `X-Forwarded-For` 会被忽略。生产默认关闭 `/docs`、`/redoc`、`/openapi.json` 和后台数据库管理器。
+
+只有临时排障且已用云防火墙限制来源时，才允许直接用 IP 访问：
 
 ```env
-ALLOWED_ORIGINS=https://你的域名
+APP_BIND_IP=0.0.0.0
+ALLOWED_ORIGINS=http://你的服务器IP:9800
 ```
 
 生成密钥：
@@ -389,6 +400,24 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 ```
 
 Docker 会自动根据 `POSTGRES_PASSWORD` 拼出容器内的 `DATABASE_URL`，一般不要在 `.env.docker` 里手动添加 `DATABASE_URL`。
+默认由同一数据库 owner 执行一次性迁移；如果已提前创建专用迁移角色，可同时设置 `POSTGRES_MIGRATOR_USER` 和 `POSTGRES_MIGRATOR_PASSWORD`。
+
+上面是本地/兼容 Compose 路径。VPS 正式部署使用 `docker-compose.prod.yml` 时，
+不会把整份 `.env.docker` 注入容器，而是读取 `secrets/` 下按服务拆分的 `0600`
+文件，并使用 `owner(NOLOGIN) / migrator / app(DML) / backup(read-only)` 四类角色：
+
+```bash
+# 先确保 .env.docker 中现有 POSTGRES_PASSWORD/SECRET_KEY/ADMIN_PASSWORD/
+# ENCRYPTION_KEY 是当前真实值；脚本会保留它们，不会在输出中打印。
+sudo ./scripts/docker-secrets-init.sh
+docker compose --env-file .env.docker \
+  -f docker-compose.yml -f docker-compose.prod.yml up -d postgres
+./scripts/postgres-provision-roles.sh
+```
+
+历史数据库首次运行会拒绝自动转移对象 owner。确认备份和对象清单后，临时设置
+`POSTGRES_REASSIGN_EXISTING_OBJECTS=true` 再执行一次，成功后立即改回 `false`。
+完整生产步骤见 [`docs/docker-deployment.md`](docs/docker-deployment.md)。
 
 还可以在 `.env.docker` 中配置平台 API：
 
@@ -434,6 +463,19 @@ INLINE_TASK_WORKER_ENABLED=false
 docker compose --env-file .env.docker up --build -d
 ```
 
+启动时 `migrate` 会先执行 Alembic。历史上由 `create_all` 创建、没有 `alembic_version` 的数据库会先做结构比对，只在结构等价或已完成显式补列后才 `stamp head`；迁移失败时 `app` / `worker` 不会启动。
+
+任务进度事件写入 PostgreSQL `task_events` outbox，再用 `LISTEN/NOTIFY` 唤醒 SSE；断线后按 event ID 重放，通知丢失时由 1 秒数据库轮询兜底。独立 worker 即使空闲也会刷新 `worker_leases`，默认 120 秒判离线，连续恢复 3 次仍失败的任务停止自动重试。升级已有 `.env.docker` 时同步以下值：
+
+```env
+TASK_WORKER_HEARTBEAT_INTERVAL=30
+TASK_WORKER_STALE_TIMEOUT_SECONDS=120
+TASK_WORKER_LEASE_TIMEOUT_SECONDS=120
+TASK_WORKER_MAX_ATTEMPTS=3
+TASK_EVENT_POLL_INTERVAL_SECONDS=1
+TASK_WORKER_STOP_GRACE_PERIOD=10m
+```
+
 #### 4）检查状态
 
 ```bash
@@ -452,7 +494,16 @@ curl http://127.0.0.1:9800/health
 ```bash
 docker compose --env-file .env.docker logs -f app
 docker compose --env-file .env.docker logs -f worker
+docker compose --env-file .env.docker logs migrate
 docker compose --env-file .env.docker logs -f backup
+```
+
+检查当前数据库迁移状态：
+
+```bash
+docker compose --env-file .env.docker run --rm migrate alembic current
+docker compose --env-file .env.docker run --rm migrate alembic heads
+docker compose --env-file .env.docker run --rm migrate alembic check
 ```
 
 Docker 部署默认会启动自动数据库备份服务，备份文件保存在宿主机 `backups/`：
@@ -468,6 +519,16 @@ BACKUP_INTERVAL_SECONDS=86400
 docker compose --env-file .env.docker run --rm -e RUN_ONCE=true backup
 ```
 
+本机 dump 现在先写 `.partial`，经 `pg_restore --list` 校验后原子改名，并生成 SHA-256。它仍和 VPS 同属一个故障域；正式上线应配置独立的加密 restic 仓库，先执行一次性验证，再启用定时 profile：
+
+```bash
+docker compose --env-file .env.docker --profile offsite \
+  run --rm -e RUN_ONCE=true backup-offsite
+docker compose --env-file .env.docker --profile offsite up -d backup-offsite
+```
+
+`RESTIC_REPOSITORY`、`RESTIC_PASSWORD` 及对象存储凭证只传给 `backup-offsite`，不会整份注入 app/worker。至少每周把快照恢复到隔离数据库并记录 RPO/RTO。
+
 停止服务但保留数据库数据：
 
 ```bash
@@ -477,17 +538,51 @@ docker compose --env-file .env.docker down
 更新项目：
 
 ```bash
+# 首次升级到 uploads 持久化版本时，先从旧 app 容器导出已有头像。
+mkdir -p package/uploads
+APP_CONTAINER="$(docker compose --env-file .env.docker ps -q app)"
+if [ -n "$APP_CONTAINER" ] && docker exec "$APP_CONTAINER" test -d /app/package/uploads; then
+  docker cp "$APP_CONTAINER":/app/package/uploads/. package/uploads/
+fi
+
 git fetch --tags origin main
 git checkout main
 git pull --ff-only origin main
 docker compose --env-file .env.docker up -d --build
 ```
 
+正式 VPS 推荐不要现场重建 `main`，而是把 CI 已扫描/签名的 release digest 写入 `.env.docker`：
+
+```env
+GANKAIGC_IMAGE=ghcr.io/mumu-0922/gankaigc@sha256:<已验证digest>
+```
+
+```bash
+IMAGE_REF="$(sed -n 's/^GANKAIGC_IMAGE=//p' .env.docker | tail -1)"
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/mumu-0922/GankAIGC/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$IMAGE_REF"
+# 首次生产部署先执行 Secret/角色初始化；现有 secrets 禁止覆盖。
+sudo ./scripts/docker-secrets-init.sh
+./scripts/postgres-provision-roles.sh
+docker compose --env-file .env.docker \
+  -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose --env-file .env.docker \
+  -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+./scripts/postgres-provision-roles.sh
+docker compose --env-file .env.docker \
+  -f docker-compose.yml -f docker-compose.prod.yml up -d --wait
+curl -fsS http://127.0.0.1:9800/ready
+```
+
+回滚时只把 `GANKAIGC_IMAGE` 改回保留的上一条已验证 digest，再执行同一组 `pull/up`；数据库仅在迁移不兼容且已有恢复演练时才回滚。
+
 如果这次更新包含 Chrome 插件变更，还需要在用户本机刷新插件：复制最新 `browser-extension/`，到 `chrome://extensions` 点击「重新加载」，确认插件版本号。例如当前 VPS browser-agent 推荐插件版本为 `0.1.6`。
 
 进入管理后台，点击左上角版本号，可以检查 GitHub 最新 Release 并复制 SSH 升级命令。后台不会直接控制 Docker；需要 SSH 到 VPS 的项目目录手动执行上面的命令。
 
-> 不要随便执行 `docker compose down -v`、`docker volume rm gankaigc_postgres_data`。这些命令会删除 PostgreSQL 数据卷，用户、邀请码、兑换码、会话和啤酒流水都会丢失。
+> 不要随便执行 `docker compose down -v`、`docker volume rm gankaigc_postgres_data`，也不要在未备份时删除 `package/uploads/`。这些操作会导致数据库或头像文件丢失。
 
 </details>
 
@@ -557,7 +652,7 @@ MAX_CONCURRENT_USERS=5
 API_REQUEST_INTERVAL=6
 REGISTRATION_ENABLED=true
 WORD_FORMATTER_ENABLED=false
-ADMIN_DATABASE_MANAGER_ENABLED=true
+ADMIN_DATABASE_MANAGER_ENABLED=false
 ADMIN_DATABASE_WRITE_ENABLED=false
 
 # 文档解析：PDF 默认使用 MinerU 精准解析；Word(.docx)/Markdown/TXT 使用本地解析。

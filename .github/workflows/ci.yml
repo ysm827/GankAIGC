@@ -86,7 +86,20 @@ jobs:
       - name: Validate Docker Compose config
         run: |
           cp .env.docker.example .env.docker
+          touch .env.runtime
+          chmod 600 .env.runtime
+          mkdir -p .ci-secrets
+          for name in postgres_password bootstrap_database_url migrator_database_url app_database_url \
+            migrator_password app_password backup_password secret_key admin_password encryption_key \
+            openai_api_key polish_api_key enhance_api_key emotion_api_key compression_api_key restic_password; do
+            printf 'ci-placeholder-not-a-real-secret\n' > ".ci-secrets/$name"
+            chmod 600 ".ci-secrets/$name"
+          done
           docker compose --env-file .env.docker config --quiet
+          GANKAIGC_SECRETS_DIR=.ci-secrets \
+            GANKAIGC_IMAGE=ghcr.io/example/gankaigc@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            docker compose --env-file .env.docker \
+            -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 
       - name: Build Docker image
         run: docker build --build-arg DOCKER_IMAGE_PREFIX= -t gankaigc:ci .

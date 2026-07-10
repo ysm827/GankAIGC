@@ -1,24 +1,56 @@
+# Version control and local agent state
 .git
 .github
-.pytest_cache
+.agents
+.codex
+.trellis
 .ace-tool
 .roo
 .spec-workflow
 .worktrees
-docs/superpowers/plans
-docs/superpowers/specs
-**/__pycache__
-**/*.py[cod]
-**/.pytest_cache
-**/node_modules
-**/dist
-**/build
-**/.env
-**/.env.local
+
+# Secrets and host runtime state
+.env*
+**/.env*
+secrets/
+.ci-secrets/
+backups/
+package/data/
+package/uploads/
 **/*.db
+**/*.dump
+**/*.backup
+
+# Local runtimes, dependencies and browser caches
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/node_modules/
+package/venv/
+package/venv-windows/
+package/.playwright-browsers/
+package/postgres-portable/
+
+# Test and build outputs that are rebuilt inside the image
+**/dist/
+**/build/
+**/playwright-report/
+**/test-results/
+package/static/
+package/backend/tests/
+package/backend/tmp-pytest/
+package/frontend/e2e/
+.uv-cache/
+output/
+
+# Local logs and process files
 **/*.log
+**/*.pid
 backend-server*.log
 frontend-server*.log
-package/static
-package/dist
-package/build
+
+# Non-runtime project material
+docs/
+browser-extension/
+docs/superpowers/plans/
+docs/superpowers/specs/

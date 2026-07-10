@@ -20,3 +20,31 @@ def test_dockerfile_copies_packaged_version_file():
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert "COPY package/VERSION /app/package/VERSION" in dockerfile
+
+
+def test_docker_healthcheck_uses_process_liveness_endpoint():
+    dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "http://127.0.0.1:9800/live" in dockerfile
+
+
+def test_dockerfile_uses_runtime_allowlist_instead_of_copying_package_tree():
+    dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY package/ ./" not in dockerfile
+    assert "COPY package/main.py /app/package/main.py" in dockerfile
+    assert "COPY package/backend/ /app/package/backend/" in dockerfile
+    assert "COPY LICENSE NOTICE /app/licenses/" in dockerfile
+    assert "COPY --from=frontend-builder /app/package/frontend/dist ./static" in dockerfile
+
+
+def test_dockerignore_excludes_secrets_local_state_and_build_caches():
+    dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    patterns = {line.strip() for line in dockerignore if line.strip() and not line.lstrip().startswith("#")}
+
+    assert ".env*" in patterns
+    assert "backups/" in patterns
+    assert "package/venv/" in patterns
+    assert "package/.playwright-browsers/" in patterns
+    assert "package/data/" in patterns
+    assert "package/uploads/" in patterns

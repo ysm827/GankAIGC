@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Production PostgreSQL schema, role, file-Secret, migration, and backup contracts."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend regression and cross-process correctness requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Docker, settings, database, worker, frontend, and operations boundaries change together."}

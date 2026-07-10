@@ -2,6 +2,7 @@ name: gankaigc
 
 services:
   app:
+    user: "${GANKAIGC_RUNTIME_UID:-1000}:${GANKAIGC_RUNTIME_GID:-1000}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -16,6 +17,7 @@ services:
       AUTO_OPEN_BROWSER: "false"
       TZ: ${TZ:-Asia/Shanghai}
       GANKAIGC_ENV_FILE: /app/config/.env.docker
+      GANKAIGC_UPLOAD_ROOT: /app/state/uploads
       DATABASE_URL: postgresql://ai_polish:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}@postgres:5432/ai_polish
       INLINE_TASK_WORKER_ENABLED: "false"
     command: python main.py
@@ -27,14 +29,29 @@ services:
         source: ${GANKAIGC_HOST_PROJECT_DIR:-${PWD:-.}}/backups
         target: /backups
         read_only: true
+      - type: bind
+        source: ${GANKAIGC_HOST_PROJECT_DIR:-${PWD:-.}}/package/uploads
+        target: /app/state/uploads
     ports:
-      - "${APP_PORT:-9800}:9800"
+      - "${APP_BIND_IP:-127.0.0.1}:${APP_PORT:-9800}:9800"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   worker:
+    user: "${GANKAIGC_RUNTIME_UID:-1000}:${GANKAIGC_RUNTIME_GID:-1000}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -59,9 +76,47 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       disable: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    stop_grace_period: ${TASK_WORKER_STOP_GRACE_PERIOD:-10m}
     restart: unless-stopped
+
+  migrate:
+    user: "${GANKAIGC_RUNTIME_UID:-1000}:${GANKAIGC_RUNTIME_GID:-1000}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DOCKER_IMAGE_PREFIX: ${DOCKER_IMAGE_PREFIX:-docker.m.daocloud.io/}
+    environment:
+      APP_ENV: production
+      TZ: ${TZ:-Asia/Shanghai}
+      DATABASE_URL: postgresql://${POSTGRES_MIGRATOR_USER:-ai_polish}:${POSTGRES_MIGRATOR_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}}@postgres:5432/ai_polish
+    command: python schema_migrate.py upgrade
+    working_dir: /app/package/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    restart: "no"
 
   postgres:
     image: ${DOCKER_IMAGE_PREFIX:-docker.m.daocloud.io/}library/postgres:16-alpine
@@ -83,8 +138,6 @@ services:
 
   backup:
     image: ${DOCKER_IMAGE_PREFIX:-docker.m.daocloud.io/}library/postgres:16-alpine
-    env_file:
-      - .env.docker
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -96,6 +149,7 @@ services:
       BACKUP_DIR: /backups
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_FILE_GID: ${GANKAIGC_RUNTIME_GID:-1000}
     command: sh /scripts/docker-postgres-backup.sh
     volumes:
       - type: bind
@@ -110,5 +164,39 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  backup-offsite:
+    image: restic/restic:0.17.3@sha256:8f5a62b422a2cb1277ea0dd6e826fe1acf649e5b9f02d60e5268d5fd1976255a
+    profiles:
+      - offsite
+    entrypoint: /bin/sh
+    command: /scripts/docker-restic-offsite.sh
+    environment:
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      RESTIC_INTERVAL_SECONDS: ${RESTIC_INTERVAL_SECONDS:-86400}
+      RESTIC_KEEP_DAILY: ${RESTIC_KEEP_DAILY:-14}
+      RESTIC_KEEP_WEEKLY: ${RESTIC_KEEP_WEEKLY:-8}
+      RESTIC_KEEP_MONTHLY: ${RESTIC_KEEP_MONTHLY:-12}
+    volumes:
+      - type: bind
+        source: ${GANKAIGC_HOST_PROJECT_DIR:-${PWD:-.}}/backups
+        target: /backups
+        read_only: true
+      - type: bind
+        source: ${GANKAIGC_HOST_PROJECT_DIR:-${PWD:-.}}/scripts/docker-restic-offsite.sh
+        target: /scripts/docker-restic-offsite.sh
+        read_only: true
+      - restic_cache:/root/.cache/restic
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  restic_cache:

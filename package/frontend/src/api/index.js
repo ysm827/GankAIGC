@@ -200,10 +200,13 @@ export const optimizationAPI = {
     api.post(`/optimization/sessions/${sessionId}/stream-token`, null, {
       timeout: 5000,
     }),
-  getStreamUrl: (sessionId, streamToken) => {
+  getStreamUrl: (sessionId, streamToken, lastEventId = 0) => {
     const baseUrl = api.defaults.baseURL || '/api';
-    const query = streamToken ? `?stream_token=${encodeURIComponent(streamToken)}` : '';
-    return `${baseUrl}/optimization/sessions/${sessionId}/stream${query}`;
+    const params = new URLSearchParams();
+    if (streamToken) params.set('stream_token', streamToken);
+    if (Number(lastEventId) > 0) params.set('last_event_id', String(lastEventId));
+    const query = params.toString();
+    return `${baseUrl}/optimization/sessions/${sessionId}/stream${query ? `?${query}` : ''}`;
   },
 };
 

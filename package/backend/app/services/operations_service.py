@@ -2,7 +2,7 @@ import os
 import platform
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -20,7 +20,7 @@ from app.config import (
     settings,
 )
 from app.database import engine
-from app.models.models import OptimizationSession, RegistrationInvite
+from app.models.models import OptimizationSession, RegistrationInvite, WorkerLease
 from app.services import update_service
 from app.services.ai_service import (
     API_FORMAT_ANTHROPIC,
@@ -495,6 +495,18 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
             .order_by(OptimizationSession.updated_at.desc().nullslast(), OptimizationSession.started_at.desc().nullslast())
             .first()
         )
+        lease_cutoff = utcnow() - timedelta(
+            seconds=max(1, settings.TASK_WORKER_LEASE_TIMEOUT_SECONDS)
+        )
+        live_leases = (
+            db.query(WorkerLease)
+            .filter(
+                WorkerLease.last_seen_at >= lease_cutoff,
+                WorkerLease.state != "stopped",
+            )
+            .order_by(WorkerLease.last_seen_at.desc())
+            .all()
+        )
     except Exception as exc:
         return {
             "ok": False,
@@ -513,7 +525,12 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
             "message": f"无法读取任务队列状态：{exc}",
         }
 
-    last_heartbeat = latest_processing.updated_at if latest_processing else None
+    latest_lease = live_leases[0] if live_leases else None
+    last_heartbeat = (
+        latest_lease.last_seen_at
+        if latest_lease
+        else latest_processing.updated_at if latest_processing else None
+    )
     stale_seconds = None
     if last_heartbeat:
         heartbeat = last_heartbeat
@@ -522,11 +539,17 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
         stale_seconds = max(0, int((utcnow() - heartbeat).total_seconds()))
 
     inline_enabled = settings.INLINE_TASK_WORKER_ENABLED
-    likely_running = inline_enabled or processing_count > 0
-    if processing_count > 0 and stale_seconds is not None:
-        likely_running = stale_seconds <= settings.TASK_WORKER_STALE_TIMEOUT_SECONDS
-
-    capacity = max(1, int(settings.MAX_CONCURRENT_USERS or 1)) if inline_enabled else 1
+    likely_running = inline_enabled or bool(live_leases)
+    capacity = (
+        max(1, int(settings.MAX_CONCURRENT_USERS or 1))
+        if inline_enabled
+        else sum(
+            max(1, int(lease.capacity or 1))
+            for lease in live_leases
+            if lease.state in {"idle", "busy"}
+        )
+    )
+    capacity = max(1, capacity, processing_count)
     available_slots = max(0, capacity - processing_count) if likely_running else 0
     unavailable_count = 0 if likely_running else 1
 
@@ -540,11 +563,19 @@ def get_worker_status(db: Session) -> Dict[str, Any]:
         "capacity": capacity,
         "available_slots": available_slots,
         "unavailable_count": unavailable_count,
-        "worker_count": 1 if likely_running else 0,
-        "last_worker_id": latest_processing.worker_id if latest_processing else None,
+        "worker_count": 1 if inline_enabled else len(live_leases),
+        "last_worker_id": (
+            latest_lease.worker_id
+            if latest_lease
+            else latest_processing.worker_id if latest_processing else None
+        ),
         "last_heartbeat_at": _datetime_iso(last_heartbeat),
         "heartbeat_age_seconds": stale_seconds,
-        "message": "inline worker 已启用" if inline_enabled else "独立 worker 模式，按任务心跳判断运行状态",
+        "message": (
+            "inline worker 已启用"
+            if inline_enabled
+            else "独立 worker lease 正常" if live_leases else "未检测到新鲜 worker lease"
+        ),
     }
 
 

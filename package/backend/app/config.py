@@ -3,9 +3,11 @@ from typing import Any, Mapping, Optional
 import os
 import sys
 
+from app.utils.secret_files import read_secret_file
+
 DEFAULT_SECRET_KEY = "your-secret-key-change-this-in-production"
 DEFAULT_ADMIN_PASSWORD = "admin123"
-DEFAULT_APP_VERSION = "1.0.9"
+DEFAULT_APP_VERSION = "2.0.1"
 
 
 def _normalize_app_version(value: str) -> str:
@@ -62,6 +64,18 @@ PLACEHOLDER_MARKERS = (
 MIN_SECRET_KEY_LENGTH = 16
 MIN_ADMIN_PASSWORD_LENGTH = 8
 DEFAULT_DATABASE_URL = "postgresql://ai_polish:postgres@127.0.0.1:5432/ai_polish"
+SECRET_FILE_SETTINGS = (
+    "DATABASE_URL",
+    "SECRET_KEY",
+    "ADMIN_PASSWORD",
+    "ENCRYPTION_KEY",
+    "OPENAI_API_KEY",
+    "POLISH_API_KEY",
+    "ENHANCE_API_KEY",
+    "EMOTION_API_KEY",
+    "COMPRESSION_API_KEY",
+    "MINERU_API_TOKEN",
+)
 
 
 def get_exe_dir():
@@ -82,6 +96,24 @@ def get_env_file_path():
     return os.path.join(get_exe_dir(), '.env')
 
 
+def read_secret_file_values() -> dict[str, str]:
+    """Return allowlisted ``*_FILE`` values, with files authoritative over env."""
+    values: dict[str, str] = {}
+    for setting_name in SECRET_FILE_SETTINGS:
+        file_path = os.environ.get(f"{setting_name}_FILE", "").strip()
+        if file_path:
+            values[setting_name] = read_secret_file(f"{setting_name}_FILE", file_path)
+    return values
+
+
+def get_file_backed_settings() -> frozenset[str]:
+    return frozenset(
+        setting_name
+        for setting_name in SECRET_FILE_SETTINGS
+        if os.environ.get(f"{setting_name}_FILE", "").strip()
+    )
+
+
 class Settings(BaseSettings):
     APP_VERSION: str = APP_VERSION
     RELEASE_REPO: str = "mumu-0922/GankAIGC"
@@ -91,11 +123,14 @@ class Settings(BaseSettings):
     SERVER_PORT: int = 9800
     APP_ENV: str = "development"
     ALLOWED_ORIGINS: str = "http://localhost:9800"
+    TRUSTED_PROXY_IPS: str = "127.0.0.1,::1"
     AUTO_OPEN_BROWSER: bool = True
     ALLOW_LOCAL_MODEL_PROXY: bool = False
 
     # 数据库配置 - 仅支持 PostgreSQL
     DATABASE_URL: str = DEFAULT_DATABASE_URL
+    # Optional NOLOGIN owner assumed only by the one-shot migrator.
+    DATABASE_SESSION_ROLE: str = ""
     
     # Redis 配置
     REDIS_URL: str = "redis://IP:6379/0"
@@ -202,7 +237,10 @@ class Settings(BaseSettings):
     INLINE_TASK_WORKER_ENABLED: bool = True
     TASK_WORKER_POLL_INTERVAL: float = 2.0
     TASK_WORKER_HEARTBEAT_INTERVAL: float = 30.0
-    TASK_WORKER_STALE_TIMEOUT_SECONDS: int = 1800
+    TASK_WORKER_STALE_TIMEOUT_SECONDS: int = 120
+    TASK_WORKER_LEASE_TIMEOUT_SECONDS: int = 120
+    TASK_WORKER_MAX_ATTEMPTS: int = 3
+    TASK_EVENT_POLL_INTERVAL_SECONDS: float = 1.0
     VPS_UPDATE_ENABLED: bool = False
     VPS_UPDATE_WORKDIR: str = "/app/source"
     VPS_UPDATE_LOG_FILE: str = "/app/source/logs/vps-update.log"
@@ -226,7 +264,10 @@ if os.path.exists(_env_path):
     from dotenv import load_dotenv
     load_dotenv(_env_path, encoding="utf-8-sig")
 
-settings = Settings()
+# Docker/VPS file secrets are loaded after .env so they always win over a
+# stale compatibility value. Pass them as init values rather than exporting
+# them: spawned browser/tool processes must not inherit application Secrets.
+settings = Settings(**read_secret_file_values())
 
 
 def parse_allowed_origins(value: str) -> list[str]:
@@ -331,6 +372,10 @@ def reload_settings(updates: Optional[Mapping[str, Any]] = None):
     global settings
 
     pending_updates = _read_env_file_values() if updates is None else _normalize_reload_updates(updates)
+    file_updates = read_secret_file_values()
+    # Mounted files remain authoritative even when the admin UI persists a
+    # compatibility .env value or the worker reloads configuration in-place.
+    pending_updates.update(file_updates)
     if not pending_updates:
         return settings
 
@@ -339,8 +384,10 @@ def reload_settings(updates: Optional[Mapping[str, Any]] = None):
     try:
         if updates is None:
             for key, value in pending_updates.items():
+                if key in file_updates:
+                    continue
                 os.environ[key] = value
-            candidate_settings = Settings()
+            candidate_settings = Settings(**file_updates)
         else:
             candidate_values = dict(original_settings)
             candidate_values.update(pending_updates)
