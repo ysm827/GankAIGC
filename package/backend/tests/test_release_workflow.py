@@ -45,6 +45,22 @@ def test_oci_release_publishes_scans_attests_and_signs_one_digest():
     assert "pull_policy: always" in production_compose
 
 
+def test_release_dependency_manifests_pin_trivy_clean_python_packages():
+    expected_pins = {
+        "python-multipart==0.0.32",
+        "setuptools==83.0.0",
+        "wheel==0.46.3",
+    }
+
+    for relative_path in ("package/requirements.txt", "package/backend/requirements.txt"):
+        requirements = {
+            line.strip()
+            for line in (PROJECT_ROOT / relative_path).read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert expected_pins <= requirements, f"{relative_path} must retain the release security pins"
+
+
 def test_windows_oneclick_defaults_to_local_zhuque_browser_flow():
     env_template = (PROJECT_ROOT / "package" / "windows-oneclick" / ".env.template").read_text(encoding="utf-8-sig")
     start_script = (PROJECT_ROOT / "package" / "windows-oneclick" / "runtime" / "start.ps1").read_text(encoding="utf-8-sig")

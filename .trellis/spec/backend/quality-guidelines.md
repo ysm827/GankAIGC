@@ -52,6 +52,93 @@ Questions to answer:
 
 ---
 
+## Scenario: Signed OCI Release Vulnerability Gate
+
+### 1. Scope / Trigger
+
+- Trigger: any change to `package/requirements.txt`,
+  `package/backend/requirements.txt`, `package/VERSION`, Docker release
+  dependencies, or `.github/workflows/release-image.yml`.
+
+### 2. Signatures
+
+- Release identity: protected Git tag `vX.Y.Z` must equal the exact contents
+  of `package/VERSION` and point at the checked-out commit.
+- Published image: `ghcr.io/<owner>/gankaigc:<tag>` plus its immutable OCI
+  digest.
+- Security floor retained in both Python manifests:
+  `python-multipart==0.0.32`, `setuptools==83.0.0`, and `wheel==0.46.3` or
+  later reviewed versions that pass the same gate.
+
+### 3. Contracts
+
+- Build and push one multi-architecture digest with SBOM and provenance, scan
+  that digest for fixed `HIGH`/`CRITICAL` vulnerabilities, and only then sign
+  the same digest with keyless Cosign.
+- Pin the Trivy Action to a reviewed full commit SHA. A release tag syntax
+  mistake or mutable Action ref is not an acceptable supply-chain boundary.
+- A failed release tag is immutable. Fix the cause in a new commit and publish
+  a new tag; never move, delete, or reuse the failed tag.
+- An image pushed before a failed scan is unsigned and must not be deployed.
+  Production consumes a verified `name@sha256:<digest>`, never a mutable tag.
+- Keep the root and backend dependency manifests synchronized because Docker,
+  CI, and Windows packaging do not all install from the same path.
+
+### 4. Validation & Error Matrix
+
+- Tag differs from `package/VERSION` -> identity step fails before build.
+- Trivy Action cannot resolve -> release fails; keep the tag immutable and fix
+  the Action reference in the next release.
+- Trivy reports fixed `HIGH`/`CRITICAL` findings -> signing is skipped and the
+  pushed digest is rejected for deployment.
+- Cosign signing or verification fails -> do not update the production digest.
+- One dependency manifest loses a security pin ->
+  `test_release_dependency_manifests_pin_trivy_clean_python_packages` fails.
+
+### 5. Good/Base/Bad Cases
+
+- Good: tag, commit, version, digest, SBOM, provenance, clean Trivy result and
+  Cosign identity all resolve to one immutable release.
+- Base: an image was pushed but the vulnerability gate failed; retain it as an
+  unsigned failed candidate and release the fix under a new tag.
+- Bad: move a failed tag, sign before scanning, deploy by tag, or suppress a
+  fixed `HIGH` finding without a reviewed exception.
+
+### 6. Tests Required
+
+- `test_oci_release_publishes_scans_attests_and_signs_one_digest` must assert
+  the pinned Trivy Action, digest scan, SBOM/provenance, Cosign signing and
+  production digest-only Compose contract.
+- `test_release_dependency_manifests_pin_trivy_clean_python_packages` must
+  assert the security floor in both dependency manifests.
+- Before tagging, run the full backend suite, frontend build, Docker build and
+  a Trivy image scan with `--exit-code 1 --severity HIGH,CRITICAL
+  --ignore-unfixed`.
+- After CI succeeds, verify the remote digest and Cosign signature before
+  providing the production `GANKAIGC_IMAGE` value.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```yaml
+uses: aquasecurity/trivy-action@0.36.0
+```
+
+```bash
+docker compose pull  # GANKAIGC_IMAGE points to :latest or an unsigned tag
+```
+
+#### Correct
+
+```yaml
+uses: aquasecurity/trivy-action@<reviewed-full-commit-sha>
+```
+
+```bash
+cosign verify ghcr.io/<owner>/gankaigc@sha256:<verified-digest>
+```
+
 ## Scenario: Starlette TestClient Requires httpx2
 
 ### 1. Scope / Trigger

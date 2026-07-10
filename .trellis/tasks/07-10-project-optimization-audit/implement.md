@@ -42,8 +42,14 @@ The user reviewed the plan and authorized implementation on 2026-07-10. The task
   migration, and backup dump/checksum.
 - [x] `v2.0.1` remained immutable after its OCI run failed before build because
   the Trivy action ref omitted the required `v` prefix. The action is now
-  pinned to the verified `v0.36.0` commit and the corrected release candidate
-  identity is `v2.0.2`; publication rejects tag/`package/VERSION` mismatch.
+  pinned to the verified `v0.36.0` commit. The immutable `v2.0.2` run then
+  correctly blocked three HIGH Python findings before signing; fixed
+  `python-multipart`, `setuptools` and vendored `wheel` versions are pinned in
+  both manifests for the `v2.0.3` candidate. Publication rejects
+  tag/`package/VERSION` mismatch.
+- [x] The local `v2.0.3` candidate passes 558 backend tests, the frontend
+  production build, dependency consistency checks, Docker build, and a Trivy
+  `HIGH,CRITICAL --ignore-unfixed` image scan with zero findings.
 
 ## Phase 0 — Containment and Baseline (S, before public go-live)
 
