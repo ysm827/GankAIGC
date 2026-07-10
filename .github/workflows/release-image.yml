@@ -68,7 +68,8 @@ jobs:
           provenance: mode=max
 
       - name: Scan published digest
-        uses: aquasecurity/trivy-action@0.30.0
+        # v0.36.0, pinned to the verified tag commit to prevent action drift.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           format: table

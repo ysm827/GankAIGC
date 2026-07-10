@@ -33,6 +33,7 @@ def test_oci_release_publishes_scans_attests_and_signs_one_digest():
     assert "sbom: true" in workflow
     assert "provenance: mode=max" in workflow
     assert "aquasecurity/trivy-action" in workflow
+    assert "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25" in workflow
     assert "sigstore/cosign-installer" in workflow
     assert "cosign sign --yes" in workflow
     assert "@${{ steps.build.outputs.digest }}" in workflow

@@ -40,9 +40,10 @@ The user reviewed the plan and authorized implementation on 2026-07-10. The task
 - [x] Full backend regression now passes 557 tests; production overlay smoke
   proved file-secret auth, exact service mounts, non-root app/worker, readiness,
   migration, and backup dump/checksum.
-- [x] Release candidate identity is aligned to `v2.0.1`; OCI publication now
-  rejects a tag whose value differs from `package/VERSION` before any build or
-  registry write.
+- [x] `v2.0.1` remained immutable after its OCI run failed before build because
+  the Trivy action ref omitted the required `v` prefix. The action is now
+  pinned to the verified `v0.36.0` commit and the corrected release candidate
+  identity is `v2.0.2`; publication rejects tag/`package/VERSION` mismatch.
 
 ## Phase 0 — Containment and Baseline (S, before public go-live)
 
