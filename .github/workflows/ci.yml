@@ -70,6 +70,14 @@ jobs:
         working-directory: package/frontend
         run: npm run build
 
+      - name: Test browser extension quota sync
+        run: |
+          node --check browser-extension/zhuque-quota.js
+          node --check browser-extension/background.js
+          node --check browser-extension/content-zhuque.js
+          node --check browser-extension/injected-zhuque.js
+          node --test browser-extension/tests/*.test.cjs
+
       - name: Upload frontend dist
         uses: actions/upload-artifact@v4
         with:

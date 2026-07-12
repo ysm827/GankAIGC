@@ -1270,6 +1270,9 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     extension_background = (PACKAGE_ROOT.parents[0] / "browser-extension" / "background.js").read_text(encoding="utf-8")
     extension_manifest = (PACKAGE_ROOT.parents[0] / "browser-extension" / "manifest.json").read_text(encoding="utf-8")
     extension_page_bridge = (PACKAGE_ROOT.parents[0] / "browser-extension" / "content-gankaigc.js").read_text(encoding="utf-8")
+    extension_zhuque_content = (PACKAGE_ROOT.parents[0] / "browser-extension" / "content-zhuque.js").read_text(encoding="utf-8")
+    extension_zhuque_injected = (PACKAGE_ROOT.parents[0] / "browser-extension" / "injected-zhuque.js").read_text(encoding="utf-8")
+    extension_quota = (PACKAGE_ROOT.parents[0] / "browser-extension" / "zhuque-quota.js").read_text(encoding="utf-8")
 
     assert "browserAgentAPI" in api
     assert "createPairing" in api
@@ -1313,10 +1316,21 @@ def test_workspace_guides_browser_agent_pairing_for_vps_mode():
     assert "metadata: { zhuque: zhuqueStatus }" in extension_background
     assert "SYNC_ZHUQUE_STATUS" in extension_background
     assert "syncZhuqueStatus" in extension_background
+    assert "files: ['zhuque-quota.js', 'injected-zhuque.js']" in extension_background
+    assert "remainingUses: ZHUQUE_QUOTA.extractRemainingUses(response.result)" in extension_background
     assert "content-gankaigc.js" in extension_manifest
+    assert '"version": "0.1.7"' in extension_manifest
+    assert '"zhuque-quota.js", "content-zhuque.js"' in extension_manifest
     assert "<all_urls>" not in extension_manifest
     assert "GANKAIGC_SYNC_ZHUQUE_STATUS" in extension_page_bridge
     assert "chrome.runtime.sendMessage" in extension_page_bridge
+    assert "GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_REQUEST" in extension_zhuque_content
+    assert "lastObservedRemainingUses" in extension_zhuque_content
+    assert "remaining_uses: remainingUses" in extension_zhuque_content
+    assert "GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_REQUEST" in extension_zhuque_injected
+    assert "aiGenTxtRemainingCount" in extension_quota
+    assert "remainingRequests" not in extension_quota
+    assert "当前页面暂未返回剩余次数" in workspace
     assert "saveDraft" in extension_popup
     assert "status.pairingCode" in extension_popup
 

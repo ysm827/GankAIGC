@@ -50,6 +50,16 @@ The user reviewed the plan and authorized implementation on 2026-07-10. The task
 - [x] The local `v2.0.3` candidate passes 558 backend tests, the frontend
   production build, dependency consistency checks, Docker build, and a Trivy
   `HIGH,CRITICAL --ignore-unfixed` image scan with zero findings.
+- [x] VPS validation exposed a browser-agent quota refresh regression: after a
+  detection, the Zhuque result view could hide the quota from the first 8,000
+  characters of DOM text, so the plugin reported login success with
+  `remaining_uses=-1` until the tab was reopened. The `v2.0.4` candidate reads
+  quota from terminal payloads, targeted DOM text and Vue runtime state, keeps
+  the latest observed numeric value across result-page rerenders, and no longer
+  reports a numeric sync success when the plugin returned no count. Extension
+  regression tests pass, the frontend production bundle is synchronized, all
+  558 backend tests pass, and a no-cache/pulled Docker rebuild passes the Trivy
+  `HIGH,CRITICAL --ignore-unfixed` gate with zero findings.
 
 ## Phase 0 — Containment and Baseline (S, before public go-live)
 

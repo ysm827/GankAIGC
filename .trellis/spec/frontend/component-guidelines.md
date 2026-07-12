@@ -263,6 +263,11 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - The same panel must call `getZhuqueReadiness()` immediately and on the same polling cadence, but the workspace visible card is intentionally compact: render `朱雀 AI 检测`, Zhuque login user name under the title, the scan-login/logged-in button, connection status, and remaining uses. Do not render page status, text-length readiness, auth method, credential filename, readiness message, action suggestions, or estimated credit details inside the workspace card.
 - Zhuque status polling must be lightweight: do not overlap in-flight status/readiness requests and pause polling when `document.visibilityState !== "visible"`. The backend may refresh quota through a throttled no-text WebSocket auth peek because `creds_latest.json` quota is stale after detections; frontend must not add extra client-side probes or tighten the polling cadence to force refresh.
 - If `remaining_uses` is negative or missing, render it as an unknown/sync-pending state (`检测后同步`) and never show raw `-1` or a vague `免费次数` placeholder in the compact card. If the backend status/readiness payload carries a logged-out live anonymous quota (for example from `Detect now(16 left)`), render the numeric count (`16 次`) immediately even when `connected=false` / `has_token=false`. If the backend returns `remaining_uses=-1` together with `button_enabled=true`/`ready=true`, treat it as a valid Zhuque entry point whose remaining count will sync after detection; show success feedback for refresh/preflight instead of blocking start. The workspace may cache the last known logged-out numeric quota only for smoothing a logout-page rerender gap; do not use a logged-in account quota as the logged-out fallback unless the backend has already persisted it into logged-out `session_status.json`. When the user explicitly clicks `刷新次数` and the backend still returns unknown logged-out quota, clear the cached logged-out number before merging readiness so the UI does not keep showing stale `16 次`.
+- In VPS browser-agent mode, manual sync must prefer the fresh extension payload
+  over an older backend status object when only the extension payload has a
+  numeric quota. A missing plugin response is an error; a logged-in response
+  without a numeric quota may confirm login but must say the current page did
+  not return remaining uses instead of showing a successful quota-sync toast.
 - Before starting an `ai_detect_reduce` task, call `preflightZhuqueTask({original_text, processing_mode, billing_mode})`; if `ready=false`, show the backend message and do not call `startOptimization`.
 - If preflight returns `estimated_max_round_credits`, it may be shown in a toast or start-flow feedback only. Do not put it back into the compact workspace credential card, and do not present it as a pre-held or guaranteed charge.
 - The login button calls `startZhuqueLogin({syncSession: true, mode: "remote_qr"})` by default. It opens an in-app modal that polls `getZhuqueLoginStatus(session_id)` and shows `qr_image_data` until login succeeds; `cancelZhuqueLogin(session_id)` closes active remote sessions. The compact card keeps status based on the status/readiness endpoint's connected/token fields, not on the launch response alone. Its visible label is `扫码登录` before credentials are ready and `已登录` after credentials are ready. It must not be disabled merely because credentials are already connected; logged-in users can click the same button to generate a fresh QR for the current user. Only the in-flight launch state may disable it.
@@ -289,6 +294,9 @@ await optimizationAPI.listSessions(resolvedProjectId);
 
 - Credential status endpoint fails -> show disconnected guidance, not a blocking crash.
 - Logged-out payload has a numeric quota -> update both auth/readiness state to logged out and render the number immediately; do not wait for a second readiness poll and do not flash `免费次数`.
+- Browser-agent result page hides the quota in normal DOM text -> consume the
+  extension's terminal-payload/Vue quota and update the card without requiring
+  the user to close and reopen the Zhuque tab.
 - Start login returns `manual_required` -> show backend message and command, making clear the missing dependency is for the QR authorization page only.
 - Readiness endpoint fails -> show a not-ready panel with action guidance, not a blocking crash.
 - Preflight returns `ready=false` -> do not start the task; toast/display `message` and `actions`.
@@ -305,6 +313,8 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - Good: route chunks show Workspace/SessionDetail/AdminDashboard split from the initial entry bundle, and SessionDetail batches SSE content/zhuque events before state updates.
 - Good: the workspace Zhuque card uses `.aurora-zhuque-status-card`, `.aurora-zhuque-metric`, `.aurora-zhuque-account`, and `.aurora-zhuque-login-button`, showing `朱雀 AI 检测`, `登录用户`, `扫码登录`/`已登录`, `连接状态`, and `剩余次数` in that order. The modal uses `.aurora-zhuque-login-modal`, `.aurora-zhuque-qr-frame`, and `.aurora-zhuque-login-stat` and never navigates away from the workspace.
 - Good: when the backend cannot know live quota yet, readiness shows `检测后同步` instead of `-1` or `免费次数`, and switches to a numeric count once the live probe, session-status sync, or a detection result returns `remaining_uses`; logged-out anonymous quota may show as `16 次` without implying `已登录`.
+- Good: manual browser-agent sync overlays a fresh numeric extension status on
+  the latest backend status before rendering and reports the exact count.
 - Good: detail page shows Agent trace rows with initial detect, round strategy, selected segments, risk-rate change, and final diagnosis.
 - Good: detail page shows Convergence Reflection rows with stubborn segments and strategy-upgrade rationale after repeated minor/no drops.
 - Good: detail page shows Prompt Evolution learning rows explaining why the previous prompt failed and which safe patch was used next.
@@ -328,6 +338,9 @@ await optimizationAPI.listSessions(resolvedProjectId);
 - Static/frontend tests should assert AIGC report export option strings (`aigc_report_docx`, `aigc_report_md`) are gated to `ai_detect_reduce` sessions and that the modal explains per-segment AI-rate reporting.
 - Static/frontend tests should assert readiness/preflight endpoint strings, compact workspace readiness rendering (`朱雀 AI 检测`, `连接状态`, `剩余次数`, `登录用户`, `扫码登录`/`已登录`, `.aurora-zhuque-status-card`, `.aurora-zhuque-account`, `.aurora-zhuque-login-button`), remote QR modal rendering (`zhuqueLoginSession`, `qr_image_data`, `getZhuqueLoginStatus`, `cancelZhuqueLogin`, `.aurora-zhuque-login-modal`, `.aurora-zhuque-qr-frame`), absence of the old complex workspace fields (`页面状态`, `文本长度`, `认证方式`, estimate/action rows), preflight usage before start, Agent trace/reflection/prompt-evolution/length-correction/rewrite-mode panel strings, and `zhuque_detect` / `zhuque_reduce` SSE handling.
 - Static/frontend tests should assert negative/missing `remaining_uses` renders as an unknown/sync-pending label, not raw `-1`, and that unknown text such as `remaining_uses: -1` is not parsed as `1`.
+- Browser-agent frontend tests should assert missing extension responses are not
+  reported as successful quota synchronization and fresh numeric extension
+  status is merged before rendering.
 - Static/frontend tests should assert the compact Zhuque card has no `: '免费次数'` fallback and uses a logged-out remaining-use normalizer/cache so logout can render a numeric quota from status/readiness immediately.
 - Static/frontend tests should assert `handleRefreshZhuqueFreeQuota` clears the logged-out quota cache when the backend returns unknown logged-out quota, and that unknown-but-ready (`button_enabled=true`) refresh responses show sync-pending success instead of an error toast.
 - Static/frontend tests should assert Zhuque status polling has an in-flight guard, pauses when the document is hidden, and that workspace queue polling uses a named interval constant rather than an aggressive inline interval.

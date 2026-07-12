@@ -734,6 +734,13 @@ python-docx>=1.1.0
 - Extension/manual states are progress states, not immediate failures. `manual_required` should keep the job alive until the user solves Zhuque login/CAPTCHA locally or the configured timeout expires.
 - The extension may open/reuse `https://matrix.tencent.com/ai-detect/` in the user's local Chrome, but backend code must not require public CDP, remote desktop, or `--remote-debugging-port` for VPS browser-agent mode.
 - Full paper text can live in `zhuque_agent_jobs.payload_text` for MVP handoff, but application logs, traces, and progress JSON must avoid logging the full payload.
+- Browser-agent quota sync must not depend on the first fixed-size slice of
+  `document.body.innerText`. The result view can move or hide the quota after a
+  detection. Extension version `0.1.7+` reads the shared quota contract from
+  terminal detection payloads (`availableUses` / `remainingUses`), targeted DOM
+  text, and Vue runtime fields such as `aiGenTxtRemainingCount`, then heartbeats
+  the numeric `remaining_uses` to the backend. `remainingRequests` is not a
+  Zhuque quota field and must be ignored.
 
 ### 4. Validation & Error Matrix
 
@@ -744,12 +751,17 @@ python-docx>=1.1.0
 - Job remains `pending/claimed/running/manual_required` beyond timeout -> backend marks it `expired` and returns a timeout message that tells the user to keep Chrome/plugin online and finish Zhuque manual verification.
 - Extension completes with invalid result -> backend normalization rejects it and the session fails with a Zhuque result error rather than saving fake `-100`, `Benchmark`, or `检测中` payloads.
 - VPS browser-agent mode logs show server-side Playwright Zhuque detection -> deployment/config regression.
+- Plugin sync returns a logged-in status but no numeric quota -> workspace may
+  confirm login only; it must not claim that remaining uses were synchronized.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: VPS worker creates one persistent browser-agent job, the user's Chrome extension claims it, reuses the Zhuque tab, returns normalized `rate/labels_ratio/segment_labels`, and the reduce pipeline continues.
 - Good: Workspace shows browser-agent `required=true`, generates a pairing code, then flips from offline to online after heartbeat.
 - Good: User sees a visible Zhuque CAPTCHA in local Chrome; extension sends `manual_required`, the task waits, and completion resumes after the user solves it.
+- Good: A completed detection leaves the Zhuque tab on its result view; the
+  extension extracts the updated quota from the terminal payload or Vue state
+  and the workspace updates without closing/reopening the tab.
 - Base: Local `python main.py` or Windows one-click with `ZHUQUE_DETECT_TRANSPORT=auto` uses the local visible-browser path, `POST /api/optimization/zhuque/local/open` can open/focus a local page without relying on `package/backend/app/tools/zhuque_capture_window.py` inside the frozen exe, and `GET /api/browser-agent/status` returns `required=false`.
 - Bad: VPS uses `server_headless` or hidden fallback by default, requires public CDP, or asks users to start Chrome with `--remote-debugging-port`.
 - Bad: Extension host permissions use `<all_urls>` or backend logs include full paper text from `payload_text`.
@@ -759,6 +771,8 @@ python-docx>=1.1.0
 - Backend tests must cover pairing creation/claim expiry/reuse, token auth, heartbeat freshness, status online/offline, revoke, job claim/progress/complete/fail/expire, ownership checks, and browser-agent transport selection.
 - Zhuque integration tests must keep local-window, built-in local opener before legacy capture, local `/zhuque/local/open|sync|focus`, remote QR, and browser-agent behavior passing when transport code exists. Release/package tests must assert one-click env template/start script/local README and PyInstaller Playwright collection remain aligned.
 - Frontend/static tests must assert `browserAgentAPI`, pairing/status/revoke UI strings, `required/offline/online` copy, local-mode copy, and offline preflight blocking.
+- Extension tests must cover numeric/unknown quota text, nested terminal
+  payloads, Vue ref values, and rejection of unrelated `remainingRequests`.
 - Manual VPS validation must prove no server-headless Zhuque detection starts in `browser_agent` mode and the user's local Chrome performs the Zhuque interaction.
 
 ### 7. Wrong vs Correct

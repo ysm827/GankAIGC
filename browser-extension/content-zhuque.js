@@ -1,4 +1,9 @@
 const GANKAIGC_RESULT_EVENT = 'GANKAIGC_ZHUQUE_RESULT';
+const GANKAIGC_STATUS_SNAPSHOT_REQUEST = 'GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_REQUEST';
+const GANKAIGC_STATUS_SNAPSHOT_RESPONSE = 'GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_RESPONSE';
+const ZHUQUE_QUOTA = globalThis.GankAIGCZhuqueQuota;
+let lastObservedRemainingUses;
+let lastObservedUserName = '';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,21 +68,37 @@ function normalizeAccountName(text) {
 }
 
 function extractRemainingUsesFromPage() {
-  const pageText = String(document.body?.innerText || document.body?.textContent || '').slice(0, 8000);
-  const patterns = [
-    /剩余\s*(\d{1,4})\s*次/,
-    /还可(?:检测)?\s*(\d{1,4})\s*次/,
-    /Detect\s*now\s*\(\s*(\d{1,4})\s*left\s*\)/i,
-    /(\d{1,4})\s*left/i,
-    /left\s*(\d{1,4})/i
+  const candidateTexts = [];
+  const selectors = [
+    '.submit-btn',
+    '.detect-btn',
+    '.quota',
+    '.quota-text',
+    '[class*="quota"]',
+    '[class*="remain"]',
+    '[class*="usage"]',
+    'button'
   ];
-  for (const pattern of patterns) {
-    const match = pageText.match(pattern);
-    if (!match) continue;
-    const value = Number(match[1]);
-    if (Number.isInteger(value) && value >= 0 && value <= 9999) return value;
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((node) => {
+      const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) candidateTexts.push(text);
+    });
+  });
+  const pageLines = String(document.body?.innerText || document.body?.textContent || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && line.length <= 120);
+  const remaining = ZHUQUE_QUOTA?.extractRemainingUses([...candidateTexts, ...pageLines]);
+  return remaining === undefined ? -1 : remaining;
+}
+
+function rememberRemainingUses(value) {
+  const remaining = ZHUQUE_QUOTA?.extractRemainingUses(value);
+  if (remaining !== undefined) {
+    lastObservedRemainingUses = remaining;
   }
-  return -1;
+  return remaining;
 }
 
 function extractZhuqueAccountName() {
@@ -108,9 +129,11 @@ function extractZhuqueAccountName() {
   return '';
 }
 
-function detectZhuqueSessionStatus() {
+function detectZhuqueSessionStatus(injectedStatus = null) {
   const manual = detectCaptchaOrLogin();
   if (manual?.error_code === 'zhuque_not_logged_in') {
+    lastObservedRemainingUses = undefined;
+    lastObservedUserName = '';
     return {
       page_found: true,
       logged_in: false,
@@ -122,7 +145,18 @@ function detectZhuqueSessionStatus() {
     };
   }
   const userName = extractZhuqueAccountName();
-  const remainingUses = extractRemainingUsesFromPage();
+  if (lastObservedUserName && userName && lastObservedUserName !== userName) {
+    lastObservedRemainingUses = undefined;
+  }
+  if (userName) {
+    lastObservedUserName = userName;
+  }
+  const injectedRemaining = rememberRemainingUses(injectedStatus);
+  const pageRemaining = extractRemainingUsesFromPage();
+  if (injectedRemaining === undefined && pageRemaining >= 0) {
+    rememberRemainingUses(pageRemaining);
+  }
+  const remainingUses = lastObservedRemainingUses ?? -1;
   if (userName) {
     return {
       page_found: true,
@@ -285,11 +319,12 @@ function terminalPayloadFromInjected(payload) {
   const segmentRatio = ratioFromSegmentLabels(segmentLabels);
   const rawLabels = data.labels_ratio || data.labelsRatio || null;
   const aiRate = normalizeScore(data.rate ?? data.confidence ?? data.ai_generated);
+  const remainingUses = rememberRemainingUses([data, payload]);
   const labelsRatio = segmentRatio || rawLabels || (aiRate !== null ? { '0': aiRate / 100, '1': Math.max(0, 1 - aiRate / 100), '2': 0 } : {});
   const hasRate = aiRate !== null || Object.keys(labelsRatio).length > 0 || segmentLabels.length > 0;
   if (!hasRate) return null;
   const normalizedRate = aiRate !== null ? aiRate : (labelsRatio['0'] || 0) * 100;
-  return {
+  const normalized = {
     success: true,
     source: 'browser_agent_page',
     raw_payload: data,
@@ -299,6 +334,29 @@ function terminalPayloadFromInjected(payload) {
     labels_ratio: labelsRatio,
     segment_labels: segmentLabels
   };
+  if (remainingUses !== undefined) {
+    normalized.remaining_uses = remainingUses;
+  }
+  return normalized;
+}
+
+function requestInjectedStatusSnapshot() {
+  return new Promise((resolve) => {
+    const requestId = `status-${Date.now()}-${Math.random()}`;
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', listener);
+      resolve(null);
+    }, 1200);
+    function listener(event) {
+      if (event.source !== window || event.data?.type !== GANKAIGC_STATUS_SNAPSHOT_RESPONSE) return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer);
+      window.removeEventListener('message', listener);
+      resolve(event.data.status || null);
+    }
+    window.addEventListener('message', listener);
+    window.postMessage({ type: GANKAIGC_STATUS_SNAPSHOT_REQUEST, requestId }, '*');
+  });
 }
 
 function requestInjectedSnapshot() {
@@ -322,6 +380,11 @@ function requestInjectedSnapshot() {
     window.postMessage({ type: 'GANKAIGC_ZHUQUE_SNAPSHOT_REQUEST', requestId }, '*');
   });
 }
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window || event.data?.type !== GANKAIGC_RESULT_EVENT) return;
+  rememberRemainingUses(event.data.payload);
+});
 
 async function waitForResult(timeoutMs) {
   let networkResult = null;
@@ -378,7 +441,9 @@ async function runZhuqueDetect(job) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'GANKAIGC_ZHUQUE_STATUS') {
-    sendResponse({ success: true, status: detectZhuqueSessionStatus() });
+    requestInjectedStatusSnapshot()
+      .then((status) => sendResponse({ success: true, status: detectZhuqueSessionStatus(status) }))
+      .catch(() => sendResponse({ success: true, status: detectZhuqueSessionStatus() }));
     return true;
   }
   if (message?.type !== 'GANKAIGC_ZHUQUE_DETECT') return false;

@@ -1,10 +1,15 @@
 (() => {
-  const INJECTED_VERSION = '0.1.3';
-  if (window.__GANKAIGC_ZHUQUE_INJECTED__ === INJECTED_VERSION) return;
+  const INJECTED_VERSION = '0.1.7';
+  const previousVersion = window.__GANKAIGC_ZHUQUE_INJECTED__;
+  if (previousVersion === INJECTED_VERSION) return;
   window.__GANKAIGC_ZHUQUE_INJECTED__ = INJECTED_VERSION;
+  const shouldInstrumentNetwork = !previousVersion;
+  const ZHUQUE_QUOTA = globalThis.GankAIGCZhuqueQuota;
   const RESULT_EVENT = 'GANKAIGC_ZHUQUE_RESULT';
   const SNAPSHOT_REQUEST = 'GANKAIGC_ZHUQUE_SNAPSHOT_REQUEST';
   const SNAPSHOT_RESPONSE = 'GANKAIGC_ZHUQUE_SNAPSHOT_RESPONSE';
+  const STATUS_REQUEST = 'GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_REQUEST';
+  const STATUS_RESPONSE = 'GANKAIGC_ZHUQUE_STATUS_SNAPSHOT_RESPONSE';
 
   function postPayload(payload, source) {
     try {
@@ -64,6 +69,7 @@
   function cleanPayload(value) {
     if (!value || typeof value !== 'object') return null;
     const segmentLabels = cleanSegmentLabels(value.segment_labels || value.segmentLabels || value.segmentLabel);
+    const remainingUses = ZHUQUE_QUOTA?.extractRemainingUses(value);
     const cleanValue = {
       confidence: normalizeScore(value.confidence),
       rate: normalizeScore(value.rate),
@@ -74,16 +80,15 @@
       labelsRatio: value.labelsRatio,
       msg: value.msg,
       message: value.message,
-      availableUses: value.availableUses,
-      remainingUses: value.remainingUses,
-      remaining_uses: value.remaining_uses,
+      remaining_uses: remainingUses,
       segment_labels: segmentLabels
     };
     Object.keys(cleanValue).forEach((key) => cleanValue[key] === undefined && delete cleanValue[key]);
     const hasScore = cleanValue.confidence !== undefined || cleanValue.rate !== undefined || cleanValue.ai_generated !== undefined;
     const hasLabels = cleanValue.labels_ratio !== undefined || cleanValue.labelsRatio !== undefined;
     const hasSegments = Array.isArray(cleanValue.segment_labels) && cleanValue.segment_labels.length > 0;
-    return hasScore || hasLabels || hasSegments ? cleanValue : null;
+    const hasQuota = cleanValue.remaining_uses !== undefined;
+    return hasScore || hasLabels || hasSegments || hasQuota ? cleanValue : null;
   }
 
   function collectVuePayloads() {
@@ -95,6 +100,7 @@
       const fingerprint = JSON.stringify({
         rate: cleanValue.rate ?? cleanValue.confidence ?? cleanValue.ai_generated,
         labelsRatio: cleanValue.labels_ratio || cleanValue.labelsRatio,
+        remainingUses: cleanValue.remaining_uses,
         segmentLen: cleanValue.segment_labels?.length || 0,
         first: cleanValue.segment_labels?.[0]?.position || null
       });
@@ -142,15 +148,86 @@
     });
   }
 
+  function collectQuotaStatus() {
+    const candidates = [];
+    const pushCandidate = (value, source) => {
+      const remainingUses = ZHUQUE_QUOTA?.extractRemainingUses(value);
+      if (remainingUses === undefined) return;
+      const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+      if (!candidates.some((item) => item.remaining_uses === remainingUses && item.source === source)) {
+        candidates.push({ remaining_uses: remainingUses, source, text });
+      }
+    };
+
+    const allNodes = [...document.querySelectorAll('*')];
+    allNodes.forEach((node, index) => {
+      if (node.__vue__) pushCandidate(node.__vue__, `vue:${index}`);
+      if (node.__vueParentComponent) {
+        pushCandidate(node.__vueParentComponent.props, `vue3:${index}.props`);
+        pushCandidate(node.__vueParentComponent.setupState, `vue3:${index}.setupState`);
+        pushCandidate(node.__vueParentComponent.ctx, `vue3:${index}.ctx`);
+      }
+    });
+
+    const quotaSelectors = [
+      '.submit-btn',
+      '.detect-btn',
+      '.quota',
+      '.quota-text',
+      '[class*="quota"]',
+      '[class*="remain"]',
+      '[class*="usage"]'
+    ];
+    quotaSelectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((node) => {
+        pushCandidate(node.textContent || '', selector);
+      });
+    });
+    allNodes.forEach((node, index) => {
+      const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length <= 120) pushCandidate(text, `node:${index}`);
+    });
+
+    const submitButton = document.querySelector('.submit-btn')
+      || [...document.querySelectorAll('button')].find((button) => /Detect|检测/i.test(button.textContent || ''));
+    const submitButtonText = String(submitButton?.textContent || '').replace(/\s+/g, ' ').trim();
+    pushCandidate(submitButtonText, 'submitButtonText');
+    const submitButtonVisible = Boolean(
+      submitButton && (submitButton.offsetWidth || submitButton.offsetHeight || submitButton.getClientRects().length)
+    );
+    const submitButtonDisabled = Boolean(
+      submitButton && (
+        submitButton.disabled
+        || submitButton.classList.contains('is-disabled')
+        || submitButton.getAttribute('aria-disabled') === 'true'
+      )
+    );
+    const selected = candidates[0];
+    return {
+      remaining_uses: selected?.remaining_uses ?? -1,
+      quota_text: selected?.text || submitButtonText,
+      quota_source: selected?.source || '',
+      button_enabled: Boolean(submitButton && submitButtonVisible && !submitButtonDisabled),
+      page_found: Boolean(document.body)
+    };
+  }
+
   window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.type !== SNAPSHOT_REQUEST) return;
-    const requestId = event.data.requestId;
-    const payloads = collectVuePayloads().slice(0, 8);
-    window.postMessage({ type: SNAPSHOT_RESPONSE, requestId, payloads }, '*');
+    if (event.source !== window) return;
+    const data = event.data || {};
+    const requestId = data.requestId;
+    if (data.type === SNAPSHOT_REQUEST) {
+      const payloads = collectVuePayloads().slice(0, 8);
+      window.postMessage({ type: SNAPSHOT_RESPONSE, requestId, payloads }, '*');
+      return;
+    }
+    if (data.type === STATUS_REQUEST) {
+      window.postMessage({ type: STATUS_RESPONSE, requestId, status: collectQuotaStatus() }, '*');
+    }
   });
 
   const originalFetch = window.fetch;
-  if (typeof originalFetch === 'function') {
+  if (shouldInstrumentNetwork && typeof originalFetch === 'function') {
     window.fetch = async (...args) => {
       const response = await originalFetch(...args);
       try {
@@ -167,7 +244,7 @@
   }
 
   const OriginalWebSocket = window.WebSocket;
-  if (typeof OriginalWebSocket === 'function') {
+  if (shouldInstrumentNetwork && typeof OriginalWebSocket === 'function') {
     window.WebSocket = function GankAigcObservedWebSocket(...args) {
       const ws = new OriginalWebSocket(...args);
       ws.addEventListener('message', (event) => {

@@ -103,7 +103,7 @@ cd package
 然后用 GitHub CLI 覆盖 Release 附件：
 
 ```powershell
-gh release upload v2.0.3 .\dist\GankAIGC-Windows-OneClick.zip
+gh release upload v2.0.4 .\dist\GankAIGC-Windows-OneClick.zip
 ```
 
 GitHub Actions 工作流会在推送 `v*` 标签时构建普通 Windows/Linux/macOS 可执行文件；当前公开 Release 仍优先使用本地构建并上传的 Windows 一键整合包。
@@ -111,8 +111,8 @@ GitHub Actions 工作流会在推送 `v*` 标签时构建普通 Windows/Linux/ma
 ### 标签发布
 
 ```bash
-git tag -a v2.0.3 -m "GankAIGC v2.0.3"
-git push origin v2.0.3
+git tag -a v2.0.4 -m "GankAIGC v2.0.4"
+git push origin v2.0.4
 ```
 
 发布新版本时同时更新：
@@ -189,7 +189,7 @@ package/data/zhuque/users/user_<id>/browser_state.json
 
 后续朱雀检测会复用同一个可见检测窗口。Windows/WSL 会优先使用可控的 Windows Chrome/Edge/Brave；Linux 桌面会自动查找常见系统浏览器。
 
-VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。当前推荐插件版本为 `0.1.6`，支持页面刷新、手动同步和检测消耗后主动刷新朱雀账号/剩余次数。
+VPS / Docker 不建议使用服务器无头 Chromium 做朱雀检测，因为容易触发朱雀验证码或风控。正式 VPS 部署推荐改用 Chrome 插件 browser-agent：GankAIGC 服务器创建检测任务，用户本机 Chrome 插件打开/复用朱雀页面完成检测并回传结果。当前推荐插件版本为 `0.1.7`，支持从页面文本、检测响应和 Vue 运行时状态同步朱雀账号/剩余次数。
 
 VPS `.env.docker` 推荐：
 

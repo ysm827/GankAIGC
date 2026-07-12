@@ -1,3 +1,6 @@
+importScripts('zhuque-quota.js');
+
+const ZHUQUE_QUOTA = globalThis.GankAIGCZhuqueQuota;
 const STORAGE_KEYS = {
   serverUrl: 'gankaigc.serverUrl',
   agentToken: 'gankaigc.agentToken',
@@ -96,9 +99,17 @@ async function getZhuqueSessionStatus({ focus = false } = {}) {
       await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
     }
   }
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['zhuque-quota.js', 'injected-zhuque.js'],
+    world: 'MAIN'
+  }).catch(() => undefined);
   let response = await chrome.tabs.sendMessage(tab.id, { type: 'GANKAIGC_ZHUQUE_STATUS' }).catch(() => null);
   if (!response) {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-zhuque.js'] }).catch(() => undefined);
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['zhuque-quota.js', 'content-zhuque.js']
+    }).catch(() => undefined);
     response = await chrome.tabs.sendMessage(tab.id, { type: 'GANKAIGC_ZHUQUE_STATUS' }).catch(() => null);
   }
   return response?.status || { page_found: true, logged_in: false, status: 'unknown', message: '朱雀页面已打开，暂未识别登录状态' };
@@ -124,8 +135,13 @@ async function heartbeat(activeJobId = null, zhuqueStatusOverride = null) {
   });
 }
 
-async function syncZhuqueStatus({ focus = false } = {}) {
-  const zhuqueStatus = await getZhuqueSessionStatus({ focus });
+async function syncZhuqueStatus({ focus = false, remainingUses } = {}) {
+  let zhuqueStatus = await getZhuqueSessionStatus({ focus });
+  const resultRemaining = ZHUQUE_QUOTA.parseRemainingUses(remainingUses);
+  const pageRemaining = ZHUQUE_QUOTA.extractRemainingUses(zhuqueStatus);
+  if (resultRemaining !== undefined && pageRemaining === undefined) {
+    zhuqueStatus = { ...zhuqueStatus, remaining_uses: resultRemaining };
+  }
   await heartbeat(null, zhuqueStatus);
   return { ok: true, zhuque: zhuqueStatus };
 }
@@ -169,7 +185,11 @@ async function executeZhuqueJob(job) {
   });
   const tabId = await findOrCreateZhuqueTab();
   await waitForTabReady(tabId);
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['injected-zhuque.js'], world: 'MAIN' }).catch(() => undefined);
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['zhuque-quota.js', 'injected-zhuque.js'],
+    world: 'MAIN'
+  }).catch(() => undefined);
   let response = null;
   const deadline = Date.now() + Math.max(30000, Number(job.timeout_seconds || 180) * 1000);
   while (Date.now() < deadline) {
@@ -207,7 +227,9 @@ async function executeZhuqueJob(job) {
     method: 'POST',
     body: { result: response.result }
   });
-  await syncZhuqueStatus().catch((error) => console.warn('[GankAIGC Browser Agent] sync Zhuque status after job failed:', error));
+  await syncZhuqueStatus({
+    remainingUses: ZHUQUE_QUOTA.extractRemainingUses(response.result)
+  }).catch((error) => console.warn('[GankAIGC Browser Agent] sync Zhuque status after job failed:', error));
 }
 
 async function pollJobsOnce() {

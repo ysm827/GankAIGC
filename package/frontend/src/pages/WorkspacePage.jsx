@@ -220,6 +220,19 @@ const extractZhuqueRemainingUses = (...sources) => {
   return undefined;
 };
 
+const mergeBrowserAgentZhuqueStatuses = (reportedStatus = {}, freshStatus = {}) => {
+  const reported = reportedStatus && typeof reportedStatus === 'object' ? reportedStatus : {};
+  const fresh = freshStatus && typeof freshStatus === 'object' ? freshStatus : {};
+  const reportedRemaining = extractZhuqueRemainingUses(reported);
+  const freshRemaining = extractZhuqueRemainingUses(fresh);
+  const remaining = freshRemaining ?? reportedRemaining;
+  return {
+    ...reported,
+    ...fresh,
+    ...(remaining !== undefined ? { remaining_uses: remaining } : {}),
+  };
+};
+
 const withSoftTimeout = (promise, timeoutMs) => Promise.race([
   promise,
   new Promise((resolve) => {
@@ -1040,14 +1053,23 @@ const WorkspacePage = () => {
     try {
       const syncResult = await requestBrowserAgentZhuqueRefresh({ focus: false, timeoutMs: 5000 });
       const latestStatus = await loadBrowserAgentStatus();
-      const zhuqueStatus = latestStatus?.zhuque || syncResult?.zhuque || {};
-      if (zhuqueStatus?.logged_in || zhuqueStatus?.user_name) {
-        const remaining = parseZhuqueRemainingUses(zhuqueStatus?.remaining_uses ?? zhuqueStatus?.remainingUses ?? zhuqueStatus?.quota_text);
-        toast.success(remaining !== undefined ? `已同步本机朱雀登录状态，剩余 ${remaining} 次` : '已同步本机朱雀登录状态');
+      if (!syncResult) {
+        toast.error('本机插件未响应同步请求，请重新加载 0.1.7 或更高版本插件');
         return;
       }
-      if (syncResult?.ok === false) {
+      if (syncResult.ok === false) {
         toast.error(syncResult.message || '插件未能同步朱雀状态，请确认已安装最新版插件并刷新页面');
+        return;
+      }
+      const zhuqueStatus = mergeBrowserAgentZhuqueStatuses(latestStatus?.zhuque, syncResult.zhuque);
+      setBrowserAgentStatus((current) => ({ ...(current || latestStatus || {}), zhuque: zhuqueStatus }));
+      if (zhuqueStatus?.logged_in || zhuqueStatus?.user_name) {
+        const remaining = extractZhuqueRemainingUses(zhuqueStatus);
+        if (remaining !== undefined) {
+          toast.success(`已同步本机朱雀登录状态，剩余 ${remaining} 次`);
+        } else {
+          toast('朱雀登录状态已同步，但当前页面暂未返回剩余次数');
+        }
         return;
       }
       toast('已请求同步；如果刚登录朱雀，请确认朱雀页面已打开并等待插件识别。');
